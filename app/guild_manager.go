@@ -380,8 +380,8 @@ func (gcm *GuildClaimManager) AddClaim(territoryName, guildName, guildTag string
 
 	// Update the eruntime system with the new guild ownership
 	guild := typedef.Guild{
-		Name: guildName,
-		Tag:  guildTag,
+		Name:   guildName,
+		Tag:    guildTag,
 		Allies: nil, // Initialize as empty - allies will be handled separately
 	}
 
@@ -409,8 +409,8 @@ func (gcm *GuildClaimManager) RemoveClaim(territoryName string) {
 
 	// Update the eruntime system to remove guild ownership (set to empty guild)
 	emptyGuild := typedef.Guild{
-		Name: "",
-		Tag:  "",
+		Name:   "",
+		Tag:    "",
 		Allies: nil,
 	}
 
@@ -435,44 +435,44 @@ func (gcm *GuildClaimManager) RemoveClaim(territoryName string) {
 func (gcm *GuildClaimManager) TriggerRedraw() {
 	// Find all territory managers that might need updating
 	// For now, just invalidate any visible territory cache
-	fmt.Println("[DEBUG] TriggerRedraw called for GuildClaimManager")
+	// fmt.Println("[DEBUG] TriggerRedraw called for GuildClaimManager")
 	if app := GetCurrentApp(); app != nil {
-		fmt.Println("[DEBUG] Got app instance")
+		// fmt.Println("[DEBUG] Got app instance")
 		if gameplayModule := app.GetGameplayModule(); gameplayModule != nil {
-			fmt.Println("[DEBUG] Got gameplay module")
+			// fmt.Println("[DEBUG] Got gameplay module")
 			if mapView := gameplayModule.GetMapView(); mapView != nil {
-				fmt.Println("[DEBUG] Got map view")
+				// fmt.Println("[DEBUG] Got map view")
 				if tm := mapView.GetTerritoriesManager(); tm != nil {
-					fmt.Println("[DEBUG] Got territories manager")
+					// fmt.Println("[DEBUG] Got territories manager")
 					// First reload the persistent claims from file
 					if err := tm.ReloadClaims(); err != nil {
-						fmt.Printf("[DEBUG] Error reloading claims: %v\n", err)
+						// fmt.Printf("[DEBUG] Error reloading claims: %v\n", err)
 					} else {
-						fmt.Println("[DEBUG] Successfully reloaded claims")
+						// fmt.Println("[DEBUG] Successfully reloaded claims")
 					}
 					// Then invalidate the cache to force a redraw
 					if renderer := tm.GetRenderer(); renderer != nil {
-						fmt.Println("[DEBUG] Got renderer")
+						// fmt.Println("[DEBUG] Got renderer")
 						if cache := renderer.GetTerritoryCache(); cache != nil {
-							fmt.Println("[DEBUG] Got cache, calling ForceRedraw")
+							// fmt.Println("[DEBUG] Got cache, calling ForceRedraw")
 							cache.ForceRedraw()
 						} else {
-							fmt.Println("[DEBUG] Cache is nil")
+							// fmt.Println("[DEBUG] Cache is nil")
 						}
 					} else {
-						fmt.Println("[DEBUG] Renderer is nil")
+						// fmt.Println("[DEBUG] Renderer is nil")
 					}
 				} else {
-					fmt.Println("[DEBUG] Territories manager is nil")
+					// fmt.Println("[DEBUG] Territories manager is nil")
 				}
 			} else {
-				fmt.Println("[DEBUG] Map view is nil")
+				// fmt.Println("[DEBUG] Map view is nil")
 			}
 		} else {
-			fmt.Println("[DEBUG] Gameplay module is nil")
+			// fmt.Println("[DEBUG] Gameplay module is nil")
 		}
 	} else {
-		fmt.Println("[DEBUG] App instance is nil")
+		// fmt.Println("[DEBUG] App instance is nil")
 	}
 }
 
@@ -547,8 +547,8 @@ func (gcm *GuildClaimManager) LoadClaimsFromFile() error {
 
 		// Prepare guild for batch update
 		guild := &typedef.Guild{
-			Name: claim.GuildName,
-			Tag:  claim.GuildTag,
+			Name:   claim.GuildName,
+			Tag:    claim.GuildTag,
 			Allies: nil,
 		}
 		guildUpdates[claim.TerritoryName] = guild

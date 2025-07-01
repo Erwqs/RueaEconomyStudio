@@ -337,7 +337,7 @@ func (s *state) getTerritoryByID(id string) *typedef.Territory {
 
 // ResourceTraversalAndTaxV2 is the new version using the decoupled transit system
 func ResourceTraversalAndTaxV2() {
-	fmt.Printf("[DEBUG] ResourceTraversalAndTaxV2 called at tick %d\n", st.tick)
+	debugf("ResourceTraversalAndTaxV2 called at tick %d\n", st.tick)
 
 	// 1. Find all HQs
 	hqs := []*typedef.Territory{}
@@ -347,9 +347,16 @@ func ResourceTraversalAndTaxV2() {
 		}
 	}
 
-	fmt.Printf("[DEBUG] Found %d HQs\n", len(hqs))
+	debugf("Found %d HQs\n", len(hqs))
 
 	// 2. Process all territories for surplus/deficit
+	// First pass: calculate net values without calling functions that might lock other territories
+	type territoryNetInfo struct {
+		territory  *typedef.Territory
+		hasDeficit bool
+	}
+	territoriesWithDeficit := make([]*territoryNetInfo, 0)
+
 	for _, territory := range st.territories {
 		if territory == nil {
 			continue
@@ -365,32 +372,35 @@ func ResourceTraversalAndTaxV2() {
 			territory.Net.Fish = territory.ResourceGeneration.At.Fish - territory.Costs.Fish
 			territory.Net.Crops = territory.ResourceGeneration.At.Crops - territory.Costs.Crops
 
-			// DEBUG: Log all non-HQ territories and their net generation
-			fmt.Printf("[DEBUG] Territory %s: Net E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
-				territory.Name, territory.Net.Emeralds, territory.Net.Ores, territory.Net.Wood, territory.Net.Fish, territory.Net.Crops)
-			fmt.Printf("[DEBUG] Territory %s: Gen E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
-				territory.Name, territory.ResourceGeneration.At.Emeralds, territory.ResourceGeneration.At.Ores, territory.ResourceGeneration.At.Wood, territory.ResourceGeneration.At.Fish, territory.ResourceGeneration.At.Crops)
-			fmt.Printf("[DEBUG] Territory %s: Cost E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
-				territory.Name, territory.Costs.Emeralds, territory.Costs.Ores, territory.Costs.Wood, territory.Costs.Fish, territory.Costs.Crops)
+			// Check for deficit while we have the lock
+			hasDeficit := territory.Net.Emeralds < 0 || territory.Net.Ores < 0 || territory.Net.Wood < 0 || territory.Net.Fish < 0 || territory.Net.Crops < 0
 
-			// Non-HQ territories: send resources to HQ and request deficit
+			// Store info for later processing
+			territoriesWithDeficit = append(territoriesWithDeficit, &territoryNetInfo{
+				territory:  territory,
+				hasDeficit: hasDeficit,
+			})
+
+			// Handle surplus while we have this territory's lock (surplus doesn't need HQ locks)
 			handleSurplusV2(territory, hqs)
-			// Deficit: HQ sends to territory
-			if territory.Net.Emeralds < 0 || territory.Net.Ores < 0 || territory.Net.Wood < 0 || territory.Net.Fish < 0 || territory.Net.Crops < 0 {
-				fmt.Printf("[DEBUG] Calling handleDeficitV2 for %s\n", territory.Name)
-				handleDeficitV2(territory, hqs)
-			} else {
-				fmt.Printf("[DEBUG] No deficit for %s\n", territory.Name)
-			}
 		}
 
 		territory.Mu.Unlock()
 	}
 
+	// Second pass: handle deficits without holding territory locks to avoid deadlocks
+	for _, info := range territoriesWithDeficit {
+		if info.hasDeficit {
+			// Now we can safely call handleDeficitV2 without risk of deadlock
+			// because we're not holding any territory locks
+			handleDeficitV2(info.territory, hqs)
+		}
+	}
+
 	// 3. Process all transits using the new system
-	fmt.Printf("[DEBUG] Processing all transits\n")
+	debugf("Processing all transits\n")
 	st.transitManager.ProcessAllTransits()
-	fmt.Printf("[DEBUG] ResourceTraversalAndTaxV2 completed\n")
+	debugf("ResourceTraversalAndTaxV2 completed\n")
 }
 
 // handleSurplusV2 sends surplus resources to HQ using the new transit system
@@ -432,9 +442,9 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 		return // No HQ to send from
 	}
 
-	// DEBUG: Log when deficit handling is triggered
-	fmt.Printf("[DEBUG] Deficit handling for %s: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
-		territory.Name, territory.Net.Emeralds, territory.Net.Ores, territory.Net.Wood, territory.Net.Fish, territory.Net.Crops)
+	// DEBUG: Log when deficit handling is triggered (commented out for performance)
+	// fmt.Printf("[DEBUG] Deficit handling for %s: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
+	//	territory.Name, territory.Net.Emeralds, territory.Net.Ores, territory.Net.Wood, territory.Net.Fish, territory.Net.Crops)
 
 	// Find a valid HQ and route
 	var bestHQ *typedef.Territory
@@ -448,11 +458,11 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 		}
 	}
 	if bestHQ == nil || bestRoute == nil {
-		fmt.Printf("[DEBUG] No valid route found from any HQ to %s\n", territory.Name)
+		// fmt.Printf("[DEBUG] No valid route found from any HQ to %s\n", territory.Name)
 		return // No valid route
 	}
 
-	fmt.Printf("[DEBUG] Found route from %s to %s\n", bestHQ.Name, territory.Name)
+	// fmt.Printf("[DEBUG] Found route from %s to %s\n", bestHQ.Name, territory.Name)
 
 	// Calculate how much is needed at destination (deficit)
 	// Net is in resources per hour, but we need to send per minute (every 60 ticks)
@@ -475,8 +485,8 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 		deficit.Crops = -territory.Net.Crops / 60.0
 	}
 
-	fmt.Printf("[DEBUG] Calculated deficit (per minute): E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
-		deficit.Emeralds, deficit.Ores, deficit.Wood, deficit.Fish, deficit.Crops)
+	// fmt.Printf("[DEBUG] Calculated deficit (per minute): E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
+	//	deficit.Emeralds, deficit.Ores, deficit.Wood, deficit.Fish, deficit.Crops)
 
 	// Calculate total tax along the route
 	totalTax := 1.0
@@ -495,10 +505,9 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 	bestHQ.Mu.Lock()
 	defer bestHQ.Mu.Unlock()
 
-	fmt.Printf("[DEBUG] HQ %s storage: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
-		bestHQ.Name, bestHQ.Storage.At.Emeralds, bestHQ.Storage.At.Ores, bestHQ.Storage.At.Wood, bestHQ.Storage.At.Fish, bestHQ.Storage.At.Crops)
-	fmt.Printf("[DEBUG] Trying to send: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
-		toSend.Emeralds, toSend.Ores, toSend.Wood, toSend.Fish, toSend.Crops)
+	// Debug logging commented out for performance
+	// fmt.Printf("[DEBUG] HQ %s storage: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n", ...)
+	// fmt.Printf("[DEBUG] Trying to send: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n", ...)
 
 	// Create actualSend with only resources that HQ can afford
 	actualSend := typedef.BasicResources{}
@@ -524,12 +533,13 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 		bestHQ.Storage.At.Crops -= toSend.Crops
 	}
 
-	fmt.Printf("[DEBUG] Actually sending: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
-		actualSend.Emeralds, actualSend.Ores, actualSend.Wood, actualSend.Fish, actualSend.Crops)
+	// Debug logging commented out for performance
+	// fmt.Printf("[DEBUG] Actually sending: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n", ...)
 
 	// Check if there's anything to send
 	if actualSend.Emeralds <= 0 && actualSend.Ores <= 0 && actualSend.Wood <= 0 && actualSend.Fish <= 0 && actualSend.Crops <= 0 {
-		fmt.Printf("[DEBUG] Nothing to send from %s to %s\n", bestHQ.Name, territory.Name)
+		// Debug logging commented out for performance
+		// fmt.Printf("[DEBUG] Nothing to send from %s to %s\n", bestHQ.Name, territory.Name)
 		return // Nothing to send
 	}
 
@@ -540,8 +550,9 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 	}
 
 	// Start transit using the new system with actually sent resources
-	transitID := st.transitManager.StartTransit(actualSend, bestHQ.ID, territory.ID, routeIDs)
-	fmt.Printf("[DEBUG] Created transit %s from %s to %s\n", transitID, bestHQ.Name, territory.Name)
+	_ = st.transitManager.StartTransit(actualSend, bestHQ.ID, territory.ID, routeIDs)
+	// Debug logging commented out for performance
+	// fmt.Printf("[DEBUG] Created transit %s from %s to %s\n", transitID, bestHQ.Name, territory.Name)
 }
 
 // findRouteToHQV2 finds a valid route from a territory to an HQ

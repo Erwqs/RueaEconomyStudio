@@ -213,12 +213,21 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 				textInputFocused = true
 			}
 
+			// Check if transit resource menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
 			// Only open guild manager if no text input is focused
 			if !textInputFocused {
 				// Open guild editor/management only if not already open
 				if gm.mapView != nil && gm.mapView.territoriesManager != nil {
 					// Check if guild manager is already visible
 					if !gm.mapView.territoriesManager.guildManager.IsVisible() {
+						// Hide transit resource menu when entering guild management mode
+						if gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() {
+							gm.mapView.transitResourceMenu.Hide()
+						}
 						gm.mapView.territoriesManager.OpenGuildManagement()
 					}
 				}
@@ -245,9 +254,18 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 				}
 			}
 
+			// Check if transit resource menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
 			// Only open loadout manager if no text input is focused
 			if !textInputFocused {
 				if loadoutManager != nil && !loadoutManager.IsVisible() {
+					// Hide transit resource menu when entering loadout application mode
+					if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() {
+						gm.mapView.transitResourceMenu.Hide()
+					}
 					loadoutManager.Show()
 				}
 			}

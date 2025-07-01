@@ -324,21 +324,21 @@ func (lm *LoadoutManager) handleClick(mx, my int) {
 		// Edit button - coordinates relative to item position
 		editButtonX := itemX + itemWidth - 180
 		if mx >= editButtonX && mx <= editButtonX+50 && my >= itemY+10 && my <= itemY+40 {
-			lm.editLoadout(i)
+			lm.editLoadout(itemIndex)
 			return
 		}
 
 		// Delete button - coordinates relative to item position
 		deleteButtonX := itemX + itemWidth - 120
 		if mx >= deleteButtonX && mx <= deleteButtonX+50 && my >= itemY+10 && my <= itemY+40 {
-			lm.deleteLoadout(i)
+			lm.deleteLoadout(itemIndex)
 			return
 		}
 
 		// Apply button - coordinates relative to item position
 		applyButtonX := itemX + itemWidth - 60
 		if mx >= applyButtonX && mx <= applyButtonX+50 && my >= itemY+10 && my <= itemY+40 {
-			lm.applyLoadout(i)
+			lm.applyLoadout(itemIndex)
 			return
 		}
 	}
@@ -1057,7 +1057,7 @@ func (lm *LoadoutManager) saveToFile() {
 		Loadouts: lm.loadouts,
 	}
 
-	jsonData, err := json.MarshalIndent(data, "", "  ")
+	jsonData, err := json.Marshal(data)
 	if err != nil {
 		fmt.Printf("Error marshaling loadouts: %v\n", err)
 		return
@@ -1177,7 +1177,7 @@ func (lm *LoadoutManager) exportLoadouts() {
 		Loadouts: lm.loadouts,
 	}
 
-	jsonData, err := json.MarshalIndent(data, "", "  ")
+	jsonData, err := json.Marshal(data)
 	if err != nil {
 		NewToast().
 			Text("Error creating export data", ToastOption{Colour: color.RGBA{255, 150, 100, 255}}).

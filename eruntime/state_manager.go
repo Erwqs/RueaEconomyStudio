@@ -83,7 +83,7 @@ func SaveStateToFile(filepath string) error {
 	}
 
 	// Marshal to JSON
-	jsonData, err := json.MarshalIndent(stateData, "", "  ")
+	jsonData, err := json.Marshal(stateData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal state data: %v", err)
 	}
@@ -233,7 +233,7 @@ func saveGuildsToFile() error {
 	st.mu.RUnlock()
 
 	// Marshal to JSON
-	jsonData, err := json.MarshalIndent(rawGuilds, "", "  ")
+	jsonData, err := json.Marshal(rawGuilds)
 	if err != nil {
 		return fmt.Errorf("failed to marshal guilds data: %v", err)
 	}

@@ -549,8 +549,8 @@ func (tm *TerritoriesManager) loadTerritoryClaims() error {
 		if needsSync {
 			// Prepare guild for batch update
 			guild := &typedef.Guild{
-				Name: claim.GuildName,
-				Tag:  claim.GuildTag,
+				Name:   claim.GuildName,
+				Tag:    claim.GuildTag,
 				Allies: nil,
 			}
 			guildUpdates[claim.Territory] = guild
@@ -589,7 +589,7 @@ func (tm *TerritoriesManager) loadTerritoryClaims() error {
 
 // ReloadClaims reloads territory claims from the persistent storage file
 func (tm *TerritoriesManager) ReloadClaims() error {
-	fmt.Println("[DEBUG] TerritoriesManager.ReloadClaims called")
+	// fmt.Println("[DEBUG] TerritoriesManager.ReloadClaims called")
 	return tm.loadTerritoryClaims()
 }
 
@@ -780,7 +780,7 @@ func (tm *TerritoriesManager) SaveTerritories() error {
 		return fmt.Errorf("territories data not loaded")
 	}
 
-	data, err := json.MarshalIndent(tm.Territories, "", "  ")
+	data, err := json.Marshal(tm.Territories)
 	if err != nil {
 		return fmt.Errorf("failed to marshal territories data: %v", err)
 	}
@@ -1576,7 +1576,7 @@ func (tm *TerritoriesManager) Update(deltaTime float64) {
 
 // RefreshFromEruntime reloads territory data from eruntime
 func (tm *TerritoriesManager) RefreshFromEruntime() error {
-	fmt.Println("[DEBUG] TerritoriesManager.RefreshFromEruntime called")
+	// fmt.Println("[DEBUG] TerritoriesManager.RefreshFromEruntime called")
 
 	// Reload territories from eruntime
 	err := tm.readAndParseTerritoriesJSON()
@@ -1600,7 +1600,7 @@ func (tm *TerritoriesManager) RefreshFromEruntime() error {
 	tm.isLoaded = true
 	tm.loadError = nil
 
-	fmt.Printf("[DEBUG] RefreshFromEruntime complete. Loaded %d territories\n", len(tm.Territories))
+	// fmt.Printf("[DEBUG] RefreshFromEruntime complete. Loaded %d territories\n", len(tm.Territories))
 	return nil
 }
 

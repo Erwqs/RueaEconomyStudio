@@ -64,7 +64,7 @@ func (sm *SessionManager) loadSessions() {
 
 // saveSessions saves sessions to file
 func (sm *SessionManager) saveSessions() error {
-	data, err := json.MarshalIndent(sm.sessions, "", "  ")
+	data, err := json.Marshal(sm.sessions)
 	if err != nil {
 		return err
 	}

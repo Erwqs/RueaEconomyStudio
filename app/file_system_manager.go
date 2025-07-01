@@ -18,11 +18,6 @@ var globalFileSystemManager *FileSystemManager
 
 // GetFileSystemManager returns the global file system manager instance
 func GetFileSystemManager() *FileSystemManager {
-	if globalFileSystemManager == nil {
-		fmt.Println("[FILE] GetFileSystemManager: globalFileSystemManager is nil!")
-	} else {
-		fmt.Println("[FILE] GetFileSystemManager: returning valid instance")
-	}
 	return globalFileSystemManager
 }
 

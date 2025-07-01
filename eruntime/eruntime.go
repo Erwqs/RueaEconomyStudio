@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+// debugf prints debug information only if debug logging is enabled
+func debugf(format string, args ...interface{}) {
+	if st.debugLogging {
+		fmt.Printf("[DEBUG] "+format, args...)
+	}
+}
+
 // World state for specific session
 // This is the main runtime for the game, it will handle all the logic and state of the game
 // and will be used for guild economy calculations
@@ -23,6 +30,17 @@ type state struct {
 	timerChan *time.Ticker
 	halted    bool
 
+	// Tick processing queue for high-performance tick processing
+	tickQueue chan struct{}
+
+	// Performance monitoring for high-rate tick processing
+	lastTickTime    time.Time
+	tickProcessTime time.Duration
+	actualTPS       float64
+
+	// Processing mode configuration
+	useParallelProcessing bool
+
 	costs typedef.Costs
 
 	runtimeOptions typedef.RuntimeOptions
@@ -32,6 +50,9 @@ type state struct {
 
 	// No need, each territory has its own mutex
 	// mu sync.Mutex // mutex to protect state changes
+
+	// Debug flag to enable/disable verbose logging (off by default for performance)
+	debugLogging bool
 }
 
 var st state
@@ -47,8 +68,13 @@ func init() {
 		runtimeOptions: typedef.RuntimeOptions{
 			TreasuryEnabled: true,
 		},
-		transitManager: NewTransitManager(),
+		transitManager:        NewTransitManager(),
+		tickQueue:             make(chan struct{}, 50000), // Large buffer for very high-rate tick processing
+		useParallelProcessing: true,                       // Enable parallel processing by default for better performance
 	}
+
+	// Start the tick processing goroutine
+	go st.processQueuedTicks()
 
 	loadTerritories()
 	loadCosts(&st)
@@ -77,4 +103,56 @@ func RemoveTransit(transitID string) {
 // GetCurrentTick returns the current simulation tick
 func GetCurrentTick() uint64 {
 	return st.tick
+}
+
+// SetDebugLogging enables or disables verbose debug logging
+// WARNING: Enabling debug logging at high tick rates can cause performance issues
+func SetDebugLogging(enabled bool) {
+	st.debugLogging = enabled
+}
+
+// GetTickQueueStatus returns information about the tick processing queue
+// Useful for monitoring performance at high tick rates
+func GetTickQueueStatus() (queueLength int, queueCapacity int) {
+	return len(st.tickQueue), cap(st.tickQueue)
+}
+
+// GetTickQueueUtilization returns the current utilization of the tick queue as a percentage
+func GetTickQueueUtilization() float64 {
+	length := len(st.tickQueue)
+	capacity := cap(st.tickQueue)
+	if capacity == 0 {
+		return 0
+	}
+	return float64(length) / float64(capacity) * 100.0
+}
+
+// GetTickProcessingPerformance returns performance metrics for tick processing
+func GetTickProcessingPerformance() (actualTPS float64, avgTickTime time.Duration, queueUtilization float64) {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	return st.actualTPS, st.tickProcessTime, GetTickQueueUtilization()
+}
+
+// GetPerformanceInfo returns a formatted string with performance information
+func GetPerformanceInfo() string {
+	actualTPS, tickTime, queueUtil := GetTickProcessingPerformance()
+	return fmt.Sprintf("Actual TPS: %.1f | Tick Time: %v | Queue: %.1f%%",
+		actualTPS, tickTime, queueUtil)
+}
+
+// SetParallelProcessing enables or disables parallel territory processing
+// Parallel processing can significantly improve performance at high tick rates
+func SetParallelProcessing(enabled bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.useParallelProcessing = enabled
+}
+
+// IsParallelProcessingEnabled returns whether parallel processing is currently enabled
+func IsParallelProcessingEnabled() bool {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.useParallelProcessing
 }

@@ -82,8 +82,9 @@ type MapView struct {
 	// EdgeMenu for territory details
 	edgeMenu *EdgeMenu
 
-	// DISABLED: EdgeMenu for transit resource inspector (temporarily disabled due to performance issues)
-	// transitResourceMenu *EdgeMenu
+	// EdgeMenu for transit resource inspector
+	transitResourceMenu       *EdgeMenu
+	transitResourceFilter     string // Current filter string for transit resources
 
 	// State management menu for tick controls
 	stateManagementMenu        *StateManagementMenu
@@ -110,7 +111,7 @@ type MapView struct {
 	lastTransitRefreshTime time.Time // Last real time when transit resources were refreshed
 
 	// Transit resource inspector tracking
-	// lastTransitMenuRefreshTick uint64 // Last tick when transit menu was refreshed
+	lastTransitMenuRefreshTick uint64 // Last tick when transit menu was refreshed
 
 	// Area selection mode for territory claims
 	isAreaSelecting         bool            // Whether area selection mode is active
@@ -170,13 +171,15 @@ func NewMapView() *MapView {
 		edgeMenu: NewEdgeMenu("Territory Details", DefaultEdgeMenuOptions()),
 
 		// Initialize transit resource menu (hidden by default) with bottom position
-		// transitResourceMenu: NewEdgeMenu("In transit Resource Inspector", func() EdgeMenuOptions {
-		// 	opts := DefaultEdgeMenuOptions()
-		// 	opts.Position = EdgeMenuBottom
-		// 	opts.Width = 0    // Full screen width
-		// 	opts.Height = 300 // Initial height, will be updated to 1/3 screen height dynamically
-		// 	return opts
-		// }()),
+		transitResourceMenu: NewEdgeMenu("In transit Resource Inspector", func() EdgeMenuOptions {
+			opts := DefaultEdgeMenuOptions()
+			opts.Position = EdgeMenuBottom
+			opts.Width = 0                // Full screen width
+			opts.Height = 300             // Initial height, will be updated to 1/3 screen height dynamically
+			opts.HorizontalScroll = false // Let the Container handle horizontal scrolling
+			return opts
+		}()),
+		transitResourceFilter: "", // Initialize empty filter string
 
 		// Initialize state management menu (hidden by default)
 		stateManagementMenu: NewStateManagementMenu(),
@@ -262,30 +265,32 @@ func (m *MapView) Update(screenW, screenH int) {
 	}
 
 	// Check if transit resource menu needs refreshing (every 60 ticks = 1 minute)
-	// if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() &&
-	// 	(m.lastTransitMenuRefreshTick == 0 || currentTick-m.lastTransitMenuRefreshTick >= 60) {
-	// 	m.populateTransitResourceMenu()
-	// 	m.lastTransitMenuRefreshTick = currentTick
-	// }
+	if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() &&
+		(m.lastTransitMenuRefreshTick == 0 || currentTick-m.lastTransitMenuRefreshTick >= 60) {
+		m.populateTransitResourceMenu()
+		m.lastTransitMenuRefreshTick = currentTick
+	}
 
-	// Update EdgeMenu first - if it handles input, don't process map input
+	// Update menus in top-to-bottom order (transit menu should be on top when visible)
+	transitMenuHandledInput := false
 	edgeMenuHandledInput := false
-	if m.edgeMenu != nil {
+	stateMenuHandledInput := false
+
+	// Update transit resource menu first - it should be on top when visible
+	if m.transitResourceMenu != nil {
+		// Update the dimensions to be full width and 1/3 of screen height before updating
+		m.transitResourceMenu.options.Width = screenW
+		m.transitResourceMenu.options.Height = screenH / 3
+		transitMenuHandledInput = m.transitResourceMenu.Update(screenW, screenH, deltaTime)
+	}
+
+	// Update EdgeMenu second - only if transit menu didn't handle input
+	if !transitMenuHandledInput && m.edgeMenu != nil {
 		edgeMenuHandledInput = m.edgeMenu.Update(screenW, screenH, deltaTime)
 	}
 
-	// Update transit resource menu - if it handles input, don't process map input
-	transitMenuHandledInput := false
-	// if m.transitResourceMenu != nil {
-	// 	// Update the dimensions to be full width and 1/3 of screen height before updating
-	// 	m.transitResourceMenu.options.Width = screenW
-	// 	m.transitResourceMenu.options.Height = screenH / 3
-	// 	transitMenuHandledInput = m.transitResourceMenu.Update(screenW, screenH, deltaTime)
-	// }
-
-	// Update state management menu - if it handles input, don't process map input
-	stateMenuHandledInput := false
-	if m.stateManagementMenu != nil {
+	// Update state management menu last - if it handles input, don't process map input
+	if !transitMenuHandledInput && !edgeMenuHandledInput && m.stateManagementMenu != nil {
 		stateMenuHandledInput = m.stateManagementMenu.menu.Update(screenW, screenH, deltaTime)
 		// Update stats periodically
 		m.stateManagementMenu.Update(deltaTime)
@@ -304,14 +309,64 @@ func (m *MapView) Update(screenW, screenH int) {
 	// Handle P key and MouseButton4 BEFORE checking if input was handled
 	// Toggle state management menu with P key
 	if inpututil.IsKeyJustPressed(ebiten.KeyP) {
-		m.ToggleStateManagementMenu()
-		return // Don't process other input this frame
+		// Check if any text input is currently focused before opening state management menu
+		textInputFocused := false
+
+		// Check if guild manager is open and has text input focused
+		if m.territoriesManager != nil {
+			guildManager := m.territoriesManager.guildManager
+			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+				textInputFocused = true
+			}
+		}
+
+		// Check if loadout manager is open and has text input focused
+		loadoutManager := GetLoadoutManager()
+		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		// Check if transit resource menu is open and has text input focused
+		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		// Only toggle state management menu if no text input is focused
+		if !textInputFocused {
+			m.ToggleStateManagementMenu()
+			return // Don't process other input this frame
+		}
 	}
 
 	// Handle MouseButton4 (forward button) to open state management menu
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButton4) {
-		m.ToggleStateManagementMenu()
-		return // Don't process other input this frame
+		// Check if any text input is currently focused before opening state management menu
+		textInputFocused := false
+
+		// Check if guild manager is open and has text input focused
+		if m.territoriesManager != nil {
+			guildManager := m.territoriesManager.guildManager
+			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+				textInputFocused = true
+			}
+		}
+
+		// Check if loadout manager is open and has text input focused
+		loadoutManager := GetLoadoutManager()
+		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		// Check if transit resource menu is open and has text input focused
+		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		// Only toggle state management menu if no text input is focused
+		if !textInputFocused {
+			m.ToggleStateManagementMenu()
+			return // Don't process other input this frame
+		}
 	}
 
 	// If EdgeMenu, transit menu, or state menu handled input, don't process map input
@@ -355,20 +410,68 @@ func (m *MapView) Update(screenW, screenH int) {
 
 	// Toggle territory display with T key
 	if inpututil.IsKeyJustPressed(ebiten.KeyT) {
-		m.ToggleTerritories()
+		// Check if any text input is currently focused before toggling territories
+		textInputFocused := false
+
+		// Check if guild manager is open and has text input focused
+		if m.territoriesManager != nil {
+			guildManager := m.territoriesManager.guildManager
+			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+				textInputFocused = true
+			}
+		}
+
+		// Check if loadout manager is open and has text input focused
+		loadoutManager := GetLoadoutManager()
+		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		// Check if transit resource menu is open and has text input focused
+		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		// Only toggle territories if no text input is focused
+		if !textInputFocused {
+			m.ToggleTerritories()
+		}
 	}
 
 	// Toggle transit resource inspector with I key
-	// if inpututil.IsKeyJustPressed(ebiten.KeyI) {
-	// 	if m.transitResourceMenu != nil {
-	// 		if m.transitResourceMenu.IsVisible() {
-	// 			m.transitResourceMenu.Hide()
-	// 		} else {
-	// 			m.populateTransitResourceMenu()
-	// 			m.transitResourceMenu.Show()
-	// 		}
-	// 	}
-	// }
+	if inpututil.IsKeyJustPressed(ebiten.KeyI) {
+		// Check if any text input is currently focused before toggling transit resource menu
+		textInputFocused := false
+
+		// Check if guild manager is open and has text input focused
+		if m.territoriesManager != nil {
+			guildManager := m.territoriesManager.guildManager
+			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+				textInputFocused = true
+			}
+		}
+
+		// Check if loadout manager is open and has text input focused
+		loadoutManager := GetLoadoutManager()
+		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		// Check if transit resource menu is open and has text input focused
+		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		// Only toggle transit resource menu if no text input is focused
+		if !textInputFocused && m.transitResourceMenu != nil {
+			if m.transitResourceMenu.IsVisible() {
+				m.transitResourceMenu.Hide()
+			} else {
+				m.populateTransitResourceMenu()
+				m.transitResourceMenu.Show()
+			}
+		}
+	}
 
 	// Handle claim editing keyboard shortcuts
 	if m.isEditingClaims {
@@ -938,9 +1041,9 @@ func (m *MapView) drawOverlayElements(screen *ebiten.Image) {
 	}
 
 	// Draw transit resource menu
-	// if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
-	// 	m.transitResourceMenu.Draw(screen)
-	// }
+	if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
+		m.transitResourceMenu.Draw(screen)
+	}
 
 	// Draw state management menu
 	if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() {
@@ -2578,6 +2681,10 @@ func (m *MapView) StopClaimEditing() {
 
 	// Return to guild management interface after saving
 	if m.territoriesManager != nil {
+		// Hide transit resource menu when returning to guild management
+		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
+			m.transitResourceMenu.Hide()
+		}
 		// Use a goroutine to open guild management after a brief delay
 		// This ensures the editing state is fully cleared first
 		go func() {
@@ -2614,6 +2721,10 @@ func (m *MapView) CancelClaimEditing() {
 
 	// Return to guild management interface instead of main map view
 	if m.territoriesManager != nil {
+		// Hide transit resource menu when returning to guild management
+		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
+			m.transitResourceMenu.Hide()
+		}
 		// Use a goroutine to open guild management after a brief delay
 		// This ensures the editing state is fully cleared first
 		go func() {
@@ -2630,6 +2741,10 @@ func (m *MapView) CancelClaimEditing() {
 	// This ensures that the ESC key event is fully processed first
 	go func() {
 		time.Sleep(100 * time.Millisecond)
+		// Hide transit resource menu when reopening guild management
+		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
+			m.transitResourceMenu.Hide()
+		}
 		// Reopen the guild management menu after a slight delay
 		if territoriesManager != nil {
 			fmt.Printf("[MAP] Reopening guild management menu after claim edit cancellation\n")

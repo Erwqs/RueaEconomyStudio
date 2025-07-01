@@ -6,29 +6,30 @@ import (
 	"image/color"
 	"math"
 	"strconv"
+	"time"
 )
 
 // StateManagementMenu manages the state control edge menu
 // Only shows in map view
 
 // Logarithmic scaling helpers for the rate slider
-// Maps linear slider position (0-100) to logarithmic rate value (1-1000)
+// Maps linear slider position (0-100) to logarithmic rate value (1-7200)
 func linearToLogRate(linear float64) float64 {
 	if linear <= 0 {
 		return 1.0 // Minimum rate value
 	}
-	// Use logarithmic scale: rate = 1 * (1000/1)^(linear/100)
-	// This gives us a smooth scale from 1 to 1000
+	// Use logarithmic scale: rate = 1 * (7200/1)^(linear/100)
+	// This gives us a smooth scale from 1 to 7200 TPS
 	ratio := linear / 100.0
-	return 1.0 * math.Pow(1000.0/1.0, ratio)
+	return 1.0 * math.Pow(7200.0/1.0, ratio)
 }
 
 func logToLinearRate(rate int) float64 {
 	if rate <= 1 {
 		return 0
 	}
-	// Inverse of the above: linear = 100 * log(rate/1) / log(1000/1)
-	return 100.0 * math.Log(float64(rate)/1.0) / math.Log(1000.0/1.0)
+	// Inverse of the above: linear = 100 * log(rate/1) / log(7200/1)
+	return 100.0 * math.Log(float64(rate)/1.0) / math.Log(7200.0/1.0)
 }
 
 type StateManagementMenu struct {
@@ -125,7 +126,7 @@ func (smm *StateManagementMenu) Show() {
 			return true
 		}
 		if v, err := strconv.Atoi(newValue); err == nil {
-			return v >= 1 && v <= 1000 // Updated to use integers
+			return v >= 1 && v <= 7200 // Updated to match practical maximum
 		}
 		return false
 	}
@@ -137,8 +138,8 @@ func (smm *StateManagementMenu) Show() {
 			// Clamp the manually entered value to valid range
 			if v < 1 {
 				v = 1
-			} else if v > 1000 {
-				v = 1000
+			} else if v > 7200 {
+				v = 7200 // Cap at 7200 TPS (practical maximum simulation speed)
 			}
 			smm.rateValue = v
 			// Update the slider to reflect the new value
@@ -186,9 +187,23 @@ func (smm *StateManagementMenu) Show() {
 	advanceButtonOpts.BorderColor = color.RGBA{140, 140, 140, 255}
 
 	tickSection.Button(advanceLabel, advanceButtonOpts, func() {
-		for i := 0; i < smm.addTickValue; i++ {
-			eruntime.NextTick()
+		// Limit the number of ticks to advance at once to prevent excessive processing
+		maxTicks := smm.addTickValue
+		if maxTicks > 12000 {
+			maxTicks = 12000 // Cap at 12000 ticks maximum (about 3.3 hours of simulation)
 		}
+
+		// Always run tick advancement in a separate goroutine to prevent UI blocking
+		// and ensure ticks are processed sequentially to avoid mutex deadlocks
+		go func() {
+			for i := 0; i < maxTicks; i++ {
+				eruntime.NextTick()
+				// Add a small delay every 60 ticks to prevent overwhelming the system
+				if i%60 == 0 {
+					time.Sleep(1 * time.Millisecond)
+				}
+			}
+		}()
 	})
 
 	tickSection.Spacer(DefaultSpacerOptions())
@@ -207,15 +222,10 @@ func (smm *StateManagementMenu) Show() {
 
 	tickSection.Button(haltLabel, haltButtonOpts, func() {
 		if eruntime.IsHalted() {
-			fmt.Println("[STATE_MGMT] Resuming eruntime...")
 			eruntime.Resume()
 		} else {
-			fmt.Println("[STATE_MGMT] Halting eruntime...")
 			eruntime.Halt()
 		}
-		smm.halted = eruntime.IsHalted()
-		fmt.Printf("[STATE_MGMT] Eruntime halted state: %v\n", smm.halted)
-
 		// Update slider fill color immediately based on new halted state
 		if smm.rateSlider != nil {
 			if smm.halted {

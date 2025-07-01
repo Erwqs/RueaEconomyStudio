@@ -51,10 +51,9 @@ func (c *Container) RemoveElement(id string) {
 func (c *Container) totalWidth() int {
 	total := 0
 	padding := 20
-	for _, el := range c.elements {
-		// Use element's min height as its width
-		w := el.GetMinHeight()
-		total += w + padding
+	cardWidth := 200 // Fixed width for cards
+	for range c.elements {
+		total += cardWidth + padding
 	}
 	return total
 }
@@ -67,9 +66,17 @@ func (c *Container) Update(mx, my int, deltaTime float64) bool {
 	c.updateAnimation(deltaTime)
 
 	// Handle horizontal wheel scroll when mouse is over container
-	wheelX, _ := ebiten.Wheel()
-	if wheelX != 0 && mx >= c.rect.Min.X && mx < c.rect.Max.X && my >= c.rect.Min.Y && my < c.rect.Max.Y {
-		c.scrollTarget -= float64(wheelX) * 50
+	wheelX, wheelY := ebiten.Wheel()
+	if (wheelX != 0 || wheelY != 0) && mx >= c.rect.Min.X && mx < c.rect.Max.X && my >= c.rect.Min.Y && my < c.rect.Max.Y {
+		// Use horizontal wheel if available, otherwise use vertical wheel for horizontal scrolling
+		scrollAmount := 0.0
+		if wheelX != 0 {
+			scrollAmount = wheelX * 50 // Horizontal wheel scrolling
+		} else if wheelY != 0 {
+			scrollAmount = -wheelY * 50 // Invert vertical wheel for horizontal scrolling (scroll down = move right)
+		}
+
+		c.scrollTarget += scrollAmount
 		// Clamp target
 		maxScroll := c.totalWidth() - c.rect.Dx()
 		if maxScroll < 0 {
@@ -131,11 +138,11 @@ func (c *Container) Draw(screen *ebiten.Image, x, y, width int, fontFace font.Fa
 
 	// Draw children with horizontal offset
 	padding := 20
+	cardWidth := 200 // Fixed width for cards
 	curX := x - c.scrollOffset
 	for _, el := range c.elements {
-		w := el.GetMinHeight()
-		el.Draw(screen, curX, y+10, w, fontFace)
-		curX += w + padding
+		el.Draw(screen, curX, y+10, cardWidth, fontFace)
+		curX += cardWidth + padding
 	}
 
 	return height

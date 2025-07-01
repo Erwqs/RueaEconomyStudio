@@ -49,14 +49,15 @@ func DefaultTextInputOptions() TextInputOptions {
 // MenuTextInput represents a text input field element
 type MenuTextInput struct {
 	BaseMenuElement
-	label      string
-	value      string
-	options    TextInputOptions
-	callback   func(value string)
-	focused    bool
-	cursorPos  int
-	blinkTimer time.Time
-	rect       image.Rectangle
+	label          string
+	value          string
+	options        TextInputOptions
+	callback       func(value string)
+	focused        bool
+	cursorPos      int
+	selectionStart int // Start of text selection (-1 if no selection)
+	blinkTimer     time.Time
+	rect           image.Rectangle
 }
 
 func NewMenuTextInput(label string, initialValue string, options TextInputOptions, callback func(string)) *MenuTextInput {
@@ -67,6 +68,7 @@ func NewMenuTextInput(label string, initialValue string, options TextInputOption
 		options:         options,
 		callback:        callback,
 		cursorPos:       len(initialValue),
+		selectionStart:  -1, // No selection initially
 		blinkTimer:      time.Now(),
 	}
 }
@@ -99,6 +101,11 @@ func (t *MenuTextInput) Update(mx, my int, deltaTime float64) bool {
 	inputRunes := ebiten.AppendInputChars(nil)
 	for _, r := range inputRunes {
 		if len(t.value) < t.options.MaxLength && r >= 32 && r != 127 { // Printable characters
+			// If there's a selection, delete it first
+			if t.hasSelection() {
+				t.deleteSelection()
+			}
+
 			// Create the new value that would result from this input
 			newValue := t.value[:t.cursorPos] + string(r) + t.value[t.cursorPos:]
 
@@ -114,29 +121,112 @@ func (t *MenuTextInput) Update(mx, my int, deltaTime float64) bool {
 	repeatingKeyPressed := inpututil.IsKeyJustPressed(ebiten.KeyBackspace) ||
 		(ebiten.IsKeyPressed(ebiten.KeyBackspace) && inpututil.KeyPressDuration(ebiten.KeyBackspace) >= 30 && inpututil.KeyPressDuration(ebiten.KeyBackspace)%6 == 0)
 
-	if repeatingKeyPressed && t.cursorPos > 0 {
-		t.value = t.value[:t.cursorPos-1] + t.value[t.cursorPos:]
-		t.cursorPos--
+	if repeatingKeyPressed {
+		if t.hasSelection() {
+			t.deleteSelection()
+		} else if t.cursorPos > 0 {
+			t.value = t.value[:t.cursorPos-1] + t.value[t.cursorPos:]
+			t.cursorPos--
+		}
 	}
 
-	if inpututil.IsKeyJustPressed(ebiten.KeyDelete) && t.cursorPos < len(t.value) {
-		t.value = t.value[:t.cursorPos] + t.value[t.cursorPos+1:]
-	}
-
-	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) && t.cursorPos > 0 {
-		t.cursorPos--
-	}
-
-	if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) && t.cursorPos < len(t.value) {
-		t.cursorPos++
+	if inpututil.IsKeyJustPressed(ebiten.KeyDelete) {
+		if t.hasSelection() {
+			t.deleteSelection()
+		} else if t.cursorPos < len(t.value) {
+			t.value = t.value[:t.cursorPos] + t.value[t.cursorPos+1:]
+		}
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyHome) {
+		t.selectionStart = -1 // Clear selection on home/end
 		t.cursorPos = 0
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnd) {
+		t.selectionStart = -1 // Clear selection on home/end
 		t.cursorPos = len(t.value)
+	}
+
+	// Handle clipboard operations
+	ctrlPressed := ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight)
+
+	if ctrlPressed {
+		// Ctrl+A - Select All
+		if inpututil.IsKeyJustPressed(ebiten.KeyA) {
+			t.selectionStart = 0
+			t.cursorPos = len(t.value)
+			return true
+		}
+
+		// Ctrl+C - Copy
+		if inpututil.IsKeyJustPressed(ebiten.KeyC) && t.hasSelection() {
+			selectedText := t.getSelectedText()
+			if selectedText != "" {
+				// Try to copy to clipboard (this may not work in all environments)
+				// Note: Ebiten doesn't have built-in clipboard support, so we'll store it internally
+				setClipboard(selectedText)
+				return true
+			}
+		}
+
+		// Ctrl+X - Cut
+		if inpututil.IsKeyJustPressed(ebiten.KeyX) && t.hasSelection() {
+			selectedText := t.getSelectedText()
+			if selectedText != "" {
+				setClipboard(selectedText)
+				t.deleteSelection()
+				return true
+			}
+		}
+
+		// Ctrl+V - Paste
+		if inpututil.IsKeyJustPressed(ebiten.KeyV) {
+			clipboardText := getClipboard()
+			if clipboardText != "" {
+				if t.hasSelection() {
+					t.deleteSelection()
+				}
+				// Insert clipboard text at cursor position
+				if len(t.value)+len(clipboardText) <= t.options.MaxLength {
+					newValue := t.value[:t.cursorPos] + clipboardText + t.value[t.cursorPos:]
+					if t.options.ValidateInput == nil || t.options.ValidateInput(newValue) {
+						t.value = newValue
+						t.cursorPos += len(clipboardText)
+					}
+				}
+				return true
+			}
+		}
+	}
+
+	// Handle arrow keys with shift for selection
+	shiftPressed := ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
+		if shiftPressed {
+			if t.selectionStart == -1 {
+				t.selectionStart = t.cursorPos
+			}
+		} else {
+			t.clearSelection()
+		}
+		if t.cursorPos > 0 {
+			t.cursorPos--
+		}
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) {
+		if shiftPressed {
+			if t.selectionStart == -1 {
+				t.selectionStart = t.cursorPos
+			}
+		} else {
+			t.clearSelection()
+		}
+		if t.cursorPos < len(t.value) {
+			t.cursorPos++
+		}
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) && t.callback != nil {
@@ -199,15 +289,66 @@ func (t *MenuTextInput) Draw(screen *ebiten.Image, x, y, width int, font font.Fa
 	}
 	textColor.A = uint8(float32(textColor.A) * alpha)
 
-	// Draw text with clipping to input field
+	// Draw text with selection highlighting
 	if displayText != "" {
 		textX := t.rect.Min.X + 5
 		textY := t.rect.Min.Y + t.rect.Dy()/2 + 6
-		text.Draw(screen, displayText, font, textX, textY, textColor)
+
+		if t.hasSelection() && t.focused {
+			// Draw text in three parts: before selection, selection (highlighted), after selection
+			start := t.selectionStart
+			end := t.cursorPos
+			if start > end {
+				start, end = end, start
+			}
+
+			// Ensure indices are within bounds
+			if start < 0 {
+				start = 0
+			}
+			if end > len(displayText) {
+				end = len(displayText)
+			}
+
+			currentX := textX
+
+			// Draw text before selection
+			if start > 0 {
+				beforeText := displayText[:start]
+				text.Draw(screen, beforeText, font, currentX, textY, textColor)
+				currentX += text.BoundString(font, beforeText).Dx()
+			}
+
+			// Draw selected text with highlight background
+			if end > start {
+				selectedText := displayText[start:end]
+				selectedWidth := text.BoundString(font, selectedText).Dx()
+
+				// Draw selection highlight background
+				selectionColor := color.RGBA{100, 150, 255, 180} // Semi-transparent blue
+				selectionColor.A = uint8(float32(selectionColor.A) * alpha)
+				vector.DrawFilledRect(screen, float32(currentX), float32(t.rect.Min.Y+2), float32(selectedWidth), float32(t.rect.Dy()-4), selectionColor, false)
+
+				// Draw selected text (inverted colors)
+				selectedTextColor := color.RGBA{255, 255, 255, 255}
+				selectedTextColor.A = uint8(float32(selectedTextColor.A) * alpha)
+				text.Draw(screen, selectedText, font, currentX, textY, selectedTextColor)
+				currentX += selectedWidth
+			}
+
+			// Draw text after selection
+			if end < len(displayText) {
+				afterText := displayText[end:]
+				text.Draw(screen, afterText, font, currentX, textY, textColor)
+			}
+		} else {
+			// No selection, draw normally
+			text.Draw(screen, displayText, font, textX, textY, textColor)
+		}
 	}
 
-	// Draw cursor if focused
-	if t.focused && time.Since(t.blinkTimer).Milliseconds()%1000 < 500 {
+	// Draw cursor if focused (but not when there's a selection)
+	if t.focused && !t.hasSelection() && time.Since(t.blinkTimer).Milliseconds()%1000 < 500 {
 		cursorX := t.rect.Min.X + 5
 		if t.cursorPos > 0 && t.cursorPos <= len(t.value) {
 			textWidth := text.BoundString(font, t.value[:t.cursorPos]).Dx()
@@ -640,4 +781,53 @@ func (c *CollapsibleMenu) ProgressBar(label string, value, minValue, maxValue fl
 	progressBar := NewMenuProgressBar(label, value, minValue, maxValue, options)
 	c.elements = append(c.elements, progressBar)
 	return c
+}
+
+// Simple clipboard implementation (global variable for simplicity)
+var internalClipboard string
+
+func setClipboard(text string) {
+	internalClipboard = text
+}
+
+func getClipboard() string {
+	return internalClipboard
+}
+
+// hasSelection returns true if there is text selected
+func (t *MenuTextInput) hasSelection() bool {
+	return t.selectionStart != -1 && t.selectionStart != t.cursorPos
+}
+
+// getSelectedText returns the currently selected text
+func (t *MenuTextInput) getSelectedText() string {
+	if !t.hasSelection() {
+		return ""
+	}
+	start := t.selectionStart
+	end := t.cursorPos
+	if start > end {
+		start, end = end, start
+	}
+	return t.value[start:end]
+}
+
+// deleteSelection deletes the selected text and clears the selection
+func (t *MenuTextInput) deleteSelection() {
+	if !t.hasSelection() {
+		return
+	}
+	start := t.selectionStart
+	end := t.cursorPos
+	if start > end {
+		start, end = end, start
+	}
+	t.value = t.value[:start] + t.value[end:]
+	t.cursorPos = start
+	t.selectionStart = -1
+}
+
+// clearSelection clears the current selection
+func (t *MenuTextInput) clearSelection() {
+	t.selectionStart = -1
 }

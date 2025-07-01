@@ -31,27 +31,29 @@ const (
 
 // EdgeMenuOptions configures the edge menu
 type EdgeMenuOptions struct {
-	Width       int
-	Height      int
-	Position    EdgeMenuPosition
-	Background  color.RGBA
-	BorderColor color.RGBA
-	Scrollable  bool
-	Closable    bool
-	Animated    bool
+	Width            int
+	Height           int
+	Position         EdgeMenuPosition
+	Background       color.RGBA
+	BorderColor      color.RGBA
+	Scrollable       bool
+	HorizontalScroll bool // Enable horizontal scrolling instead of vertical
+	Closable         bool
+	Animated         bool
 }
 
 // DefaultEdgeMenuOptions returns default options for edge menu
 func DefaultEdgeMenuOptions() EdgeMenuOptions {
 	return EdgeMenuOptions{
-		Width:       400,
-		Height:      0, // 0 means full screen height/width
-		Position:    EdgeMenuRight,
-		Background:  color.RGBA{30, 30, 45, 240},
-		BorderColor: color.RGBA{80, 80, 255, 150},
-		Scrollable:  true,
-		Closable:    true,
-		Animated:    true,
+		Width:            400,
+		Height:           0, // 0 means full screen height/width
+		Position:         EdgeMenuRight,
+		Background:       color.RGBA{30, 30, 45, 240},
+		BorderColor:      color.RGBA{80, 80, 255, 150},
+		Scrollable:       true,
+		HorizontalScroll: false, // Default to vertical scrolling
+		Closable:         true,
+		Animated:         true,
 	}
 }
 
@@ -660,7 +662,7 @@ func (c *CollapsibleMenu) ResourceStorageControl(resourceName, resourceType, ter
 
 func (c *CollapsibleMenu) CollapsibleMenu(title string, options CollapsibleMenuOptions) *CollapsibleMenu {
 	nestedMenu := NewCollapsibleMenu(title, options)
-	nestedMenu.setParentMenu(c.parentMenu) // Inherit parent menu for focus management
+	// nestedMenu.setParentMenu(c.parentMenu) // Set parent menu for focus management
 	c.elements = append(c.elements, nestedMenu)
 	return nestedMenu
 }
@@ -864,10 +866,24 @@ func (m *EdgeMenu) Slider(label string, initialValue float64, options SliderOpti
 	return m
 }
 
+// Card adds a card container to the menu
+func (m *EdgeMenu) Card() *Card {
+	card := NewCard()
+	m.elements = append(m.elements, card)
+	return card
+}
+
+// Container adds a horizontal scrolling container to the menu
+func (m *EdgeMenu) Container() *Container {
+	container := NewContainer()
+	m.elements = append(m.elements, container)
+	return container
+}
+
 // CollapsibleMenu adds a collapsible section to the menu
 func (m *EdgeMenu) CollapsibleMenu(title string, options CollapsibleMenuOptions) *CollapsibleMenu {
 	collapsible := NewCollapsibleMenu(title, options)
-	collapsible.setParentMenu(m) // Set parent menu for focus management
+	// collapsible.setParentMenu(m) // Set parent menu for focus management
 	m.elements = append(m.elements, collapsible)
 	return collapsible
 }
@@ -888,32 +904,32 @@ func (m *EdgeMenu) SaveCollapsedStates() map[string]bool {
 	for _, element := range m.elements {
 		if collapsible, ok := element.(*CollapsibleMenu); ok {
 			states[collapsible.title] = collapsible.collapsed
-			fmt.Printf("[DEBUG] Saving state for '%s': collapsed=%t\n", collapsible.title, collapsible.collapsed)
+			// fmt.Printf("[DEBUG] Saving state for '%s': collapsed=%t\n", collapsible.title, collapsible.collapsed)
 		}
 	}
-	fmt.Printf("[DEBUG] Saved %d collapsed states\n", len(states))
+	// fmt.Printf("[DEBUG] Saved %d collapsed states\n", len(states))
 	return states
 }
 
 // RestoreCollapsedStates restores the collapsed states of collapsible sections
 func (m *EdgeMenu) RestoreCollapsedStates(states map[string]bool) {
-	fmt.Printf("[DEBUG] RestoreCollapsedStates called with %d states\n", len(states))
-	for title, collapsed := range states {
-		fmt.Printf("[DEBUG] State to restore: '%s' = %t\n", title, collapsed)
-	}
+	// fmt.Printf("[DEBUG] RestoreCollapsedStates called with %d states\n", len(states))
+	// for title, collapsed := range states {
+	// 	// fmt.Printf("[DEBUG] State to restore: '%s' = %t\n", title, collapsed)
+	// }
 
-	fmt.Printf("[DEBUG] Checking %d elements for restoration\n", len(m.elements))
-	for i, element := range m.elements {
+	// fmt.Printf("[DEBUG] Checking %d elements for restoration\n", len(m.elements))
+	for _, element := range m.elements {
 		if collapsible, ok := element.(*CollapsibleMenu); ok {
-			fmt.Printf("[DEBUG] Found CollapsibleMenu[%d] with title '%s'\n", i, collapsible.title)
+			// fmt.Printf("[DEBUG] Found CollapsibleMenu[%d] with title '%s'\n", i, collapsible.title)
 			if state, exists := states[collapsible.title]; exists {
-				fmt.Printf("[DEBUG] Restoring state for '%s': collapsed=%t\n", collapsible.title, state)
+				// fmt.Printf("[DEBUG] Restoring state for '%s': collapsed=%t\n", collapsible.title, state)
 				collapsible.collapsed = state
 			} else {
-				fmt.Printf("[DEBUG] No saved state for '%s', keeping default\n", collapsible.title)
+				// fmt.Printf("[DEBUG] No saved state for '%s', keeping default\n", collapsible.title)
 			}
 		} else {
-			fmt.Printf("[DEBUG] Element[%d] is not a CollapsibleMenu\n", i)
+			// fmt.Printf("[DEBUG] Element[%d] is not a CollapsibleMenu\n", i)
 		}
 	}
 }
@@ -963,9 +979,10 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 	// Update menu data every 50ms for territory stats, but only if no storage controls are being edited
 	if m.lastUpdateTime >= 0.05 {
 		m.lastUpdateTime = 0.0
-		if !m.hasActiveStorageInput() {
-			m.refreshMenuData()
-		}
+		// Skip refreshing menu data if storage input is being edited
+		// if !m.hasActiveStorageInput() {
+		m.refreshMenuData()
+		// }
 	}
 
 	// Update main menu animations
@@ -1019,45 +1036,82 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 		}
 	}
 
-	// Handle scrolling
-	if m.options.Scrollable && mx >= m.bounds.Min.X && mx < m.bounds.Max.X && my >= m.bounds.Min.Y && my < m.bounds.Max.Y {
-		_, scrollY := ebiten.Wheel()
-		if scrollY != 0 {
-			// Smooth scrolling: adjust target instead of immediate offset
-			m.scrollTarget -= scrollY * 120 // Increased scroll speed for responsiveness
-			m.scrollTarget = math.Max(0, math.Min(float64(m.maxScroll), m.scrollTarget))
-
-			m.lastScrollTime = 0.0 // Reset timer
-
-			return true
-		}
-	}
-
 	// Calculate dynamic title height based on visibility
 	titleHeight := int(float64(50) * m.titleProgress)
 	contentY := m.bounds.Min.Y + titleHeight
 	contentHeight := m.bounds.Dy() - titleHeight
 
-	// Update elements
-	currentY := contentY - m.scrollOffset
+	// Update elements first - let them handle scroll events before the menu does
 	handled := false
 
-	for _, element := range m.elements {
-		if element.IsVisible() {
-			elementHeight := element.GetMinHeight()
+	if m.options.HorizontalScroll {
+		// Horizontal layout
+		currentX := m.bounds.Min.X + 20 - m.scrollOffset
+		cardWidth := 200
+		cardSpacing := 20
 
-			// Check if element is at least partially visible
-			if currentY+elementHeight > contentY && currentY < contentY+contentHeight {
-				// Only update if mouse is within content area
-				if mx >= m.bounds.Min.X && mx < m.bounds.Max.X &&
-					my >= contentY && my < contentY+contentHeight {
-					if element.Update(mx, my, deltaTime) {
-						handled = true
-						break // Stop processing other elements when one handles input
+		for _, element := range m.elements {
+			if element.IsVisible() {
+				// Check if element is at least partially visible horizontally
+				if currentX+cardWidth > m.bounds.Min.X && currentX < m.bounds.Max.X {
+					// Only update if mouse is within content area and element bounds
+					if mx >= currentX && mx < currentX+cardWidth &&
+						my >= contentY && my < contentY+contentHeight {
+						if element.Update(mx, my, deltaTime) {
+							handled = true
+							break // Stop processing other elements when one handles input
+						}
 					}
 				}
+				currentX += cardWidth + cardSpacing
 			}
-			currentY += elementHeight + 10
+		}
+	} else {
+		// Vertical layout
+		currentY := contentY - m.scrollOffset
+
+		for _, element := range m.elements {
+			if element.IsVisible() {
+				elementHeight := element.GetMinHeight()
+
+				// Check if element is at least partially visible
+				if currentY+elementHeight > contentY && currentY < contentY+contentHeight {
+					// Only update if mouse is within content area
+					if mx >= m.bounds.Min.X && mx < m.bounds.Max.X &&
+						my >= contentY && my < contentY+contentHeight {
+						if element.Update(mx, my, deltaTime) {
+							handled = true
+							break // Stop processing other elements when one handles input
+						}
+					}
+				}
+				currentY += elementHeight + 10
+			}
+		}
+	}
+
+	// Only handle EdgeMenu-level scrolling if no child element handled the input
+	if !handled && m.options.Scrollable && mx >= m.bounds.Min.X && mx < m.bounds.Max.X && my >= m.bounds.Min.Y && my < m.bounds.Max.Y {
+		scrollX, scrollY := ebiten.Wheel()
+
+		if m.options.HorizontalScroll && scrollY != 0 {
+			// Horizontal scrolling using vertical wheel when in horizontal mode
+			m.scrollTarget -= scrollY * 120
+			m.scrollTarget = math.Max(0, math.Min(float64(m.maxScroll), m.scrollTarget))
+			m.lastScrollTime = 0.0
+			return true
+		} else if m.options.HorizontalScroll && scrollX != 0 {
+			// True horizontal scrolling (from trackpad or special devices)
+			m.scrollTarget -= scrollX * 120
+			m.scrollTarget = math.Max(0, math.Min(float64(m.maxScroll), m.scrollTarget))
+			m.lastScrollTime = 0.0
+			return true
+		} else if !m.options.HorizontalScroll && scrollY != 0 {
+			// Vertical scrolling (default)
+			m.scrollTarget -= scrollY * 120
+			m.scrollTarget = math.Max(0, math.Min(float64(m.maxScroll), m.scrollTarget))
+			m.lastScrollTime = 0.0
+			return true
 		}
 	}
 	// Update smooth scrolling animation
@@ -1092,9 +1146,20 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 		}
 	}
 
-	// Consume click if within menu bounds
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && mx >= m.bounds.Min.X && mx < m.bounds.Max.X && my >= m.bounds.Min.Y && my < m.bounds.Max.Y {
-		return true
+	// Consume all mouse input if within menu bounds to prevent click-through
+	if mx >= m.bounds.Min.X && mx < m.bounds.Max.X && my >= m.bounds.Min.Y && my < m.bounds.Max.Y {
+		// Consume all mouse button presses within menu bounds
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) ||
+			inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) ||
+			inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonMiddle) {
+			return true
+		}
+		// Also consume mouse button releases to prevent them from affecting background
+		if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) ||
+			inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonRight) ||
+			inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonMiddle) {
+			return true
+		}
 	}
 
 	return handled
@@ -1154,16 +1219,30 @@ func (m *EdgeMenu) Draw(screen *ebiten.Image) {
 	// Calculate dynamic title height based on animation
 	titleHeight := int(float64(50) * m.titleProgress)
 
-	// Calculate content height for scrolling
-	m.contentHeight = 20 // Start with some padding
-	for _, element := range m.elements {
-		if element.IsVisible() {
-			m.contentHeight += element.GetMinHeight() + 10
+	// Calculate content dimensions for scrolling
+	if m.options.HorizontalScroll {
+		// For horizontal scrolling, calculate total width
+		m.contentHeight = 20 // Start with some padding for width calculation
+		for _, element := range m.elements {
+			if element.IsVisible() {
+				// For horizontal layout, sum widths instead of heights
+				// Use a fixed card width for calculation
+				m.contentHeight += 220 // 200px card width + 20px padding
+			}
 		}
+		availableWidth := m.bounds.Dx()
+		m.maxScroll = int(math.Max(0, float64(m.contentHeight-availableWidth)))
+	} else {
+		// For vertical scrolling, calculate total height
+		m.contentHeight = 20 // Start with some padding
+		for _, element := range m.elements {
+			if element.IsVisible() {
+				m.contentHeight += element.GetMinHeight() + 10
+			}
+		}
+		availableHeight := m.bounds.Dy() - titleHeight
+		m.maxScroll = int(math.Max(0, float64(m.contentHeight-availableHeight)))
 	}
-
-	availableHeight := m.bounds.Dy() - titleHeight
-	m.maxScroll = int(math.Max(0, float64(m.contentHeight-availableHeight)))
 
 	// Draw background
 	bgColor := m.options.Background
@@ -1204,21 +1283,40 @@ func (m *EdgeMenu) Draw(screen *ebiten.Image) {
 		text.Draw(screen, "×", m.titleFont, m.closeButton.Min.X+6, m.closeButton.Min.Y+18, textColor)
 	}
 
-	// Draw elements with simple bounds checking
+	// Draw elements with layout based on scroll direction
 	contentY := m.bounds.Min.Y + titleHeight
 	contentHeight := m.bounds.Dy() - titleHeight
-	currentY := contentY - m.scrollOffset
 	elementWidth := m.bounds.Dx() - 40
 
-	for _, element := range m.elements {
-		if element.IsVisible() {
-			elementHeight := element.GetMinHeight()
+	if m.options.HorizontalScroll {
+		// Horizontal layout
+		currentX := m.bounds.Min.X + 20 - m.scrollOffset
+		cardWidth := 200
+		cardSpacing := 20
 
-			// Only draw elements that are at least partially visible in content area
-			if currentY+elementHeight > contentY && currentY < contentY+contentHeight {
-				element.Draw(screen, m.bounds.Min.X+20, currentY, elementWidth, m.font)
+		for _, element := range m.elements {
+			if element.IsVisible() {
+				// Only draw elements that are at least partially visible horizontally
+				if currentX+cardWidth > m.bounds.Min.X && currentX < m.bounds.Max.X {
+					element.Draw(screen, currentX, contentY+10, cardWidth, m.font)
+				}
+				currentX += cardWidth + cardSpacing
 			}
-			currentY += elementHeight + 10
+		}
+	} else {
+		// Vertical layout
+		currentY := contentY - m.scrollOffset
+
+		for _, element := range m.elements {
+			if element.IsVisible() {
+				elementHeight := element.GetMinHeight()
+
+				// Only draw elements that are at least partially visible in content area
+				if currentY+elementHeight > contentY && currentY < contentY+contentHeight {
+					element.Draw(screen, m.bounds.Min.X+20, currentY, elementWidth, m.font)
+				}
+				currentY += elementHeight + 10
+			}
 		}
 	}
 
@@ -1229,21 +1327,42 @@ func (m *EdgeMenu) Draw(screen *ebiten.Image) {
 }
 
 func (m *EdgeMenu) drawScrollbar(screen *ebiten.Image, contentY, contentHeight int) {
-	scrollbarWidth := 12
-	scrollbarX := m.bounds.Max.X - scrollbarWidth - 5
+	if m.options.HorizontalScroll {
+		// Horizontal scrollbar
+		scrollbarHeight := 12
+		scrollbarY := m.bounds.Max.Y - scrollbarHeight - 5
+		scrollbarWidth := m.bounds.Dx() - 40
 
-	// Background
-	bgColor := color.RGBA{60, 60, 60, uint8(float32(100) * float32(m.animProgress))}
-	vector.DrawFilledRect(screen, float32(scrollbarX), float32(contentY), float32(scrollbarWidth), float32(contentHeight), bgColor, false)
+		// Background
+		bgColor := color.RGBA{60, 60, 60, uint8(float32(100) * float32(m.animProgress))}
+		vector.DrawFilledRect(screen, float32(m.bounds.Min.X+20), float32(scrollbarY), float32(scrollbarWidth), float32(scrollbarHeight), bgColor, false)
 
-	// Handle
-	scrollRatio := float64(m.scrollOffset) / float64(m.maxScroll)
-	handleHeight := int(float64(contentHeight) * float64(contentHeight) / float64(m.contentHeight))
-	handleHeight = int(math.Max(20, float64(handleHeight))) // Minimum handle size
+		// Handle
+		scrollRatio := float64(m.scrollOffset) / float64(m.maxScroll)
+		handleWidth := int(float64(scrollbarWidth) * float64(m.bounds.Dx()) / float64(m.contentHeight))
+		handleWidth = int(math.Max(20, float64(handleWidth))) // Minimum handle size
 
-	handleY := contentY + int(scrollRatio*float64(contentHeight-handleHeight))
-	handleColor := color.RGBA{150, 150, 150, uint8(float32(200) * float32(m.animProgress))}
-	vector.DrawFilledRect(screen, float32(scrollbarX+2), float32(handleY), float32(scrollbarWidth-4), float32(handleHeight), handleColor, false)
+		handleX := m.bounds.Min.X + 20 + int(scrollRatio*float64(scrollbarWidth-handleWidth))
+		handleColor := color.RGBA{150, 150, 150, uint8(float32(200) * float32(m.animProgress))}
+		vector.DrawFilledRect(screen, float32(handleX), float32(scrollbarY+2), float32(handleWidth), float32(scrollbarHeight-4), handleColor, false)
+	} else {
+		// Vertical scrollbar
+		scrollbarWidth := 12
+		scrollbarX := m.bounds.Max.X - scrollbarWidth - 5
+
+		// Background
+		bgColor := color.RGBA{60, 60, 60, uint8(float32(100) * float32(m.animProgress))}
+		vector.DrawFilledRect(screen, float32(scrollbarX), float32(contentY), float32(scrollbarWidth), float32(contentHeight), bgColor, false)
+
+		// Handle
+		scrollRatio := float64(m.scrollOffset) / float64(m.maxScroll)
+		handleHeight := int(float64(contentHeight) * float64(contentHeight) / float64(m.contentHeight))
+		handleHeight = int(math.Max(20, float64(handleHeight))) // Minimum handle size
+
+		handleY := contentY + int(scrollRatio*float64(contentHeight-handleHeight))
+		handleColor := color.RGBA{150, 150, 150, uint8(float32(200) * float32(m.animProgress))}
+		vector.DrawFilledRect(screen, float32(scrollbarX+2), float32(handleY), float32(scrollbarWidth-4), float32(handleHeight), handleColor, false)
+	}
 }
 
 // UpgradeControl represents a complete upgrade control with slider, buttons, and cost display
@@ -1870,9 +1989,10 @@ func (m *EdgeMenu) refreshMenuData() {
 	// Always use selective updates instead of rebuilding the entire menu
 	// This prevents text inputs from losing focus
 
-	// Update tower stats first if we have a current territory
+	// Update tower stats and total costs first if we have a current territory
 	if m.currentTerritory != "" {
 		m.UpdateTowerStats(m.currentTerritory)
+		m.UpdateTotalCosts(m.currentTerritory)
 	}
 
 	for _, element := range m.elements {
@@ -2301,7 +2421,7 @@ func (rsc *ResourceStorageControl) pasteFromClipboard() {
 func (rsc *ResourceStorageControl) startEditing() {
 	// Unfocus any other editing controls in the parent menu
 	if rsc.parentMenu != nil {
-		rsc.parentMenu.unfocusAllStorageControlsExcept(rsc)
+		// rsc.parentMenu.unfocusAllStorageControlsExcept(rsc)
 	}
 
 	rsc.isEditing = true
@@ -2491,16 +2611,16 @@ func (rsc *ResourceStorageControl) Draw(screen *ebiten.Image, x, y, width int, f
 	text.Draw(screen, restText, font, restX, y+20, restColor)
 
 	// Draw generation per hour on the second line
-	generationY := y + 40
+	generationY := y + 44 // Increased from 40 to 44 for more spacing
 	generationText := fmt.Sprintf("+%d per hour", rsc.generationPerHour)
 	generationColor := color.RGBA{150, 255, 150, uint8(float32(180) * float32(rsc.animProgress))} // Light green
 	text.Draw(screen, generationText, font, inputX, generationY, generationColor)
 
-	return 45 // Increased height to accommodate two lines
+	return 49 // Increased from 45 to 49 to accommodate more spacing
 }
 
 func (rsc *ResourceStorageControl) GetMinHeight() int {
-	return 45 // Increased to accommodate generation per hour line
+	return 49 // Increased to match the new height in Draw method
 }
 
 func (rsc *ResourceStorageControl) refreshData() {
@@ -2563,17 +2683,17 @@ func (rsc *ResourceStorageControl) refreshData() {
 	}
 }
 
-// hasActiveStorageInput checks if any ResourceStorageControl is currently being edited
-func (m *EdgeMenu) hasActiveStorageInput() bool {
+// HasTextInputFocused checks if any MenuTextInput is currently focused
+func (m *EdgeMenu) HasTextInputFocused() bool {
 	for _, element := range m.elements {
-		if storageControl, ok := element.(*ResourceStorageControl); ok {
-			if storageControl.isEditing {
+		if textInput, ok := element.(*MenuTextInput); ok {
+			if textInput.focused {
 				return true
 			}
 		} else if collapsible, ok := element.(*CollapsibleMenu); ok {
 			for _, subElement := range collapsible.elements {
-				if storageControl, ok := subElement.(*ResourceStorageControl); ok {
-					if storageControl.isEditing {
+				if textInput, ok := subElement.(*MenuTextInput); ok {
+					if textInput.focused {
 						return true
 					}
 				}
@@ -2581,59 +2701,4 @@ func (m *EdgeMenu) hasActiveStorageInput() bool {
 		}
 	}
 	return false
-}
-
-// unfocusAllStorageControls unfocuses all ResourceStorageControl elements
-func (m *EdgeMenu) unfocusAllStorageControls() {
-	for _, element := range m.elements {
-		if storageControl, ok := element.(*ResourceStorageControl); ok {
-			if storageControl.isEditing {
-				storageControl.finishEditing()
-			}
-		} else if collapsible, ok := element.(*CollapsibleMenu); ok {
-			for _, subElement := range collapsible.elements {
-				if storageControl, ok := subElement.(*ResourceStorageControl); ok {
-					if storageControl.isEditing {
-						storageControl.finishEditing()
-					}
-				}
-			}
-		}
-	}
-}
-
-// unfocusAllStorageControlsExcept unfocuses all ResourceStorageControl elements except the specified one
-func (m *EdgeMenu) unfocusAllStorageControlsExcept(except *ResourceStorageControl) {
-	for _, element := range m.elements {
-		if storageControl, ok := element.(*ResourceStorageControl); ok {
-			if storageControl != except && storageControl.isEditing {
-				storageControl.finishEditing()
-			}
-		} else if collapsible, ok := element.(*CollapsibleMenu); ok {
-			for _, subElement := range collapsible.elements {
-				if storageControl, ok := subElement.(*ResourceStorageControl); ok {
-					if storageControl != except && storageControl.isEditing {
-						storageControl.finishEditing()
-					}
-				}
-			}
-		}
-	}
-}
-
-func (c *CollapsibleMenu) setParentMenu(parentMenu *EdgeMenu) {
-	c.parentMenu = parentMenu
-	for _, element := range c.elements {
-		if storageControl, ok := element.(*ResourceStorageControl); ok {
-			storageControl.parentMenu = parentMenu
-		}
-	}
-}
-
-// SetupForNonTerritoryContent prepares the edge menu for non-territory content
-// This should be called when using the edge menu for state management, loadouts, etc.
-func (m *EdgeMenu) SetupForNonTerritoryContent(title string) {
-	m.ClearCurrentTerritory()
-	m.ClearElements()
-	m.SetTitle(title)
 }
