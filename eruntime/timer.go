@@ -78,6 +78,11 @@ func (s *state) processQueuedTicks() {
 		s.update()
 		s.tick++
 
+		// Trigger auto-save every minute (60 ticks)
+		if s.tick%60 == 0 {
+			go TriggerAutoSave()
+		}
+
 		// Force garbage collection every 5 minutes to help with memory management
 		if s.tick%300 == 0 {
 			runtime.GC()

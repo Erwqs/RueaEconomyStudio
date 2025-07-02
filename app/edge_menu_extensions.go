@@ -753,6 +753,19 @@ func (m *EdgeMenu) ProgressBar(label string, value, minValue, maxValue float64, 
 	return m
 }
 
+// SetFocusOnLastTextInput focuses the most recently added text input
+func (m *EdgeMenu) SetFocusOnLastTextInput() *EdgeMenu {
+	// Find the last text input element and focus it
+	for i := len(m.elements) - 1; i >= 0; i-- {
+		if textInput, ok := m.elements[i].(*MenuTextInput); ok {
+			textInput.focused = true
+			textInput.blinkTimer = time.Now()
+			break
+		}
+	}
+	return m
+}
+
 // Extension methods for CollapsibleMenu to support new components
 
 // TextInput adds a text input to the collapsible menu
@@ -830,4 +843,12 @@ func (t *MenuTextInput) deleteSelection() {
 // clearSelection clears the current selection
 func (t *MenuTextInput) clearSelection() {
 	t.selectionStart = -1
+}
+
+// SetFocused sets the focused state for MenuTextInput
+func (t *MenuTextInput) SetFocused(focused bool) {
+	t.focused = focused
+	if focused {
+		t.blinkTimer = time.Now()
+	}
 }

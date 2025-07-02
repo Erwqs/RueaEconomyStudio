@@ -1011,6 +1011,10 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 		return
 	}
 
+	// Acquire read lock to prevent concurrent modification of territories map
+	tm.territoryMutex.RLock()
+	defer tm.territoryMutex.RUnlock()
+
 	// GPU overlay system is now working correctly - green stripes issue was fixed in drawClaimedTerritoryOverlay
 	// No need to disable during claim editing anymore
 
@@ -1576,7 +1580,11 @@ func (tm *TerritoriesManager) Update(deltaTime float64) {
 
 // RefreshFromEruntime reloads territory data from eruntime
 func (tm *TerritoriesManager) RefreshFromEruntime() error {
-	// fmt.Println("[DEBUG] TerritoriesManager.RefreshFromEruntime called")
+	fmt.Println("[DEBUG] TerritoriesManager.RefreshFromEruntime called")
+
+	// Acquire write lock to prevent concurrent access during refresh
+	tm.territoryMutex.Lock()
+	defer tm.territoryMutex.Unlock()
 
 	// Reload territories from eruntime
 	err := tm.readAndParseTerritoriesJSON()
@@ -1594,13 +1602,15 @@ func (tm *TerritoriesManager) RefreshFromEruntime() error {
 	// Rebuild spatial grid
 	tm.buildSpatialGrid()
 
-	// Mark buffer as needing update
+	// Mark buffer as needing update (with proper mutex)
+	tm.bufferMutex.Lock()
 	tm.bufferNeedsUpdate = true
+	tm.bufferMutex.Unlock()
+
+	fmt.Printf("[DEBUG] RefreshFromEruntime complete. Loaded %d territories, buffer marked for update\n", len(tm.Territories))
 
 	tm.isLoaded = true
 	tm.loadError = nil
-
-	// fmt.Printf("[DEBUG] RefreshFromEruntime complete. Loaded %d territories\n", len(tm.Territories))
 	return nil
 }
 

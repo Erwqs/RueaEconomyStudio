@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"etools/app"
@@ -68,10 +69,15 @@ func runHeadless() {
 
 func runWithGUI() {
 	// Initialize clipboard
-	err := clipboard.Init()
-	if err != nil {
-		// Clipboard initialization failed, but we can continue without it
-		// The clipboard operations will simply not work
+	// Disable clipboard initialization on WebAssembly (wasm)
+
+	// Clipboard is only initialized on non-wasm platforms
+	if runtime.GOARCH != "wasm" && runtime.GOOS != "js" {
+		err := clipboard.Init()
+		if err != nil {
+			// Clipboard initialization failed, but we can continue without it
+			// The clipboard operations will simply not work
+		}
 	}
 
 	// Initialize panic notification system

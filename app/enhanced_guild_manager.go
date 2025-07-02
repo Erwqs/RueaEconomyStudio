@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"etools/eruntime"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
@@ -498,6 +500,12 @@ func NewEnhancedGuildManager() *EnhancedGuildManager {
 
 	// Set the singleton instance
 	enhancedGuildManagerInstance = gm
+
+	// Register for guild change notifications from eruntime (but only reload, don't let eruntime overwrite our file)
+	eruntime.SetGuildChangeCallback(func() {
+		fmt.Printf("[GUILD_MANAGER] Received guild change notification - checking for new guilds to add\n")
+		gm.loadGuildsFromFile() // This will reload and merge any new guilds while preserving existing colors
+	})
 
 	return gm
 }
@@ -1399,7 +1407,7 @@ func (gm *EnhancedGuildManager) addGuild(name, tag string) {
 
 	// Show success message
 	gm.statusMessageManager.AddMessage("Guild added successfully!", 3*time.Second)
-	NewToast().AutoClose(3 * time.Second).Text("Guild added successfully!", ToastOption{}).Show()
+	NewToast().AutoClose(3*time.Second).Text("Guild added successfully!", ToastOption{}).Show()
 }
 
 // removeGuild removes a guild from the list
@@ -1431,38 +1439,85 @@ func (gm *EnhancedGuildManager) removeGuild(index int) {
 	gm.saveGuildsToFile()
 
 	// Show success message
-	NewToast().AutoClose(3 * time.Second).Text("Guild removed successfully!", ToastOption{}).Show()
+	NewToast().AutoClose(3*time.Second).Text("Guild removed successfully!", ToastOption{}).Show()
 }
 
-// loadGuildsFromFile loads guilds from JSON file
+// loadGuildsFromFile loads guilds from JSON file and merges with guilds from eruntime
 func (gm *EnhancedGuildManager) loadGuildsFromFile() {
 	data, err := os.ReadFile(gm.guildFilePath)
 	if err != nil {
 		// File doesn't exist, start with empty list
 		gm.guilds = []EnhancedGuildData{}
 		gm.filteredGuilds = []EnhancedGuildData{}
-		return
-	}
-
-	var guilds []EnhancedGuildData
-	if err := json.Unmarshal(data, &guilds); err != nil {
-		// Invalid JSON, start with empty list
-		gm.guilds = []EnhancedGuildData{}
-		gm.filteredGuilds = []EnhancedGuildData{}
-		return
-	}
-
-	// Ensure all guilds have a color (for backward compatibility)
-	for i := range guilds {
-		if guilds[i].Color == "" {
-			guilds[i].Color = "#FFAA00" // Default yellow
+	} else {
+		var guilds []EnhancedGuildData
+		if err := json.Unmarshal(data, &guilds); err != nil {
+			// Invalid JSON, start with empty list
+			gm.guilds = []EnhancedGuildData{}
+			gm.filteredGuilds = []EnhancedGuildData{}
+		} else {
+			// Ensure all guilds have a color (for backward compatibility)
+			for i := range guilds {
+				if guilds[i].Color == "" {
+					guilds[i].Color = "#FFAA00" // Default yellow
+				}
+			}
+			gm.guilds = guilds
 		}
 	}
 
-	gm.guilds = guilds
+	// Create a map of existing guilds for fast lookup (preserves local colors)
+	existingGuilds := make(map[string]*EnhancedGuildData)
+	for i := range gm.guilds {
+		existingGuilds[gm.guilds[i].Tag] = &gm.guilds[i]
+	}
+
+	// Get all guilds from eruntime and merge any new ones
+	allGuildNames := eruntime.GetAllGuilds()
+	newGuildsAdded := false
+
+	for _, guildDisplay := range allGuildNames {
+		// Skip "No Guild [NONE]" as it's not a real guild
+		if guildDisplay == "No Guild [NONE]" {
+			continue
+		}
+
+		// Parse guild name to extract tag (assumes format "Name [TAG]")
+		var guildName, guildTag string
+		if strings.Contains(guildDisplay, " [") && strings.HasSuffix(guildDisplay, "]") {
+			// Extract name and tag from "Name [TAG]" format
+			lastBracket := strings.LastIndex(guildDisplay, " [")
+			guildName = guildDisplay[:lastBracket]
+			guildTag = guildDisplay[lastBracket+2 : len(guildDisplay)-1] // Remove " [" and "]"
+		} else {
+			// Fallback: use the display name as both name and tag
+			guildName = guildDisplay
+			guildTag = guildDisplay
+		}
+
+		// Check if this guild already exists in our local list
+		if _, exists := existingGuilds[guildTag]; !exists {
+			// New guild from eruntime - add it with a default color
+			newGuild := EnhancedGuildData{
+				Name:  guildName,
+				Tag:   guildTag,
+				Color: "#FFAA00", // Default yellow color for new guilds
+			}
+			gm.guilds = append(gm.guilds, newGuild)
+			newGuildsAdded = true
+			fmt.Printf("[GUILD_MANAGER] Added new guild from eruntime: %s [%s]\n", guildName, guildTag)
+		}
+	}
+
+	// If we added new guilds, save the updated list
+	if newGuildsAdded {
+		gm.saveGuildsToFile()
+		fmt.Printf("[GUILD_MANAGER] Saved updated guild list with new guilds from state file\n")
+	}
+
 	gm.cachesDirty = true // Invalidate caches when loading new data
-	gm.filteredGuilds = make([]EnhancedGuildData, len(guilds))
-	copy(gm.filteredGuilds, guilds)
+	gm.filteredGuilds = make([]EnhancedGuildData, len(gm.guilds))
+	copy(gm.filteredGuilds, gm.guilds)
 }
 
 // saveGuildsToFile saves guilds to JSON file
@@ -1826,7 +1881,9 @@ func (gm *EnhancedGuildManager) clearAllGuilds() {
 
 	// Show success message
 	fmt.Println("[GUILD_MANAGER] All guilds cleared successfully")
-	gm.statusMessageManager.AddMessage("All guilds cleared", 3*time.Second)
+	NewToast().Text("All guilds cleared!", ToastOption{Colour: color.RGBA{255, 100, 100, 255}}).
+		AutoClose(3 * time.Second).
+		Show()
 }
 
 // rebuildCaches rebuilds the performance lookup caches

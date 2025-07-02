@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -2094,8 +2095,10 @@ func (m *EdgeMenu) GetCurrentTerritory() string {
 
 // initClipboard initializes the clipboard for the application
 func initClipboard() {
-	// Initialize clipboard - this should be called once at application start
-	clipboard.Init()
+	// Only initialize clipboard if not running in WebAssembly (js/wasm)
+	if runtime.GOARCH != "wasm" && runtime.GOOS != "js" {
+		clipboard.Init()
+	}
 }
 
 // ResourceStorageControl represents an interactive resource storage display with editable current amount
@@ -2387,7 +2390,9 @@ func (rsc *ResourceStorageControl) moveCursor(pos int, extendSelection bool) {
 func (rsc *ResourceStorageControl) copyToClipboard() {
 	if rsc.hasSelection() {
 		selectedText := rsc.getSelectedText()
-		clipboard.Write(clipboard.FmtText, []byte(selectedText))
+		if runtime.GOARCH != "wasm" && runtime.GOOS != "js" {
+			clipboard.Write(clipboard.FmtText, []byte(selectedText))
+		}
 	}
 }
 
@@ -2395,25 +2400,29 @@ func (rsc *ResourceStorageControl) copyToClipboard() {
 func (rsc *ResourceStorageControl) cutToClipboard() {
 	if rsc.hasSelection() {
 		selectedText := rsc.getSelectedText()
-		clipboard.Write(clipboard.FmtText, []byte(selectedText))
+		if runtime.GOARCH != "wasm" && runtime.GOOS != "js" {
+			clipboard.Write(clipboard.FmtText, []byte(selectedText))
+		}
 		rsc.deleteSelection()
 	}
 }
 
 // pasteFromClipboard pastes text from clipboard
 func (rsc *ResourceStorageControl) pasteFromClipboard() {
-	clipboardData := clipboard.Read(clipboard.FmtText)
-	if len(clipboardData) > 0 {
-		// Filter to only allow numbers for resource storage
-		text := string(clipboardData)
-		var filteredText strings.Builder
-		for _, r := range text {
-			if r >= '0' && r <= '9' {
-				filteredText.WriteRune(r)
+	if runtime.GOARCH != "wasm" && runtime.GOOS != "js" {
+		clipboardData := clipboard.Read(clipboard.FmtText)
+		if len(clipboardData) > 0 {
+			// Filter to only allow numbers for resource storage
+			text := string(clipboardData)
+			var filteredText strings.Builder
+			for _, r := range text {
+				if r >= '0' && r <= '9' {
+					filteredText.WriteRune(r)
+				}
 			}
-		}
-		if filteredText.Len() > 0 {
-			rsc.insertText(filteredText.String())
+			if filteredText.Len() > 0 {
+				rsc.insertText(filteredText.String())
+			}
 		}
 	}
 }

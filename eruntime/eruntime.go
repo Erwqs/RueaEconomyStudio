@@ -53,6 +53,9 @@ type state struct {
 
 	// Debug flag to enable/disable verbose logging (off by default for performance)
 	debugLogging bool
+
+	// State loading protection - when true, prevents any modifications to territories
+	stateLoading bool
 }
 
 var st state
@@ -83,6 +86,13 @@ func init() {
 	// Start the timer for resource generation
 	st.start()
 	fmt.Println("[ERUNTIME] Resource generation timer started.")
+
+	// Attempt to load auto-save file if it exists
+	if LoadAutoSave() {
+		fmt.Println("[ERUNTIME] Auto-save file loaded successfully on startup")
+	} else {
+		fmt.Println("[ERUNTIME] No auto-save file found, starting with fresh state")
+	}
 }
 
 // GetAllTransits returns all active transits in the system

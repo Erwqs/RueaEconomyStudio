@@ -5,6 +5,7 @@ import (
 	"etools/assets"
 	"etools/typedef"
 	"os"
+	"runtime"
 )
 
 // TradingRoutesMap holds the connections between territories
@@ -61,19 +62,25 @@ func loadTerritories() {
 		st.territories = append(st.territories, territory)
 	}
 
-	// Now load guilds from guilds.json
-	f, err = os.ReadFile("guilds.json")
-	if err != nil {
-		// Create an empty guild list if file doesn't exist
-		st.guilds = []*typedef.Guild{}
-		f, err := os.Create("guilds.json") // Create empty file if it doesn't exist
+	// Now load guilds from guilds.json, skip if running in WASM
+	if runtime.GOARCH != "wasm" {
+		f, err = os.ReadFile("guilds.json")
 		if err != nil {
-			panic("failed to create guilds.json: " + err.Error())
+			// Create an empty guild list if file doesn't exist
+			st.guilds = []*typedef.Guild{}
+			f, err := os.Create("guilds.json") // Create empty file if it doesn't exist
+			if err != nil {
+				panic("failed to create guilds.json: " + err.Error())
+			}
+
+			defer f.Close()
+
+			f.WriteString("[]") // Write empty JSON array
+			return
 		}
-
-		defer f.Close()
-
-		f.WriteString("[]") // Write empty JSON array
+	} else {
+		// When running in WASM, initialize empty guilds list
+		st.guilds = []*typedef.Guild{}
 		return
 	}
 

@@ -83,8 +83,8 @@ type MapView struct {
 	edgeMenu *EdgeMenu
 
 	// EdgeMenu for transit resource inspector
-	transitResourceMenu       *EdgeMenu
-	transitResourceFilter     string // Current filter string for transit resources
+	transitResourceMenu   *EdgeMenu
+	transitResourceFilter string // Current filter string for transit resources
 
 	// State management menu for tick controls
 	stateManagementMenu        *StateManagementMenu
@@ -199,6 +199,50 @@ func NewMapView() *MapView {
 
 	// Set the global MapView instance
 	SetMapView(mapView)
+
+	// Register state change callback to refresh territory colors when state is reset/loaded
+	eruntime.SetStateChangeCallback(func() {
+		fmt.Println("[MAP] State change callback triggered")
+
+		// Get all territories from eruntime and update their guild assignments
+		territories := eruntime.GetTerritories()
+		claimManager := GetGuildClaimManager()
+
+		if claimManager == nil {
+			fmt.Println("[MAP] Warning: GuildClaimManager is nil")
+			return
+		}
+
+		fmt.Printf("[MAP] Updating %d territories with their current guild assignments\n", len(territories))
+
+		// Suspend redraws during bulk update
+		claimManager.suspendRedraws = true
+
+		// Update each territory with its current guild from eruntime
+		for _, territory := range territories {
+			if territory != nil {
+				territory.Mu.RLock()
+				guildName := territory.Guild.Name
+				guildTag := territory.Guild.Tag
+				territory.Mu.RUnlock()
+
+				// If territory has no guild, use the hidden "None" guild
+				if guildName == "" || guildName == "No Guild" {
+					guildName = "None"
+					guildTag = "NONE"
+				}
+
+				fmt.Printf("[MAP] Setting territory %s to guild %s [%s]\n", territory.Name, guildName, guildTag)
+				claimManager.AddClaim(territory.Name, guildName, guildTag)
+			}
+		}
+
+		// Re-enable redraws and trigger update
+		claimManager.suspendRedraws = false
+		claimManager.TriggerRedraw()
+
+		fmt.Println("[MAP] Territory guild assignments updated after state change")
+	})
 
 	return mapView
 }

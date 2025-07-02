@@ -2,6 +2,7 @@ package eruntime
 
 import (
 	"errors"
+	"fmt"
 	"etools/eruntime/pathfinder"
 	"etools/typedef"
 	"math/rand"
@@ -399,24 +400,40 @@ func UpdateAllRoutes() {
 
 // SetTerritoryHQ sets a territory as HQ and updates routes
 func SetTerritoryHQ(territoryName string, isHQ bool) error {
+	// Don't allow HQ modifications during state loading
+	st.mu.RLock()
+	if st.stateLoading {
+		st.mu.RUnlock()
+		fmt.Printf("[ERUNTIME] SetTerritoryHQ blocked during state loading for territory: %s\n", territoryName)
+		return nil
+	}
+	st.mu.RUnlock()
+
 	territory := TerritoryMap[territoryName]
 	if territory == nil {
 		return errors.New("territory not found")
 	}
 
+	fmt.Printf("[HQ_DEBUG] SetTerritoryHQ called for territory %s, isHQ=%v\n", territoryName, isHQ)
+
 	// If setting as HQ, unset other HQs for the same guild
 	if isHQ {
 		for _, t := range st.territories {
 			if t != nil && t.Guild.Tag == territory.Guild.Tag && t.HQ {
+				fmt.Printf("[HQ_DEBUG] Clearing old HQ %s for guild %s in SetTerritoryHQ\n", t.Name, t.Guild.Tag)
 				t.HQ = false
 			}
 		}
 	}
 
 	territory.HQ = isHQ
+	fmt.Printf("[HQ_DEBUG] Set territory %s HQ status to %v\n", territoryName, isHQ)
 
 	// Update all routes for this guild
 	UpdateAllRoutes()
+
+	// Trigger auto-save after user action
+	TriggerAutoSave()
 
 	return nil
 }
@@ -433,6 +450,9 @@ func SetTerritoryRoutingMode(territoryName string, mode typedef.Routing) error {
 	// Update routes for this territory
 	UpdateAllRoutes()
 
+	// Trigger auto-save after user action
+	TriggerAutoSave()
+
 	return nil
 }
 
@@ -447,6 +467,9 @@ func SetTerritoryBorder(territoryName string, border typedef.Border) error {
 
 	// Update all routes as this might affect pathfinding
 	UpdateAllRoutes()
+
+	// Trigger auto-save after user action
+	TriggerAutoSave()
 
 	return nil
 }

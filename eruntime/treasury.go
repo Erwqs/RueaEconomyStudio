@@ -31,7 +31,7 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 	var treasuryBonus float64
 
 	switch distance {
-	case 3:
+	case 4:
 		switch level {
 		case typedef.TreasuryLevelVeryLow:
 			treasuryBonus = 0.0 // 0%
@@ -44,7 +44,7 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 		case typedef.TreasuryLevelVeryHigh:
 			treasuryBonus = 0.255 // 25.5%
 		}
-	case 4:
+	case 5:
 		switch level {
 		case typedef.TreasuryLevelVeryLow:
 			treasuryBonus = 0.0 // 0%
@@ -57,7 +57,7 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 		case typedef.TreasuryLevelVeryHigh:
 			treasuryBonus = 0.21 // 21%
 		}
-	case 5:
+	case 6:
 		switch level {
 		case typedef.TreasuryLevelVeryLow:
 			treasuryBonus = 0.0 // 0%
@@ -70,7 +70,7 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 		case typedef.TreasuryLevelVeryHigh:
 			treasuryBonus = 0.165 // 16.5%
 		}
-	case 6:
+	case 7:
 		switch level {
 		case typedef.TreasuryLevelVeryLow:
 			treasuryBonus = 0.0 // 0%

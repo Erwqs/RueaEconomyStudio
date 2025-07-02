@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"runtime"
 	"sync"
 
 	"etools/assets"
@@ -668,8 +669,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 // Layout returns the layout of the game
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-	// Dynamic sizing based on the outside dimensions
-	return outsideWidth, outsideHeight
+	// Use fixed resolution for WebAssembly to ensure correct coordinate mapping
+	// Dynamic sizing for desktop builds
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		// Fixed resolution for consistent coordinate system in WebAssembly
+		return 1280, 720
+	} else {
+		// Dynamic sizing based on the outside dimensions for desktop
+		return outsideWidth, outsideHeight
+	}
 }
 
 // getScaledFont returns a cached font or creates a new one if size changed significantly

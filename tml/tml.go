@@ -7,7 +7,7 @@ type Restult struct {
 	Territory *typedef.Territory
 }
 
-type ResultInterface insterface {
+type ResultInterface interface {
 	String() string
 	Success() bool
 	Territory() *typedef.Territory
@@ -16,10 +16,6 @@ type ResultInterface insterface {
 type TerritoryResult struct {
 	Success   bool
 	Territory *typedef.Territory
-}
-
-func (r *TerritoryResult) String() string {
-	
 }
 
 func Parse()

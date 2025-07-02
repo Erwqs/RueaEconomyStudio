@@ -55,19 +55,21 @@ func (m *MapView) populateTransitResourceMenu() {
 	textInputOptions := DefaultTextInputOptions()
 	textInputOptions.Width = 300 // Set a reasonable width for the input
 	textInputOptions.Height = 20
+	textInputOptions.Placeholder = "Type to filter transits..."
 
+	// Create the text input and auto-focus it for better UX
 	m.transitResourceMenu.TextInput("Filter", m.transitResourceFilter, textInputOptions, func(input string) {
 		// Store the filter string and refresh the menu
 		m.transitResourceFilter = input
 		// Refresh the menu with the new filter
 		m.populateTransitResourceMenu()
-	})
+	}).SetFocusOnLastTextInput()
 
 	// Add filter help text
 	helpOptions := DefaultTextOptions()
 	helpOptions.Color = color.RGBA{180, 180, 180, 255} // Gray for help text
 	helpOptions.FontSize = 12
-	m.transitResourceMenu.Text("Filter examples: origin:pirate dest:detlas at:maltic emerald>1000 ore:500", helpOptions)
+	// m.transitResourceMenu.Text("Filter examples: origin:pirate dest:detlas at:maltic emerald>1000 ore:500", helpOptions)
 
 	if len(territoriesWithTransit) == 0 {
 		m.transitResourceMenu.Text("No resources in transit", DefaultTextOptions())
@@ -181,7 +183,7 @@ func (m *MapView) populateTransitResourceMenu() {
 			buttonOptions.BackgroundColor = color.RGBA{200, 50, 50, 255} // Red
 			buttonOptions.BorderColor = color.RGBA{255, 100, 100, 255}   // Light red border
 			buttonOptions.HoverColor = color.RGBA{255, 150, 150, 255}    // Lighter red on hover
-			buttonOptions.PressedColor = color.RGBA{255, 200, 200, 255} // Even lighter red when pressed
+			buttonOptions.PressedColor = color.RGBA{255, 200, 200, 255}  // Even lighter red when pressed
 			card.Button("Void", buttonOptions, func() {
 				// Void resource from transit system
 
@@ -191,11 +193,11 @@ func (m *MapView) populateTransitResourceMenu() {
 	}
 
 	// Add summary information showing filtered results
-	summaryText := fmt.Sprintf("Showing %d/%d transits", filteredTransitCount, totalTransits)
-	if m.transitResourceFilter != "" {
-		summaryText += fmt.Sprintf(" (filtered by: %s)", m.transitResourceFilter)
-	}
-	m.transitResourceMenu.Text(summaryText, summaryOptions)
+	// summaryText := fmt.Sprintf("Showing %d/%d transits", filteredTransitCount, totalTransits)
+	// if m.transitResourceFilter != "" {
+	// 	summaryText += fmt.Sprintf(" (filtered by: %s)", m.transitResourceFilter)
+	// }
+	// m.transitResourceMenu.Text(summaryText, summaryOptions)
 
 	// Show message if no transits match the filter
 	if filteredTransitCount == 0 && totalTransits > 0 && m.transitResourceFilter != "" {
@@ -222,7 +224,7 @@ type FilterCriteria struct {
 
 // ResourceFilter represents a resource amount filter
 type ResourceFilter struct {
-	Operator string  // "=", ">", "<", ">=", "<="
+	Operator string // "=", ">", "<", ">=", "<="
 	Value    float64
 }
 
@@ -233,20 +235,20 @@ func parseTransitFilter(filterStr string) *FilterCriteria {
 	}
 
 	criteria := &FilterCriteria{}
-	
+
 	// Split by spaces and process each token
 	tokens := strings.Fields(strings.ToLower(filterStr))
-	
+
 	for _, token := range tokens {
 		if strings.Contains(token, ":") {
 			parts := strings.SplitN(token, ":", 2)
 			if len(parts) != 2 {
 				continue
 			}
-			
+
 			key := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
-			
+
 			switch key {
 			case "origin", "from":
 				criteria.Origin = value
@@ -265,9 +267,17 @@ func parseTransitFilter(filterStr string) *FilterCriteria {
 			case "crop", "crops", "c":
 				criteria.Crops = parseResourceFilter(value)
 			}
+		} else {
+			// If no tag is specified, default to location filter (at:)
+			if criteria.Location == "" {
+				criteria.Location = token
+			} else {
+				// If location is already set, append with space for multiple terms
+				criteria.Location = criteria.Location + " " + token
+			}
 		}
 	}
-	
+
 	return criteria
 }
 
@@ -276,9 +286,9 @@ func parseResourceFilter(valueStr string) *ResourceFilter {
 	if valueStr == "" {
 		return nil
 	}
-	
+
 	filter := &ResourceFilter{Operator: "="}
-	
+
 	// Check for operators
 	if strings.HasPrefix(valueStr, ">=") {
 		filter.Operator = ">="
@@ -293,13 +303,13 @@ func parseResourceFilter(valueStr string) *ResourceFilter {
 		filter.Operator = "<"
 		valueStr = strings.TrimPrefix(valueStr, "<")
 	}
-	
+
 	// Parse the numeric value
 	if value, err := strconv.ParseFloat(valueStr, 64); err == nil {
 		filter.Value = value
 		return filter
 	}
-	
+
 	return nil
 }
 
@@ -308,7 +318,7 @@ func matchesTransitFilter(transit *typedef.InTransitResources, territory *typede
 	if criteria == nil {
 		return true
 	}
-	
+
 	// Check origin filter
 	if criteria.Origin != "" {
 		originName := "unknown"
@@ -319,7 +329,7 @@ func matchesTransitFilter(transit *typedef.InTransitResources, territory *typede
 			return false
 		}
 	}
-	
+
 	// Check destination filter
 	if criteria.Destination != "" {
 		destName := "unknown"
@@ -330,7 +340,7 @@ func matchesTransitFilter(transit *typedef.InTransitResources, territory *typede
 			return false
 		}
 	}
-	
+
 	// Check location filter (current territory)
 	if criteria.Location != "" {
 		locationName := strings.ToLower(territory.Name)
@@ -338,10 +348,10 @@ func matchesTransitFilter(transit *typedef.InTransitResources, territory *typede
 			return false
 		}
 	}
-	
+
 	// Check resource amount filters
 	resources := transit.BasicResources
-	
+
 	if criteria.Emeralds != nil && !matchesResourceAmount(resources.Emeralds, criteria.Emeralds) {
 		return false
 	}
@@ -357,7 +367,7 @@ func matchesTransitFilter(transit *typedef.InTransitResources, territory *typede
 	if criteria.Crops != nil && !matchesResourceAmount(resources.Crops, criteria.Crops) {
 		return false
 	}
-	
+
 	return true
 }
 

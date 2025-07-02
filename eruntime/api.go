@@ -3,7 +3,31 @@ package eruntime
 import (
 	"etools/typedef"
 	"fmt"
+	"os"
+	"time"
 )
+
+// StateChangeCallback is a function type for notifications when state changes
+type StateChangeCallback func()
+
+// GuildChangeCallback is a function type for notifications when guild data changes
+type GuildChangeCallback func()
+
+// Global callback for state changes
+var stateChangeCallback StateChangeCallback
+
+// Global callback for guild changes
+var guildChangeCallback GuildChangeCallback
+
+// SetStateChangeCallback allows external packages to register for state change notifications
+func SetStateChangeCallback(callback StateChangeCallback) {
+	stateChangeCallback = callback
+}
+
+// SetGuildChangeCallback allows external packages to register for guild change notifications
+func SetGuildChangeCallback(callback GuildChangeCallback) {
+	guildChangeCallback = callback
+}
 
 // TerritoryStats represents comprehensive territory statistics for GUI display
 type TerritoryStats struct {
@@ -169,6 +193,12 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
+	// Don't allow modifications during state loading
+	if st.stateLoading {
+		fmt.Printf("[ERUNTIME] SetGuild blocked during state loading for territory: %s\n", territory)
+		return nil
+	}
+
 	// Set territory to guild and call pathfinding to update connections
 	var updatedTerritory *typedef.Territory
 	for _, t := range st.territories {
@@ -185,11 +215,13 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 			if oldGuildName != guild.Name || oldGuildTag != guild.Tag {
 				t.CapturedAt = st.tick
 				t.Treasury = typedef.TreasuryLevelVeryLow
+				
+				// If territory changes ownership, it should no longer be an HQ
+				// The new guild must explicitly set a new HQ
+				fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuild from %s[%s] to %s[%s]\n", 
+					t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
+				t.HQ = false
 			}
-
-			// If territory changes ownership, it should no longer be an HQ
-			// The new guild must explicitly set a new HQ
-			t.HQ = false
 
 			t.Mu.Unlock()
 			updatedTerritory = t
@@ -200,6 +232,9 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 	// Update all routes since territory ownership changed - safe since we have write lock
 	st.updateRoute()
 
+	// Trigger auto-save after user action
+	TriggerAutoSave()
+
 	return updatedTerritory
 }
 
@@ -207,6 +242,12 @@ func SetGuildBatch(opts map[string]*typedef.Guild) []*typedef.Territory {
 	// Protect the entire batch operation with write lock
 	st.mu.Lock()
 	defer st.mu.Unlock()
+
+	// Don't allow modifications during state loading
+	if st.stateLoading {
+		fmt.Printf("[ERUNTIME] SetGuildBatch blocked during state loading for %d territories\n", len(opts))
+		return nil
+	}
 
 	updatedTerritories := make([]*typedef.Territory, 0, len(opts))
 	// dont set guilds for territory thats already have the same guild
@@ -223,14 +264,29 @@ func SetGuildBatch(opts map[string]*typedef.Guild) []*typedef.Territory {
 			continue
 		}
 
+		// Check if guild ownership is actually changing
+		oldGuildName := t.Guild.Name
+		oldGuildTag := t.Guild.Tag
+
 		t.Guild = *guild
-		t.HQ = false
+
+		// Only clear HQ status if territory changes ownership
+		// Don't clear HQ if it's just a guild update during state loading with same guild
+		if oldGuildName != guild.Name || oldGuildTag != guild.Tag {
+			fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to ownership change from %s[%s] to %s[%s]\n", 
+				t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
+			t.HQ = false
+		}
+
 		updatedTerritories = append(updatedTerritories, t)
 		t.Mu.Unlock()
 	}
 
 	// Update routes once for all changes - safe since we have write lock
 	st.updateRoute()
+
+	// Trigger auto-save after batch user action
+	TriggerAutoSave()
 
 	return updatedTerritories
 }
@@ -240,6 +296,12 @@ func Set(territory string, opts typedef.TerritoryOptions) *typedef.Territory {
 	// This prevents race conditions when multiple HQ operations happen simultaneously
 	st.mu.Lock()
 	defer st.mu.Unlock()
+
+	// Don't allow modifications during state loading
+	if st.stateLoading {
+		fmt.Printf("[ERUNTIME] Set blocked during state loading for territory: %s\n", territory)
+		return nil
+	}
 
 	t := getTerritoryUnsafe(territory) // Use internal function that doesn't acquire locks
 	if t == nil {
@@ -279,6 +341,9 @@ func Set(territory string, opts typedef.TerritoryOptions) *typedef.Territory {
 
 	// Recalculate the generation potential for this territory
 	_, _, _, _ = calculateGeneration(t)
+
+	// Trigger auto-save after user action
+	TriggerAutoSave()
 
 	return t
 }
@@ -329,6 +394,9 @@ func Reset() {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
+	// Set loading flag to prevent any other operations during reset
+	st.stateLoading = true
+
 	// Clean up transit manager
 	if st.transitManager != nil {
 		// Clear all existing transits
@@ -367,6 +435,7 @@ func Reset() {
 			}
 
 			// Reset HQ status
+			fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to Reset operation\n", territory.Name)
 			territory.HQ = false
 
 			// Reset treasury and generation bonus
@@ -442,10 +511,12 @@ func Reset() {
 	TradingRoutesMap = make(map[string][]string)
 	TerritoryMap = make(map[string]*typedef.Territory)
 
-	// Rebuild TerritoryMap for fast lookups
+	// Rebuild TerritoryMap and TradingRoutesMap for fast lookups
 	for _, territory := range st.territories {
 		if territory != nil {
 			TerritoryMap[territory.Name] = territory
+			// Rebuild trading routes map from territory's connected territories
+			TradingRoutesMap[territory.Name] = territory.ConnectedTerritories
 		}
 	}
 
@@ -456,13 +527,11 @@ func Reset() {
 	st.halted = false
 	st.start()
 
-	fmt.Printf("[ERUNTIME] Reset complete. State reinitialized with %d territories.\n", len(st.territories))
-	fmt.Println("[ERUNTIME] All territories reset to default state:")
-	fmt.Println("  - No Guild ownership")
-	fmt.Println("  - Zero upgrades and bonuses")
-	fmt.Println("  - Empty storage")
-	fmt.Println("  - Default tax rates (5%)")
-	fmt.Println("  - Tick counter reset to 0")
+	// Clear loading flag - reset is complete and ready for normal operations
+	st.stateLoading = false
+
+	// Notify territories manager to update colors after reset (asynchronously to avoid deadlock)
+	go notifyTerritoryColorsUpdate()
 }
 
 func SaveState(path string) {
@@ -752,4 +821,88 @@ func GetBonusCost(bonusType string, level int) (int, string) {
 
 func GetCost() *typedef.Costs {
 	return &st.costs
+}
+
+// Auto-save functionality
+var lastAutoSaveTime time.Time
+var autoSaveEnabled = true
+
+// EnableAutoSave enables or disables auto-save functionality
+func EnableAutoSave(enabled bool) {
+	autoSaveEnabled = enabled
+	if enabled {
+		fmt.Println("[AUTOSAVE] Auto-save enabled")
+	} else {
+		fmt.Println("[AUTOSAVE] Auto-save disabled")
+	}
+}
+
+// IsAutoSaveEnabled returns whether auto-save is currently enabled
+func IsAutoSaveEnabled() bool {
+	return autoSaveEnabled
+}
+
+// TriggerAutoSave performs an auto-save if enough time has passed and auto-save is enabled
+func TriggerAutoSave() {
+	if !autoSaveEnabled {
+		return
+	}
+
+	// Don't auto-save during state loading to prevent corruption
+	if st.stateLoading {
+		return
+	}
+
+	now := time.Now()
+	// Only auto-save if at least 5 seconds have passed since last auto-save
+	// This prevents excessive auto-saving during rapid user actions
+	if now.Sub(lastAutoSaveTime) < 5*time.Second {
+		return
+	}
+
+	// Perform auto-save in a goroutine to avoid blocking the main thread
+	go func() {
+		err := SaveStateToFile("autosave.lz4")
+		if err != nil {
+			fmt.Printf("[AUTOSAVE] Failed to auto-save: %v\n", err)
+		} else {
+			fmt.Println("[AUTOSAVE] Auto-save completed successfully")
+		}
+		lastAutoSaveTime = time.Now()
+	}()
+}
+
+// LoadAutoSave attempts to load the auto-save file if it exists
+func LoadAutoSave() bool {
+	// Check if autosave.lz4 exists
+	if _, err := os.Stat("autosave.lz4"); os.IsNotExist(err) {
+		fmt.Println("[AUTOSAVE] No auto-save file found")
+		return false
+	}
+
+	fmt.Println("[AUTOSAVE] Auto-save file found, loading...")
+	err := LoadStateFromFile("autosave.lz4")
+	if err != nil {
+		fmt.Printf("[AUTOSAVE] Failed to load auto-save: %v\n", err)
+		return false
+	}
+
+	fmt.Println("[AUTOSAVE] Auto-save loaded successfully")
+	return true
+}
+
+// notifyTerritoryColorsUpdate triggers territory color update in the app layer
+func notifyTerritoryColorsUpdate() {
+	if stateChangeCallback != nil {
+		stateChangeCallback()
+		fmt.Println("[ERUNTIME] Territory colors update notification sent")
+	}
+}
+
+// notifyGuildManagerUpdate triggers guild data update in the app layer
+func notifyGuildManagerUpdate() {
+	if guildChangeCallback != nil {
+		guildChangeCallback()
+		fmt.Println("[ERUNTIME] Guild manager update notification sent")
+	}
 }

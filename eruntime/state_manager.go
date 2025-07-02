@@ -108,15 +108,29 @@ func SaveStateToFile(filepath string) error {
 
 // LoadStateFromFile loads state from a file with LZ4 decompression
 func LoadStateFromFile(filepath string) error {
+	// Halt the runtime during state loading to prevent flickering
+	wasHalted := st.halted
+	if !wasHalted {
+		st.halt()
+	}
+
 	// Read compressed file
 	compressedData, err := os.ReadFile(filepath)
 	if err != nil {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
 		return fmt.Errorf("failed to read file: %v", err)
 	}
 
 	// Decompress LZ4
 	jsonData, err := decompressLZ4(compressedData)
 	if err != nil {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
 		return fmt.Errorf("failed to decompress data: %v", err)
 	}
 
@@ -124,27 +138,45 @@ func LoadStateFromFile(filepath string) error {
 	var stateData StateData
 	err = json.Unmarshal(jsonData, &stateData)
 	if err != nil {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
 		return fmt.Errorf("failed to unmarshal state data: %v", err)
 	}
 
 	// Validate state data
 	if stateData.Type != "state_save" {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
 		return fmt.Errorf("invalid file type: expected 'state_save', got '%s'", stateData.Type)
 	}
 
 	if stateData.Version != "1.0" {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
 		return fmt.Errorf("unsupported version: %s", stateData.Version)
 	}
 
 	// Merge guilds from state file with existing guilds and update guilds.json
 	err = mergeGuildsFromState(stateData.Guilds)
 	if err != nil {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
 		return fmt.Errorf("failed to merge guilds from state: %v", err)
 	}
 
 	// Apply state under write lock
 	st.mu.Lock()
-	defer st.mu.Unlock()
+
+	// Set loading flag to prevent any other operations from modifying territories
+	st.stateLoading = true
 
 	// Clear existing territories
 	for _, territory := range st.territories {
@@ -153,7 +185,8 @@ func LoadStateFromFile(filepath string) error {
 		}
 	}
 
-	// Restore state (guilds are already merged above)
+	// Directly restore state from file - trust the state file completely
+	// The state file contains the exact state that was saved, including HQ status
 	st.tick = stateData.Tick
 	st.territories = stateData.Territories
 	// Note: st.guilds is already updated by mergeGuildsFromState
@@ -180,6 +213,55 @@ func LoadStateFromFile(filepath string) error {
 
 	fmt.Printf("[STATE] Successfully loaded state from %s (Territories: %d, Guilds: %d, Tick: %d)\n",
 		filepath, len(st.territories), len(st.guilds), st.tick)
+
+	st.mu.Unlock()
+
+	// Important: Clear loading flag FIRST, then restart timer
+	// This ensures no ticks can run while stateLoading is true
+	st.mu.Lock()
+	st.stateLoading = false
+	st.mu.Unlock()
+
+	// Restart runtime if we halted it - do this AFTER clearing stateLoading flag
+	if !wasHalted {
+		st.start()
+	}
+
+	// Add a small delay to ensure HQ state is fully settled before any ticks process
+	// This prevents race conditions where ticks might run immediately after timer start
+	go func() {
+		// Wait a brief moment for system to stabilize
+		time.Sleep(100 * time.Millisecond)
+
+		// Notify that state has changed and territory colors need updating
+		notifyTerritoryColorsUpdate()
+
+		fmt.Printf("[STATE] State loading completed, notifications sent\n")
+	}()
+
+	// Add debug tracking to monitor HQ changes after state loading
+	fmt.Printf("[STATE] Monitoring HQ status for the next few seconds after state load...\n")
+	go func() {
+		for i := 0; i < 10; i++ { // Monitor for 10 seconds
+			time.Sleep(1 * time.Second)
+
+			// Check all territories for HQ status
+			st.mu.RLock()
+			hqCount := 0
+			for _, territory := range st.territories {
+				if territory != nil && territory.HQ {
+					hqCount++
+					fmt.Printf("[HQ_MONITOR] Tick %d: Territory %s (Guild: %s) is still HQ\n",
+						i+1, territory.Name, territory.Guild.Name)
+				}
+			}
+			if hqCount == 0 {
+				fmt.Printf("[HQ_MONITOR] Tick %d: No HQ territories found!\n", i+1)
+			}
+			st.mu.RUnlock()
+		}
+		fmt.Printf("[HQ_MONITOR] Monitoring complete\n")
+	}()
 
 	return nil
 }
@@ -297,21 +379,55 @@ func mergeGuildsFromState(loadedGuilds []*typedef.Guild) error {
 		st.guilds = append(st.guilds, newGuilds...)
 		st.mu.Unlock()
 
-		fmt.Printf("[STATE] Added %d new guilds from state file to guilds.json\n", len(newGuilds))
+		fmt.Printf("[STATE] Added %d new guilds from state file\n", len(newGuilds))
 		for _, guild := range newGuilds {
 			fmt.Printf("[STATE] - Added guild: %s [%s]\n", guild.Name, guild.Tag)
 		}
 	}
 
-	// Save updated guilds list to guilds.json
+	// Only notify guild managers to handle the merge themselves, don't overwrite their files
 	if len(newGuilds) > 0 || len(updatedGuilds) > 0 {
-		err := saveGuildsToFile()
-		if err != nil {
-			return fmt.Errorf("failed to save updated guilds to guilds.json: %v", err)
-		}
-		fmt.Printf("[STATE] Successfully updated guilds.json with %d new and %d updated guilds\n",
+		fmt.Printf("[STATE] Found %d new and %d updated guilds from state - notifying UI to merge\n",
 			len(newGuilds), len(updatedGuilds))
+
+		// Notify guild managers to merge new guilds while preserving local data like colors
+		// This is now safe because we have state loading protection
+		go notifyGuildManagerUpdate()
 	}
 
 	return nil
+}
+
+// validateAndFixHQConflicts ensures that each guild has at most one HQ
+// When loading from state file, the state file's HQ settings take precedence
+func validateAndFixHQConflicts() {
+	// Track HQ territories per guild
+	guildHQs := make(map[string][]*typedef.Territory)
+
+	// Find all HQ territories for each guild
+	for _, territory := range st.territories {
+		if territory != nil && territory.HQ && territory.Guild.Tag != "" && territory.Guild.Tag != "NONE" {
+			guildHQs[territory.Guild.Tag] = append(guildHQs[territory.Guild.Tag], territory)
+		}
+	}
+
+	// Fix conflicts: each guild should have at most one HQ
+	for guildTag, hqTerritories := range guildHQs {
+		if len(hqTerritories) > 1 {
+			fmt.Printf("[STATE] HQ conflict detected for guild %s: multiple HQs found\n", guildTag)
+
+			// Keep the first HQ found (from state file) and clear others
+			// This ensures state file takes precedence
+			for i, territory := range hqTerritories {
+				if i == 0 {
+					fmt.Printf("[STATE] Keeping HQ at territory: %s\n", territory.Name)
+				} else {
+					territory.Mu.Lock()
+					territory.HQ = false
+					territory.Mu.Unlock()
+					fmt.Printf("[STATE] Cleared HQ status from territory: %s\n", territory.Name)
+				}
+			}
+		}
+	}
 }

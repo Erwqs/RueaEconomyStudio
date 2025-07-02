@@ -23,8 +23,6 @@ func (r *TerritoryResult) String() string {
 	sb.WriteString(" [")
 	sb.WriteString(r.Territory.Guild.Tag)
 	sb.WriteString("]\n")
-	
-	sb.Grow()
 
 	return sb.String()
 }
