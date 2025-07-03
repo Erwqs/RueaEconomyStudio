@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -121,7 +122,7 @@ func (t *EnhancedTextInput) UpdateWithSkipInput(skipInput bool) bool {
 			}
 
 			// Copy (Ctrl+C)
-			if inpututil.IsKeyJustPressed(ebiten.KeyC) && t.hasSelection() {
+			if inpututil.IsKeyJustPressed(ebiten.KeyC) && t.hasSelection() && runtime.GOOS != "js" {
 				start, end := t.getOrderedSelection()
 				// Ensure indices are within bounds
 				if start >= 0 && end <= len(t.Value) && start <= end {
@@ -132,7 +133,7 @@ func (t *EnhancedTextInput) UpdateWithSkipInput(skipInput bool) bool {
 			}
 
 			// Paste (Ctrl+V)
-			if inpututil.IsKeyJustPressed(ebiten.KeyV) {
+			if inpututil.IsKeyJustPressed(ebiten.KeyV) && runtime.GOOS != "js" {
 				if clipData := clipboard.Read(clipboard.FmtText); clipData != nil {
 					clipText := string(clipData)
 					// If there's a selection, delete it first
@@ -159,7 +160,7 @@ func (t *EnhancedTextInput) UpdateWithSkipInput(skipInput bool) bool {
 			}
 
 			// Cut (Ctrl+X)
-			if inpututil.IsKeyJustPressed(ebiten.KeyX) && t.hasSelection() {
+			if inpututil.IsKeyJustPressed(ebiten.KeyX) && t.hasSelection() && runtime.GOOS != "js" {
 				start, end := t.getOrderedSelection()
 				// Ensure indices are within bounds
 				if start >= 0 && end <= len(t.Value) && start <= end {
@@ -505,6 +506,14 @@ func NewEnhancedGuildManager() *EnhancedGuildManager {
 	eruntime.SetGuildChangeCallback(func() {
 		fmt.Printf("[GUILD_MANAGER] Received guild change notification - checking for new guilds to add\n")
 		gm.loadGuildsFromFile() // This will reload and merge any new guilds while preserving existing colors
+	})
+
+	// Register for specific guild change notifications (more efficient for HQ changes)
+	eruntime.SetGuildSpecificChangeCallback(func(guildName string) {
+		fmt.Printf("[GUILD_MANAGER] Received specific guild change notification for guild: %s\n", guildName)
+		// For specific guild changes (like HQ updates), we only need to refresh the visual state
+		// No need to reload the entire guilds file since this is just a visual update
+		// The actual data is already updated in eruntime
 	})
 
 	return gm

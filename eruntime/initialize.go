@@ -95,6 +95,9 @@ func loadTerritories() {
 			Allies: []*typedef.Guild{},
 		})
 	}
+
+	// After all territories and guilds are loaded, rebuild the HQ map for fast lookups
+	rebuildHQMap()
 }
 
 func loadTerritoryClaims() {

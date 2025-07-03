@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -224,6 +225,7 @@ func NewMapView() *MapView {
 				territory.Mu.RLock()
 				guildName := territory.Guild.Name
 				guildTag := territory.Guild.Tag
+				isHQ := territory.HQ
 				territory.Mu.RUnlock()
 
 				// If territory has no guild, use the hidden "None" guild
@@ -232,8 +234,13 @@ func NewMapView() *MapView {
 					guildTag = "NONE"
 				}
 
-				fmt.Printf("[MAP] Setting territory %s to guild %s [%s]\n", territory.Name, guildName, guildTag)
+				fmt.Printf("[MAP] Setting territory %s to guild %s [%s], HQ: %v\n", territory.Name, guildName, guildTag, isHQ)
 				claimManager.AddClaim(territory.Name, guildName, guildTag)
+
+				// Also update HQ status in territories manager if available
+				if mapView.territoriesManager != nil {
+					mapView.territoriesManager.UpdateTerritoryHQStatus(territory.Name, isHQ)
+				}
 			}
 		}
 
@@ -1840,9 +1847,15 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 			}).
 			Divider().
 			Option("Copy Territory Name", "Ctrl+C", true, func() {
+				if runtime.GOOS == "js" {
+					return
+				}
 				clipboard.Write(clipboard.FmtText, []byte(fmt.Sprintf("Copied: %s\n", clickedTerritory)))
 			}).
 			Option("Copy Coordinates", "", true, func() {
+				if runtime.GOOS == "js" {
+					return
+				}
 				clipboard.Write(clipboard.FmtText, []byte(fmt.Sprintf("%.1f, %.1f", mapX, mapY)))
 			})
 	} else {
@@ -1853,6 +1866,9 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 				m.AddMarker(mapX, mapY, "Custom Marker", color.RGBA{255, 100, 100, 255}, 8.0)
 			}).
 			Option("Copy Coordinates", "Ctrl+C", true, func() {
+				if runtime.GOOS == "js" {
+					return
+				}
 				clipboard.Write(clipboard.FmtText, []byte(fmt.Sprintf("Copied coordinates: %.1f, %.1f\n", mapX, mapY)))
 			}).
 			Divider()
@@ -2534,7 +2550,7 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	loadoutButtonOptions.BackgroundColor = color.RGBA{100, 100, 100, 255} // Grey background
 	loadoutButtonOptions.HoverColor = color.RGBA{150, 150, 150, 255}      // Lighter grey on hover
 
-	loadoutMenu := m.edgeMenu.CollapsibleMenu("Loadout", DefaultCollapsibleMenuOptions())
+	loadoutMenu := m.edgeMenu.CollapsibleMenu("Loadout (Click to apply)", DefaultCollapsibleMenuOptions())
 	for _, item := range globalLoadoutManager.loadouts {
 		// Capture the item in the loop scope to avoid closure issues
 		capturedItem := item

@@ -686,7 +686,10 @@ func calculateExternalBonus(tl *typedef.Links, isHQ bool) float64 {
 }
 
 func FormatValue(value float64) string {
-	if value < 1000 {
+	if value < 100 {
+		// Show 1 decimal place
+		return fmt.Sprintf("%.1f", value)
+	} else if value < 1000 {
 		return fmt.Sprintf("%.0f", value)
 	} else if value < 1000000 {
 		// Format as k notation

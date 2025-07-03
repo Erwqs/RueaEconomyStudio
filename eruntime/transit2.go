@@ -465,24 +465,26 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 	// fmt.Printf("[DEBUG] Found route from %s to %s\n", bestHQ.Name, territory.Name)
 
 	// Calculate how much is needed at destination (deficit)
-	// Net is in resources per hour, but we need to send per minute (every 60 ticks)
-	// So we need to convert: deficit_per_minute = deficit_per_hour / 60
+	// Net is in resources per hour, but territories consume continuously every tick
+	// Since we only deliver every 60 ticks (1 minute), we need to send enough for 1 minute
+	// PLUS 1 second extra to prevent territories from going negative between deliveries
+	// So we need: deficit_for_61_seconds = deficit_per_hour * (61 seconds / 3600 seconds_per_hour)
 	deficit := typedef.BasicResources{}
 
 	if territory.Net.Emeralds < 0 {
-		deficit.Emeralds = -territory.Net.Emeralds / 60.0 // Convert per-hour to per-minute
+		deficit.Emeralds = -territory.Net.Emeralds / 59.0 // Convert per-hour to per-61-seconds
 	}
 	if territory.Net.Ores < 0 {
-		deficit.Ores = -territory.Net.Ores / 60.0
+		deficit.Ores = -territory.Net.Ores / 59.0
 	}
 	if territory.Net.Wood < 0 {
-		deficit.Wood = -territory.Net.Wood / 60.0
+		deficit.Wood = -territory.Net.Wood / 59.0
 	}
 	if territory.Net.Fish < 0 {
-		deficit.Fish = -territory.Net.Fish / 60.0
+		deficit.Fish = -territory.Net.Fish / 59.0
 	}
 	if territory.Net.Crops < 0 {
-		deficit.Crops = -territory.Net.Crops / 60.0
+		deficit.Crops = -territory.Net.Crops / 59.0
 	}
 
 	// fmt.Printf("[DEBUG] Calculated deficit (per minute): E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",

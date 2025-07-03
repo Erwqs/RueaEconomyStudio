@@ -101,39 +101,32 @@ func (tvs *TerritoryViewSwitcher) initializeHiddenGuilds() {
 func (tvs *TerritoryViewSwitcher) Update() {
 	now := time.Now()
 
-	// Check for Ctrl+Tab or Ctrl+Shift+Tab
-	ctrlPressed := ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight)
 	tabPressed := ebiten.IsKeyPressed(ebiten.KeyTab)
 	shiftPressed := ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
 
 	// Track key states for edge detection
 	prevTabPressed := tvs.keysPressed[ebiten.KeyTab]
-
-	tvs.keysPressed[ebiten.KeyControlLeft] = ebiten.IsKeyPressed(ebiten.KeyControlLeft)
-	tvs.keysPressed[ebiten.KeyControlRight] = ebiten.IsKeyPressed(ebiten.KeyControlRight)
 	tvs.keysPressed[ebiten.KeyTab] = tabPressed
 	tvs.keysPressed[ebiten.KeyShiftLeft] = shiftPressed
+	tvs.keysPressed[ebiten.KeyShiftRight] = shiftPressed
 
-	// Detect Tab key press while Ctrl is held
-	if ctrlPressed && tabPressed && !prevTabPressed {
-		// Tab was just pressed while Ctrl is held
+	// Detect Tab key press (edge detection)
+	if tabPressed && !prevTabPressed {
 		tvs.lastKeyCheck = now
 
 		if !tvs.modalVisible {
-			// First time pressing Ctrl+Tab, show modal
 			tvs.modalVisible = true
 			tvs.selectedIndex = int(tvs.currentView)
 		}
 
-		// Switch view
 		if shiftPressed {
-			// Ctrl+Shift+Tab: go backwards
+			// Shift+Tab: go backwards
 			tvs.selectedIndex--
 			if tvs.selectedIndex < 0 {
 				tvs.selectedIndex = len(tvs.views) - 1
 			}
 		} else {
-			// Ctrl+Tab: go forwards
+			// Tab: go forwards
 			tvs.selectedIndex++
 			if tvs.selectedIndex >= len(tvs.views) {
 				tvs.selectedIndex = 0
@@ -146,10 +139,9 @@ func (tvs *TerritoryViewSwitcher) Update() {
 		}
 	}
 
-	// Hide modal when Ctrl is released
-	if tvs.modalVisible && !ctrlPressed {
+	// Hide modal after delay if no Tab is pressed
+	if tvs.modalVisible && !tabPressed && now.Sub(tvs.lastKeyCheck) > tvs.hideDelay {
 		tvs.modalVisible = false
-		// View has already been applied above, no need to apply again
 	}
 }
 
@@ -408,7 +400,7 @@ func (tvs *TerritoryViewSwitcher) Draw(screen *ebiten.Image) {
 
 	// Draw instructions at the bottom
 	instrFont := loadWynncraftFont(12)
-	instrText := "Hold Ctrl + Tab to cycle views, shift to go backwards"
+	instrText := "Tab to cycle views, shift to go backwards"
 	instrBounds := text.BoundString(instrFont, instrText)
 	instrX := modalX + (modalWidth-instrBounds.Dx())/2
 	instrY := modalY + modalHeight - 15

@@ -87,6 +87,9 @@ func (pn *PanicNotifier) setupButtons() {
 	// Copy Stacktrace button
 	pn.copyButton = NewEnhancedButton("Copy Stacktrace", 0, 0, buttonWidth, buttonHeight, func() {
 		if pn.stackTrace != "" {
+			if runtime.GOOS == "js" {
+				return
+			}
 			// Try to copy to clipboard
 			clipboard.Write(clipboard.FmtText, []byte(pn.stackTrace))
 			// Show brief success message via toast

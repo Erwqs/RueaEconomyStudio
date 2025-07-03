@@ -71,12 +71,13 @@ func runWithGUI() {
 	// Initialize clipboard
 	// Disable clipboard initialization on WebAssembly (wasm)
 
-	// Clipboard is only initialized on non-wasm platforms
+	// Clipboard is only initialized on supported platforms
 	if runtime.GOARCH != "wasm" && runtime.GOOS != "js" {
-		err := clipboard.Init()
+		err := initClipboard()
 		if err != nil {
 			// Clipboard initialization failed, but we can continue without it
 			// The clipboard operations will simply not work
+			fmt.Printf("Warning: Clipboard initialization failed: %v\n", err)
 		}
 	}
 
@@ -84,7 +85,7 @@ func runWithGUI() {
 	app.InitPanicNotifier()
 	app.InitToastManager()
 
-	ebiten.SetWindowTitle("TruthSworD - Ruea Economy Studio")
+	ebiten.SetWindowTitle("Ruea Economy Studio")
 	ebiten.SetTPS(ebiten.SyncWithFPS) // Restore normal TPS since the issue is graphics, not game logic
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetWindowDecorated(true)
@@ -97,4 +98,12 @@ func runWithGUI() {
 	}); err != nil {
 		panic(err)
 	}
+}
+
+func initClipboard() error {
+	return clipboard.Init()
+}
+
+func clipboardSupported() bool {
+	return true
 }

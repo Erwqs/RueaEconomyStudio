@@ -45,7 +45,7 @@ func InitializeFileSystemManager(inputManager *InputManager) {
 		eruntime.LoadState(filepath)
 
 		NewToast().
-			Text("State loaded successfully from "+filepath, ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
+			Text("Loading state data from "+filepath, ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
 			AutoClose(time.Second * 3).
 			Show()
 		return nil

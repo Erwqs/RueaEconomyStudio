@@ -3,6 +3,7 @@ package eruntime
 import (
 	"etools/typedef"
 	"fmt"
+	"time"
 )
 
 func gethq(name string) *typedef.Territory {
@@ -38,14 +39,16 @@ func sethqUnsafe(territory *typedef.Territory) {
 	fmt.Printf("[HQ_DEBUG] Setting HQ for territory %s (guild: %s)\n", territory.Name, territory.Guild.Name)
 
 	// Find old HQ for this guild and unset it
-	for _, t := range st.territories {
-		if t != nil && t.Guild.Name == territory.Guild.Name && t.HQ && t != territory {
-			// Lock the old HQ territory to unset it safely
-			t.Mu.Lock()
-			fmt.Printf("[HQ_DEBUG] Unsetting old HQ: %s (guild: %s)\n", t.Name, t.Guild.Name)
-			t.HQ = false
-			t.Mu.Unlock()
-		}
+	guildTag := territory.Guild.Tag
+	if oldHQ := getHQFromMap(guildTag); oldHQ != nil && oldHQ != territory {
+		// Lock the old HQ territory to unset it safely
+		oldHQ.Mu.Lock()
+		fmt.Printf("[HQ_DEBUG] Unsetting old HQ: %s (guild: %s)\n", oldHQ.Name, oldHQ.Guild.Name)
+		oldHQ.HQ = false
+		oldHQ.Mu.Unlock()
+
+		// Remove old HQ from map
+		setHQInMap(oldHQ, false)
 	}
 
 	// Set this territory as the new HQ
@@ -54,7 +57,25 @@ func sethqUnsafe(territory *typedef.Territory) {
 	fmt.Printf("[HQ_DEBUG] HQ set successfully for territory %s (guild: %s)\n", territory.Name, territory.Guild.Name)
 	territory.Mu.Unlock()
 
+	// Add new HQ to map
+	setHQInMap(territory, true)
+
 	// Update trading routes for all territories of this guild to reflect the new HQ
 	// Note: updateRoute is now called within the st.mu.Lock, so it's protected
 	st.updateRoute()
+
+	// Notify UI components to update after HQ change
+	// This ensures territory colors and HQ icons are refreshed
+	go func() {
+		// Add a small delay to ensure state is fully settled
+		time.Sleep(50 * time.Millisecond)
+
+		// Notify territory manager to update colors and visual state
+		NotifyTerritoryColorsUpdate()
+
+		// Notify only the specific guild that had its HQ changed for efficiency
+		NotifyGuildSpecificUpdate(territory.Guild.Name)
+
+		fmt.Printf("[HQ_DEBUG] HQ change notifications sent to UI components for guild: %s\n", territory.Guild.Name)
+	}()
 }

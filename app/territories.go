@@ -1719,14 +1719,44 @@ func max(a, b int) int {
 
 // SetTerritoryHQ sets or removes HQ status for a territory
 func (tm *TerritoriesManager) SetTerritoryHQ(territoryName string, isHQ bool) bool {
-	// Update in eruntime first
 	eruntimeTerritory := eruntime.GetTerritory(territoryName)
-	if eruntimeTerritory != nil {
-		eruntimeTerritory.Mu.Lock()
-		eruntimeTerritory.HQ = isHQ
-		eruntimeTerritory.Mu.Unlock()
+	if eruntimeTerritory == nil {
+		return false
+	}
 
-		fmt.Printf("[TERRITORIES] Set territory %s HQ status to %v in eruntime\n", territoryName, isHQ)
+	if isHQ {
+		// Use the proper HQ setting mechanism which handles clearing old HQs and notifications
+		opts := eruntime.GetTerritoryStats(territoryName)
+		if opts != nil {
+			territoryOpts := typedef.TerritoryOptions{
+				Upgrades:    opts.Upgrades,
+				Bonuses:     opts.Bonuses,
+				Tax:         opts.Tax,
+				RoutingMode: opts.RoutingMode,
+				Border:      opts.Border,
+				HQ:          true, // This will trigger the proper HQ management
+			}
+			eruntime.Set(territoryName, territoryOpts)
+		}
+	} else {
+		// For removing HQ, we can directly set it to false since there's no conflict
+		eruntimeTerritory.Mu.Lock()
+		guildName := eruntimeTerritory.Guild.Name // Capture guild name before unlocking
+		eruntimeTerritory.HQ = false
+		eruntimeTerritory.Mu.Unlock()
+		fmt.Printf("[TERRITORIES] Removed HQ status from territory %s\n", territoryName)
+
+		// Trigger UI updates for HQ removal with specific guild notification
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			// Update visual representation after HQ removal
+			tm.bufferMutex.Lock()
+			tm.bufferNeedsUpdate = true
+			tm.bufferMutex.Unlock()
+
+			// Notify only the specific guild that had its HQ removed
+			eruntime.NotifyGuildSpecificUpdate(guildName)
+		}()
 	}
 
 	// Update local territory data
@@ -1736,11 +1766,30 @@ func (tm *TerritoriesManager) SetTerritoryHQ(territoryName string, isHQ bool) bo
 	if territory, exists := tm.Territories[territoryName]; exists {
 		territory.isHQ = isHQ
 		tm.Territories[territoryName] = territory
-		fmt.Printf("[TERRITORIES] Set territory %s HQ status to %v locally\n", territoryName, isHQ)
+		fmt.Printf("[TERRITORIES] Updated local HQ status for %s to %v\n", territoryName, isHQ)
 		return true
 	}
 
 	return false
+}
+
+// UpdateTerritoryHQStatus updates the local HQ status for a territory
+func (tm *TerritoriesManager) UpdateTerritoryHQStatus(territoryName string, isHQ bool) {
+	tm.territoryMutex.Lock()
+	defer tm.territoryMutex.Unlock()
+
+	if territory, exists := tm.Territories[territoryName]; exists {
+		if territory.isHQ != isHQ {
+			territory.isHQ = isHQ
+			tm.Territories[territoryName] = territory
+			fmt.Printf("[TERRITORIES] Updated HQ status for %s to %v\n", territoryName, isHQ)
+
+			// Mark buffer as needing update to refresh visual display
+			tm.bufferMutex.Lock()
+			tm.bufferNeedsUpdate = true
+			tm.bufferMutex.Unlock()
+		}
+	}
 }
 
 // IsHQTerritory checks if a territory is marked as HQ

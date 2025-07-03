@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -1108,6 +1109,13 @@ func (lm *LoadoutManager) loadFromFile() {
 func (lm *LoadoutManager) importLoadouts() {
 	// For now, we'll implement a simple clipboard-based import
 	// In a full implementation, you'd want a file dialog
+	if runtime.GOOS == "js" {
+		NewToast().
+			Text("Clipboard import is not supported on this platform", ToastOption{Colour: color.RGBA{255, 150, 100, 255}}).
+			AutoClose(time.Second * 3).
+			Show()
+		return
+	}
 
 	clipboardData := clipboard.Read(clipboard.FmtText)
 	if len(clipboardData) == 0 {
@@ -1163,6 +1171,14 @@ func (lm *LoadoutManager) importLoadouts() {
 }
 
 func (lm *LoadoutManager) exportLoadouts() {
+	if runtime.GOOS == "js" {
+		NewToast().
+			Text("Clipboard import is not supported on this platform", ToastOption{Colour: color.RGBA{255, 150, 100, 255}}).
+			AutoClose(time.Second * 3).
+			Show()
+		return
+	}
+
 	if len(lm.loadouts) == 0 {
 		NewToast().
 			Text("No loadouts to export", ToastOption{Colour: color.RGBA{255, 200, 100, 255}}).

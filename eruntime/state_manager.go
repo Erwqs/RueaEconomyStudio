@@ -35,52 +35,56 @@ type StateData struct {
 func SaveStateToFile(filepath string) error {
 	fmt.Printf("[STATE] SaveStateToFile called with filepath: %s\n", filepath)
 
-	// Capture current state under read lock
+	// Capture current state under read lock - minimize lock time for better performance
+	var stateData StateData
+
 	st.mu.RLock()
 
-	// Create deep copies of territories to avoid holding the lock too long
-	territoriesCopy := make([]*typedef.Territory, len(st.territories))
-	for i, territory := range st.territories {
-		if territory != nil {
-			// Create a copy of the territory
-			territory.Mu.RLock()
-			territoryData := *territory
-			territory.Mu.RUnlock()
-			territoriesCopy[i] = &territoryData
-		}
-	}
+	// Quick copy of basic state data (no deep copying yet)
+	stateData.Type = "state_save"
+	stateData.Version = "1.0"
+	stateData.Timestamp = time.Now()
+	stateData.Tick = st.tick
+	stateData.RuntimeOptions = st.runtimeOptions
+	stateData.Costs = st.costs
+	stateData.TotalTerritories = len(st.territories)
+	stateData.TotalGuilds = len(st.guilds)
 
-	// Create deep copies of guilds
-	guildsCopy := make([]*typedef.Guild, len(st.guilds))
-	for i, guild := range st.guilds {
-		if guild != nil {
-			guildData := *guild
-			guildsCopy[i] = &guildData
-		}
-	}
+	// Create slices with the right capacity but don't copy data yet
+	territoryRefs := make([]*typedef.Territory, len(st.territories))
+	copy(territoryRefs, st.territories)
 
-	// Copy other state data
-	tickCopy := st.tick
-	runtimeOptionsCopy := st.runtimeOptions
-	costsCopy := st.costs
+	guildRefs := make([]*typedef.Guild, len(st.guilds))
+	copy(guildRefs, st.guilds)
 
 	st.mu.RUnlock()
 
-	// Create state data structure
-	stateData := StateData{
-		Type:      "state_save",
-		Version:   "1.0",
-		Timestamp: time.Now(),
+	// Now do the expensive deep copying WITHOUT holding any locks
+	// This allows users to continue using the application while we save
 
-		Tick:           tickCopy,
-		Territories:    territoriesCopy,
-		Guilds:         guildsCopy,
-		RuntimeOptions: runtimeOptionsCopy,
-		Costs:          costsCopy,
-
-		TotalTerritories: len(territoriesCopy),
-		TotalGuilds:      len(guildsCopy),
+	// Deep copy territories
+	stateData.Territories = make([]*typedef.Territory, len(territoryRefs))
+	for i, territory := range territoryRefs {
+		if territory != nil {
+			// Lock individual territory briefly to copy its data
+			territory.Mu.RLock()
+			territoryData := *territory
+			territory.Mu.RUnlock()
+			stateData.Territories[i] = &territoryData
+		}
 	}
+
+	// Deep copy guilds (these are small, so copying is fast)
+	stateData.Guilds = make([]*typedef.Guild, len(guildRefs))
+	for i, guild := range guildRefs {
+		if guild != nil {
+			guildData := *guild
+			stateData.Guilds[i] = &guildData
+		}
+	}
+
+	// All the expensive operations (JSON marshal, compression, file write) happen
+	// without holding any locks, so users can continue working
 
 	// Marshal to JSON
 	jsonData, err := json.Marshal(stateData)
@@ -208,6 +212,9 @@ func LoadStateFromFile(filepath string) error {
 		}
 	}
 
+	// Rebuild HQ map for fast HQ lookups after state loading
+	rebuildHQMap()
+
 	// Rebuild guild relationships and update routes
 	st.updateRoute()
 
@@ -234,7 +241,7 @@ func LoadStateFromFile(filepath string) error {
 		time.Sleep(100 * time.Millisecond)
 
 		// Notify that state has changed and territory colors need updating
-		notifyTerritoryColorsUpdate()
+		NotifyTerritoryColorsUpdate()
 
 		fmt.Printf("[STATE] State loading completed, notifications sent\n")
 	}()
@@ -242,7 +249,7 @@ func LoadStateFromFile(filepath string) error {
 	// Add debug tracking to monitor HQ changes after state loading
 	fmt.Printf("[STATE] Monitoring HQ status for the next few seconds after state load...\n")
 	go func() {
-		for i := 0; i < 10; i++ { // Monitor for 10 seconds
+		for i := 0; i < 3; i++ { // Monitor for 3 seconds
 			time.Sleep(1 * time.Second)
 
 			// Check all territories for HQ status
@@ -392,7 +399,7 @@ func mergeGuildsFromState(loadedGuilds []*typedef.Guild) error {
 
 		// Notify guild managers to merge new guilds while preserving local data like colors
 		// This is now safe because we have state loading protection
-		go notifyGuildManagerUpdate()
+		go NotifyGuildManagerUpdate()
 	}
 
 	return nil

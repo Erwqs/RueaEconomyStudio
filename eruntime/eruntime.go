@@ -48,6 +48,9 @@ type state struct {
 	// Transit system for managing resource movement
 	transitManager *TransitManager
 
+	// HQ map for fast HQ lookups - maps guild tag to HQ territory
+	hqMap map[string]*typedef.Territory
+
 	// No need, each territory has its own mutex
 	// mu sync.Mutex // mutex to protect state changes
 
@@ -72,6 +75,7 @@ func init() {
 			TreasuryEnabled: true,
 		},
 		transitManager:        NewTransitManager(),
+		hqMap:                 make(map[string]*typedef.Territory),
 		tickQueue:             make(chan struct{}, 50000), // Large buffer for very high-rate tick processing
 		useParallelProcessing: true,                       // Enable parallel processing by default for better performance
 	}

@@ -2,9 +2,9 @@ package eruntime
 
 import (
 	"errors"
-	"fmt"
 	"etools/eruntime/pathfinder"
 	"etools/typedef"
+	"fmt"
 	"math/rand"
 	"time"
 )
@@ -129,8 +129,25 @@ func getExternalTerritories(territoryName, guildTag string, maxDistance int) []s
 // updateRoute recalculates trading routes for each territory to its guild HQ.
 // If no HQ is set, or guild owner is No Guild, then the territory will not have a route.
 func (s *state) updateRoute() {
+	fmt.Printf("[ROUTING_DEBUG] updateRoute called - recalculating all trading routes\n")
+
+	// Caches for HQs and allies per guild
+	hqCache := make(map[string][]*typedef.Territory)
+	alliesCache := make(map[string][]string)
+
+	// Revert to sequential route calculation for each territory
 	for _, t := range s.territories {
 		if t == nil {
+			continue
+		}
+
+		// Skip if no guild or guild is "No Guild"
+		if t.Guild.Tag == "" || t.Guild.Tag == "NONE" {
+			// Still reset route info for consistency
+			t.TradingRoutes = nil
+			t.NextTerritory = nil
+			t.Destination = nil
+			t.RouteTax = -1.0
 			continue
 		}
 
@@ -140,27 +157,35 @@ func (s *state) updateRoute() {
 		t.Destination = nil
 		t.RouteTax = -1.0
 
-		// Reset and populate Links
-		t.Links.Direct = make(map[string]struct{})
-		t.Links.Externals = make(map[string]struct{})
+		// Only populate links for valid guild territories
 		populateTerritoryLinks(t)
 
-		// Skip if no guild or guild is "No Guild"
-		if t.Guild.Tag == "" || t.Guild.Tag == "NONE" {
-			continue
-		}
+		guildTag := t.Guild.Tag
 
-		// Find HQ territories for this guild
-		hqTerritories := findHQTerritories(t.Guild.Tag)
+		// Cache HQs and allies per guild
+		if _, ok := hqCache[guildTag]; !ok {
+			hqCache[guildTag] = findHQTerritories(guildTag)
+		}
+		if _, ok := alliesCache[guildTag]; !ok {
+			alliesCache[guildTag] = getGuildAllies(guildTag)
+		}
+		hqTerritories := hqCache[guildTag]
+		allies := alliesCache[guildTag]
+
+		// Cache for pathfinding results between this territory and each HQ
+		pathCache := make(map[string]struct {
+			route []*typedef.Territory
+			err   error
+		})
+
 		if len(hqTerritories) == 0 {
+			fmt.Printf("[ROUTING_DEBUG] No HQ found for guild %s, skipping territory %s\n", t.Guild.Tag, t.Name)
 			continue
 		}
-
-		// Get allies for this guild
-		allies := getGuildAllies(t.Guild.Tag)
 
 		// Skip if this territory is already an HQ
 		if t.HQ {
+			fmt.Printf("[ROUTING_DEBUG] Territory %s is HQ for guild %s, calling updateHQRoutes\n", t.Name, t.Guild.Tag)
 			t.RouteTax = -1.0 // HQ has no route tax
 			// Handle HQ routing to all other territories of the same guild
 			updateHQRoutes(t, allies)
@@ -172,29 +197,43 @@ func (s *state) updateRoute() {
 
 		// Try to find route to each HQ and pick the best one
 		for _, hq := range hqTerritories {
+			cacheKey := hq.Name
+			if cached, ok := pathCache[cacheKey]; ok {
+				route, err := cached.route, cached.err
+				if err != nil || len(route) == 0 {
+					continue
+				}
+				if len(bestRoutes) == 0 || isBetterRoute(route, bestRoutes[0], t.RoutingMode, t.Guild.Tag, allies) {
+					bestRoutes = [][]*typedef.Territory{route}
+					bestHQ = hq
+				} else if len(bestRoutes) > 0 && isEqualRoute(route, bestRoutes[0], t.RoutingMode, t.Guild.Tag, allies) {
+					bestRoutes = append(bestRoutes, route)
+				}
+				continue
+			}
+
 			var route []*typedef.Territory
 			var err error
-
 			switch t.RoutingMode {
 			case typedef.RoutingCheapest:
 				route, err = pathfinder.Dijkstra(t, hq, TerritoryMap, TradingRoutesMap, t.Guild.Tag, allies)
 			case typedef.RoutingFastest:
 				route, err = pathfinder.BFS(t, hq, TerritoryMap, TradingRoutesMap, t.Guild.Tag)
 			}
+			// Store in cache
+			pathCache[cacheKey] = struct {
+				route []*typedef.Territory
+				err   error
+			}{route, err}
 
 			if err != nil || len(route) == 0 {
 				continue
 			}
-
-			// Check if this route is better, same, or worse than current best
 			if len(bestRoutes) == 0 || isBetterRoute(route, bestRoutes[0], t.RoutingMode, t.Guild.Tag, allies) {
-				// This route is better, replace all best routes
 				bestRoutes = [][]*typedef.Territory{route}
 				bestHQ = hq
 			} else if len(bestRoutes) > 0 && isEqualRoute(route, bestRoutes[0], t.RoutingMode, t.Guild.Tag, allies) {
-				// This route is equal to the best, add it to the list
 				bestRoutes = append(bestRoutes, route)
-				// Keep the same bestHQ for simplicity, or we could track multiple HQs
 			}
 		}
 
@@ -216,14 +255,58 @@ func (s *state) updateRoute() {
 	}
 }
 
-// findHQTerritories finds all HQ territories for a given guild
+// HQ management functions for fast lookups
+
+// setHQInMap sets or removes an HQ in the map
+func setHQInMap(territory *typedef.Territory, isHQ bool) {
+	if territory == nil {
+		return
+	}
+
+	guildTag := territory.Guild.Tag
+	if guildTag == "" || guildTag == "NONE" {
+		return
+	}
+
+	if isHQ {
+		st.hqMap[guildTag] = territory
+	} else {
+		// Only remove if this territory was the HQ
+		if currentHQ, exists := st.hqMap[guildTag]; exists && currentHQ == territory {
+			delete(st.hqMap, guildTag)
+		}
+	}
+}
+
+// getHQFromMap gets the HQ territory for a guild tag
+func getHQFromMap(guildTag string) *typedef.Territory {
+	if guildTag == "" || guildTag == "NONE" {
+		return nil
+	}
+	return st.hqMap[guildTag]
+}
+
+// rebuildHQMap rebuilds the HQ map from scratch by scanning all territories
+func rebuildHQMap() {
+	st.hqMap = make(map[string]*typedef.Territory)
+	for _, territory := range st.territories {
+		if territory != nil && territory.HQ {
+			guildTag := territory.Guild.Tag
+			if guildTag != "" && guildTag != "NONE" {
+				st.hqMap[guildTag] = territory
+			}
+		}
+	}
+	fmt.Printf("[HQ_MAP] Rebuilt HQ map with %d entries\n", len(st.hqMap))
+}
+
+// findHQTerritories finds all HQ territories for a given guild using the fast HQ map
 func findHQTerritories(guildTag string) []*typedef.Territory {
 	var hqTerritories []*typedef.Territory
 
-	for _, territory := range st.territories {
-		if territory != nil && territory.HQ && territory.Guild.Tag == guildTag {
-			hqTerritories = append(hqTerritories, territory)
-		}
+	// Use the fast HQ map lookup instead of scanning all territories
+	if hq := getHQFromMap(guildTag); hq != nil {
+		hqTerritories = append(hqTerritories, hq)
 	}
 
 	return hqTerritories
@@ -305,6 +388,8 @@ func updateHQRoutes(hq *typedef.Territory, allies []string) {
 		return
 	}
 
+	fmt.Printf("[ROUTING_DEBUG] updateHQRoutes called for HQ: %s, guild: %s [%s]\n", hq.Name, hq.Guild.Name, hq.Guild.Tag)
+
 	// Find all territories of the same guild (excluding the HQ itself)
 	var guildTerritories []*typedef.Territory
 	for _, territory := range st.territories {
@@ -314,14 +399,19 @@ func updateHQRoutes(hq *typedef.Territory, allies []string) {
 			territory.Guild.Tag != "" &&
 			territory.Guild.Tag != "NONE" {
 			guildTerritories = append(guildTerritories, territory)
+			fmt.Printf("[ROUTING_DEBUG] Found guild territory: %s\n", territory.Name)
 		}
 	}
+
+	fmt.Printf("[ROUTING_DEBUG] HQ %s found %d territories of guild %s to route to\n", hq.Name, len(guildTerritories), hq.Guild.Tag)
 
 	// Reset HQ's trading routes
 	hq.TradingRoutes = make([][]*typedef.Territory, 0, len(guildTerritories))
 
 	// Calculate routes from HQ to each territory
 	for _, target := range guildTerritories {
+		fmt.Printf("[ROUTING_DEBUG] Calculating route from HQ %s to %s\n", hq.Name, target.Name)
+
 		var routes [][]*typedef.Territory
 		var err error
 
@@ -334,13 +424,17 @@ func updateHQRoutes(hq *typedef.Territory, allies []string) {
 
 		if err != nil || len(routes) == 0 {
 			// No route found to this territory (e.g., foreign guild closed borders)
+			fmt.Printf("[ROUTING_DEBUG] No route found from HQ %s to %s: %v\n", hq.Name, target.Name, err)
 			continue
 		}
 
 		// Pick one route randomly if multiple routes have the same cost/length
 		selectedRoute := selectRandomRoute(routes)
 		hq.TradingRoutes = append(hq.TradingRoutes, selectedRoute)
+		fmt.Printf("[ROUTING_DEBUG] Added route from HQ %s to %s (length: %d)\n", hq.Name, target.Name, len(selectedRoute))
 	}
+
+	fmt.Printf("[ROUTING_DEBUG] HQ %s final route count: %d\n", hq.Name, len(hq.TradingRoutes))
 }
 
 // findAllRoutesWithSameTax finds all routes with the same minimum tax
@@ -418,19 +512,35 @@ func SetTerritoryHQ(territoryName string, isHQ bool) error {
 
 	// If setting as HQ, unset other HQs for the same guild
 	if isHQ {
-		for _, t := range st.territories {
-			if t != nil && t.Guild.Tag == territory.Guild.Tag && t.HQ {
-				fmt.Printf("[HQ_DEBUG] Clearing old HQ %s for guild %s in SetTerritoryHQ\n", t.Name, t.Guild.Tag)
-				t.HQ = false
-			}
+		if oldHQ := getHQFromMap(territory.Guild.Tag); oldHQ != nil && oldHQ != territory {
+			fmt.Printf("[HQ_DEBUG] Clearing old HQ %s for guild %s in SetTerritoryHQ\n", oldHQ.Name, oldHQ.Guild.Tag)
+			oldHQ.HQ = false
+			setHQInMap(oldHQ, false)
 		}
 	}
 
 	territory.HQ = isHQ
+	setHQInMap(territory, isHQ)
 	fmt.Printf("[HQ_DEBUG] Set territory %s HQ status to %v\n", territoryName, isHQ)
 
 	// Update all routes for this guild
+	fmt.Printf("[ROUTING_DEBUG] SetTerritoryHQ: Calling UpdateAllRoutes after setting HQ status\n")
 	UpdateAllRoutes()
+
+	// Notify UI components to update after HQ change
+	// This ensures territory colors and HQ icons are refreshed
+	go func() {
+		// Add a small delay to ensure state is fully settled
+		time.Sleep(50 * time.Millisecond)
+
+		// Notify territory manager to update colors and visual state
+		NotifyTerritoryColorsUpdate()
+
+		// Notify only the specific guild that had its HQ changed for efficiency
+		NotifyGuildSpecificUpdate(territory.Guild.Name)
+
+		fmt.Printf("[HQ_DEBUG] SetTerritoryHQ notifications sent to UI components for guild: %s\n", territory.Guild.Name)
+	}()
 
 	// Trigger auto-save after user action
 	TriggerAutoSave()

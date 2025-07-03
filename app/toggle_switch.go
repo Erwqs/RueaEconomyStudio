@@ -20,6 +20,7 @@ func drawToggleSwitch(
 	currentValue string,
 	font font.Face,
 	contentOffset int,
+	mx, my int, // Mouse coordinates - use -1, -1 to disable hover effects
 ) image.Rectangle {
 	// Create the overall rectangle for the toggle switch
 	toggleRect := image.Rect(x, y, x+width, y+height)
@@ -30,9 +31,6 @@ func drawToggleSwitch(
 	// Calculate positions for each option
 	option1X := x
 	option2X := x + optionWidth
-
-	// Get mouse position for hover effects
-	mx, my := ebiten.CursorPosition()
 
 	// Draw the base background (darker)
 	baseColor := color.RGBA{40, 40, 60, 255}
@@ -50,8 +48,8 @@ func drawToggleSwitch(
 		option1Color = color.RGBA{60, 60, 80, 255} // Normal background when inactive
 	}
 
-	// Check if option 1 is hovered
-	option1Hovered := mx >= option1X && mx <= option1X+optionWidth &&
+	// Check if option 1 is hovered (only if valid mouse coordinates are provided)
+	option1Hovered := mx >= 0 && my >= 0 && mx >= option1X && mx <= option1X+optionWidth &&
 		my >= y && my <= y+height && !option1Active
 	if option1Hovered {
 		option1Color = color.RGBA{70, 70, 100, 255} // Subtle highlight on hover
@@ -68,8 +66,8 @@ func drawToggleSwitch(
 		option2Color = color.RGBA{60, 60, 80, 255} // Normal background when inactive
 	}
 
-	// Check if option 2 is hovered
-	option2Hovered := mx >= option2X && mx <= option2X+optionWidth &&
+	// Check if option 2 is hovered (only if valid mouse coordinates are provided)
+	option2Hovered := mx >= 0 && my >= 0 && mx >= option2X && mx <= option2X+optionWidth &&
 		my >= y && my <= y+height && !option2Active
 	if option2Hovered {
 		option2Color = color.RGBA{70, 70, 100, 255} // Subtle highlight on hover

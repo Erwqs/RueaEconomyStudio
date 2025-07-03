@@ -1053,15 +1053,25 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 
 		for _, element := range m.elements {
 			if element.IsVisible() {
-				// Check if element is at least partially visible horizontally
-				if currentX+cardWidth > m.bounds.Min.X && currentX < m.bounds.Max.X {
-					// Only update if mouse is within content area and element bounds
-					if mx >= currentX && mx < currentX+cardWidth &&
-						my >= contentY && my < contentY+contentHeight {
-						if element.Update(mx, my, deltaTime) {
-							handled = true
-							break // Stop processing other elements when one handles input
-						}
+				// Always update animations for all visible elements regardless of mouse position
+				elementInBounds := currentX+cardWidth > m.bounds.Min.X && currentX < m.bounds.Max.X
+				mouseInElement := mx >= currentX && mx < currentX+cardWidth &&
+					my >= contentY && my < contentY+contentHeight
+
+				// Update element: pass mouse coordinates only if mouse is actually over the element
+				if elementInBounds {
+					var updateMx, updateMy int
+					if mouseInElement {
+						updateMx, updateMy = mx, my
+					} else {
+						// Pass coordinates outside element bounds to ensure animations continue
+						// but input events (clicks, hovers) are not triggered
+						updateMx, updateMy = -1, -1
+					}
+
+					if element.Update(updateMx, updateMy, deltaTime) && mouseInElement {
+						handled = true
+						break // Stop processing other elements when one handles input
 					}
 				}
 				currentX += cardWidth + cardSpacing
@@ -1075,15 +1085,25 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 			if element.IsVisible() {
 				elementHeight := element.GetMinHeight()
 
-				// Check if element is at least partially visible
-				if currentY+elementHeight > contentY && currentY < contentY+contentHeight {
-					// Only update if mouse is within content area
-					if mx >= m.bounds.Min.X && mx < m.bounds.Max.X &&
-						my >= contentY && my < contentY+contentHeight {
-						if element.Update(mx, my, deltaTime) {
-							handled = true
-							break // Stop processing other elements when one handles input
-						}
+				// Always update animations for all visible elements regardless of mouse position
+				elementInBounds := currentY+elementHeight > contentY && currentY < contentY+contentHeight
+				mouseInElement := mx >= m.bounds.Min.X && mx < m.bounds.Max.X &&
+					my >= contentY && my < contentY+contentHeight
+
+				// Update element: pass mouse coordinates only if mouse is actually over the element
+				if elementInBounds {
+					var updateMx, updateMy int
+					if mouseInElement {
+						updateMx, updateMy = mx, my
+					} else {
+						// Pass coordinates outside element bounds to ensure animations continue
+						// but input events (clicks, hovers) are not triggered
+						updateMx, updateMy = -1, -1
+					}
+
+					if element.Update(updateMx, updateMy, deltaTime) && mouseInElement {
+						handled = true
+						break // Stop processing other elements when one handles input
 					}
 				}
 				currentY += elementHeight + 10

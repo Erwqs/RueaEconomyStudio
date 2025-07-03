@@ -13,11 +13,17 @@ type StateChangeCallback func()
 // GuildChangeCallback is a function type for notifications when guild data changes
 type GuildChangeCallback func()
 
+// GuildSpecificChangeCallback is a function type for notifications when a specific guild's data changes
+type GuildSpecificChangeCallback func(guildName string)
+
 // Global callback for state changes
 var stateChangeCallback StateChangeCallback
 
 // Global callback for guild changes
 var guildChangeCallback GuildChangeCallback
+
+// Global callback for specific guild changes
+var guildSpecificChangeCallback GuildSpecificChangeCallback
 
 // SetStateChangeCallback allows external packages to register for state change notifications
 func SetStateChangeCallback(callback StateChangeCallback) {
@@ -27,6 +33,11 @@ func SetStateChangeCallback(callback StateChangeCallback) {
 // SetGuildChangeCallback allows external packages to register for guild change notifications
 func SetGuildChangeCallback(callback GuildChangeCallback) {
 	guildChangeCallback = callback
+}
+
+// SetGuildSpecificChangeCallback allows external packages to register for specific guild change notifications
+func SetGuildSpecificChangeCallback(callback GuildSpecificChangeCallback) {
+	guildSpecificChangeCallback = callback
 }
 
 // TerritoryStats represents comprehensive territory statistics for GUI display
@@ -215,11 +226,16 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 			if oldGuildName != guild.Name || oldGuildTag != guild.Tag {
 				t.CapturedAt = st.tick
 				t.Treasury = typedef.TreasuryLevelVeryLow
-				
+
 				// If territory changes ownership, it should no longer be an HQ
 				// The new guild must explicitly set a new HQ
-				fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuild from %s[%s] to %s[%s]\n", 
+				fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuild from %s[%s] to %s[%s]\n",
 					t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
+
+				// Remove from old guild's HQ map entry if it was an HQ
+				if t.HQ {
+					setHQInMap(t, false)
+				}
 				t.HQ = false
 			}
 
@@ -230,6 +246,7 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 	}
 
 	// Update all routes since territory ownership changed - safe since we have write lock
+	fmt.Printf("[ROUTING_DEBUG] SetGuild: Calling updateRoute after setting %s to guild %s [%s]\n", territory, guild.Name, guild.Tag)
 	st.updateRoute()
 
 	// Trigger auto-save after user action
@@ -273,8 +290,13 @@ func SetGuildBatch(opts map[string]*typedef.Guild) []*typedef.Territory {
 		// Only clear HQ status if territory changes ownership
 		// Don't clear HQ if it's just a guild update during state loading with same guild
 		if oldGuildName != guild.Name || oldGuildTag != guild.Tag {
-			fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to ownership change from %s[%s] to %s[%s]\n", 
+			fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to ownership change from %s[%s] to %s[%s]\n",
 				t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
+
+			// Remove from old guild's HQ map entry if it was an HQ
+			if t.HQ {
+				setHQInMap(t, false)
+			}
 			t.HQ = false
 		}
 
@@ -475,7 +497,6 @@ func Reset() {
 			territory.Net = typedef.BasicResources{}
 
 			// Reset trading routes
-			territory.TradingRoutes = [][]*typedef.Territory{}
 			territory.NextTerritory = nil
 			territory.Destination = nil
 
@@ -507,18 +528,21 @@ func Reset() {
 	// Recreate transit manager
 	st.transitManager = NewTransitManager()
 
+	// Clear and rebuild HQ map since all HQs have been reset
+	st.hqMap = make(map[string]*typedef.Territory)
+
 	// Clear global maps and rebuild them
-	TradingRoutesMap = make(map[string][]string)
-	TerritoryMap = make(map[string]*typedef.Territory)
+	// TradingRoutesMap = make(map[string][]string)
+	// TerritoryMap = make(map[string]*typedef.Territory)
 
 	// Rebuild TerritoryMap and TradingRoutesMap for fast lookups
-	for _, territory := range st.territories {
-		if territory != nil {
-			TerritoryMap[territory.Name] = territory
-			// Rebuild trading routes map from territory's connected territories
-			TradingRoutesMap[territory.Name] = territory.ConnectedTerritories
-		}
-	}
+	// for _, territory := range st.territories {
+	// 	if territory != nil {
+	// 		TerritoryMap[territory.Name] = territory
+	// 		// Rebuild trading routes map from territory's connected territories
+	// 		TradingRoutesMap[territory.Name] = territory.ConnectedTerritories
+	// 	}
+	// }
 
 	// Update all routes to recalculate with reset state
 	st.updateRoute()
@@ -530,8 +554,20 @@ func Reset() {
 	// Clear loading flag - reset is complete and ready for normal operations
 	st.stateLoading = false
 
-	// Notify territories manager to update colors after reset (asynchronously to avoid deadlock)
-	go notifyTerritoryColorsUpdate()
+	// Notify both territory colors and guild manager to update after reset
+	// This ensures all UI components refresh their visual state
+	go func() {
+		// Add a small delay to ensure state is fully settled
+		time.Sleep(50 * time.Millisecond)
+
+		// Notify territory manager to update colors and visual state
+		NotifyTerritoryColorsUpdate()
+
+		// Also notify guild manager in case HQ icons are managed there
+		NotifyGuildManagerUpdate()
+
+		fmt.Println("[ERUNTIME] Reset notifications sent to UI components")
+	}()
 }
 
 func SaveState(path string) {
@@ -603,14 +639,15 @@ func GetTradingRoutesForTerritory(territoryName string) []string {
 	return []string{}
 }
 
-// GetAllGuilds returns a list of all guild names
+// GetAllGuilds returns a list of all guild names in "Name [TAG]" format
 func GetAllGuilds() []string {
 	var guildNames []string
 	guildNames = append(guildNames, "No Guild [NONE]") // Always include the no guild option first
 
 	for _, guild := range st.guilds {
 		if guild != nil && guild.Name != "" && guild.Name != "No Guild [NONE]" {
-			guildNames = append(guildNames, guild.Name)
+			// Return in "Name [TAG]" format so the Enhanced Guild Manager can parse it correctly
+			guildNames = append(guildNames, fmt.Sprintf("%s [%s]", guild.Name, guild.Tag))
 		}
 	}
 
@@ -854,9 +891,9 @@ func TriggerAutoSave() {
 	}
 
 	now := time.Now()
-	// Only auto-save if at least 5 seconds have passed since last auto-save
+	// Only auto-save if at least 10 seconds have passed since last auto-save
 	// This prevents excessive auto-saving during rapid user actions
-	if now.Sub(lastAutoSaveTime) < 5*time.Second {
+	if now.Sub(lastAutoSaveTime) < 10*time.Second {
 		return
 	}
 
@@ -891,18 +928,26 @@ func LoadAutoSave() bool {
 	return true
 }
 
-// notifyTerritoryColorsUpdate triggers territory color update in the app layer
-func notifyTerritoryColorsUpdate() {
+// NotifyTerritoryColorsUpdate triggers territory color update in the app layer
+func NotifyTerritoryColorsUpdate() {
 	if stateChangeCallback != nil {
 		stateChangeCallback()
 		fmt.Println("[ERUNTIME] Territory colors update notification sent")
 	}
 }
 
-// notifyGuildManagerUpdate triggers guild data update in the app layer
-func notifyGuildManagerUpdate() {
+// NotifyGuildManagerUpdate triggers guild data update in the app layer
+func NotifyGuildManagerUpdate() {
 	if guildChangeCallback != nil {
 		guildChangeCallback()
 		fmt.Println("[ERUNTIME] Guild manager update notification sent")
+	}
+}
+
+// NotifyGuildSpecificUpdate triggers guild-specific update in the app layer
+func NotifyGuildSpecificUpdate(guildName string) {
+	if guildSpecificChangeCallback != nil {
+		guildSpecificChangeCallback(guildName)
+		fmt.Printf("[ERUNTIME] Guild-specific update notification sent for guild: %s\n", guildName)
 	}
 }

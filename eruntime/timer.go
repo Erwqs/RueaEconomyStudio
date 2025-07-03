@@ -1,6 +1,7 @@
 package eruntime
 
 import (
+	"fmt"
 	"runtime"
 	"time"
 )
@@ -70,13 +71,15 @@ func (s *state) processQueuedTicks() {
 		tickStart := time.Now()
 		s.mu.Lock()
 
+		s.tick++
+
 		// Process resource deliveries BEFORE consumption on minute boundaries
 		// This ensures territories receive HQ shipments before consuming resources
 		if s.tick%60 == 0 {
+			fmt.Printf("[DELIVERY_DEBUG] Resource delivery triggered at tick %d\n", s.tick)
 			s.update2()
 		}
 		s.update()
-		s.tick++
 
 		// Trigger auto-save every minute (60 ticks)
 		if s.tick%60 == 0 {
