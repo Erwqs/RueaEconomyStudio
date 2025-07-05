@@ -229,6 +229,32 @@ func (tm *TerritoryModal) drawResourceTable(screen *ebiten.Image, x, y, width, h
 		totalUsage.Fish += stats.TotalCosts.Fish
 	}
 
+	// Add tribute data from guild totals
+	// Note: TributeIn and TributeOut are stored as per-minute values, but we need per-hour for display
+	// so we multiply by 60 to convert to per-hour
+
+	// Get guild directly from guild manager to ensure we have the latest tribute data
+	guild := eruntime.GetGuildByName(guildName)
+	if guild != nil {
+		// Debug: Print tribute values to see what we're getting
+		fmt.Printf("DEBUG: Guild %s TributeIn: %+v\n", guildName, guild.TributeIn)
+		fmt.Printf("DEBUG: Guild %s TributeOut: %+v\n", guildName, guild.TributeOut)
+
+		totalProd.Emerald += guild.TributeIn.Emeralds * 60
+		totalProd.Ore += guild.TributeIn.Ores * 60
+		totalProd.Crop += guild.TributeIn.Crops * 60
+		totalProd.Wood += guild.TributeIn.Wood * 60
+		totalProd.Fish += guild.TributeIn.Fish * 60
+
+		totalUsage.Emerald += guild.TributeOut.Emeralds * 60
+		totalUsage.Ore += guild.TributeOut.Ores * 60
+		totalUsage.Crop += guild.TributeOut.Crops * 60
+		totalUsage.Wood += guild.TributeOut.Wood * 60
+		totalUsage.Fish += guild.TributeOut.Fish * 60
+	} else {
+		fmt.Printf("DEBUG: Guild %s not found in guild manager\n", guildName)
+	}
+
 	// Load font
 	font := loadWynncraftFont(16)
 	if font == nil {

@@ -246,7 +246,7 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 	}
 
 	// Update all routes since territory ownership changed - safe since we have write lock
-	fmt.Printf("[ROUTING_DEBUG] SetGuild: Calling updateRoute after setting %s to guild %s [%s]\n", territory, guild.Name, guild.Tag)
+	// fmt.Printf("[ROUTING_DEBUG] SetGuild: Calling updateRoute after setting %s to guild %s [%s]\n", territory, guild.Name, guild.Tag)
 	st.updateRoute()
 
 	// Trigger auto-save after user action
@@ -517,6 +517,19 @@ func Reset() {
 	// Reset global state
 	st.tick = 0
 	st.savedSnapshots = make([][]*typedef.Territory, 0)
+
+	// Reset tribute system
+	fmt.Println("[ERUNTIME] Resetting tribute system during state reset")
+	st.activeTributes = []*typedef.ActiveTribute{} // Clear all active tributes
+
+	// Reset all guild tribute totals
+	for _, guild := range st.guilds {
+		if guild != nil {
+			guild.TributeIn = typedef.BasicResources{}
+			guild.TributeOut = typedef.BasicResources{}
+		}
+	}
+	fmt.Println("[ERUNTIME] Tribute system reset complete")
 
 	// Reset runtime options to defaults
 	st.runtimeOptions = typedef.RuntimeOptions{
@@ -858,6 +871,21 @@ func GetBonusCost(bonusType string, level int) (int, string) {
 
 func GetCost() *typedef.Costs {
 	return &st.costs
+}
+
+func SetTreasuryOverride(t *typedef.Territory, level typedef.TreasuryOverride) {
+	if t == nil {
+		return
+	}
+
+	t.Mu.Lock()
+	defer t.Mu.Unlock()
+
+	t.TreasuryOverride = level
+	fmt.Printf("[ERUNTIME] Set treasury override for territory %s to level %d\n", t.Name, level)
+
+	// Update the generation bonus immediately when treasury override is changed
+	updateGenerationBonus(t)
 }
 
 // Auto-save functionality

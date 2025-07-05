@@ -428,6 +428,7 @@ type EnhancedGuildManager struct {
 	modalHeight        int
 	justOpened         bool                             // Flag to prevent initial character input
 	framesSinceOpen    int                              // Count frames since opening
+	framesToIgnoreESC  int                              // Frames to ignore ESC after opening
 	colorPicker        *ColorPicker                     // Color picker for guild colors
 	keyEventCh         <-chan KeyEvent                  // Channel for receiving key events
 	onEditClaim        func(guildName, guildTag string) // Callback for edit claim button
@@ -524,8 +525,9 @@ func (gm *EnhancedGuildManager) Show() {
 	fmt.Printf("[GUILD_MANAGER] Showing guild manager\n")
 	gm.visible = true
 	gm.nameInput.Focused = true
-	gm.justOpened = true   // Set flag to prevent initial character input
-	gm.framesSinceOpen = 0 // Reset frame counter
+	gm.justOpened = true      // Set flag to prevent initial character input
+	gm.framesSinceOpen = 0    // Reset frame counter
+	gm.framesToIgnoreESC = 10 // Ignore ESC for first 10 frames after opening
 
 	// Clear any existing text in the name input to prevent 'g' character
 	gm.nameInput.Value = ""
@@ -537,6 +539,20 @@ func (gm *EnhancedGuildManager) Show() {
 	gm.tagInput.Value = ""
 	gm.tagInput.cursorPos = 0
 	gm.tagInput.selStart = -1
+
+	// Clear/drain any pending key events from the channel to prevent accumulated ESC events
+	if gm.keyEventCh != nil {
+		for {
+			select {
+			case <-gm.keyEventCh:
+				// Drain the channel
+			default:
+				// No more events to drain
+				goto channelDrained
+			}
+		}
+	}
+channelDrained:
 	gm.tagInput.selEnd = -1
 
 	gm.filterGuilds()
@@ -719,8 +735,12 @@ func (gm *EnhancedGuildManager) Update() bool {
 			select {
 			case event := <-gm.keyEventCh:
 				if event.Pressed && event.Key == ebiten.KeyEscape {
-					gm.Hide()
-					return true
+					// Only allow ESC to close if we've waited enough frames
+					if gm.framesToIgnoreESC <= 0 {
+						gm.Hide()
+						return true
+					}
+					// Otherwise ignore the ESC key
 				}
 			default:
 				// No more events to process
@@ -740,6 +760,11 @@ keyEventsProcessed:
 		if gm.framesSinceOpen >= 2 {
 			gm.justOpened = false
 		}
+	}
+
+	// Decrement ESC ignore counter
+	if gm.framesToIgnoreESC > 0 {
+		gm.framesToIgnoreESC--
 	}
 
 	// Update input fields - skip character input if just opened
@@ -1475,10 +1500,12 @@ func (gm *EnhancedGuildManager) loadGuildsFromFile() {
 		}
 	}
 
-	// Create a map of existing guilds for fast lookup (preserves local colors)
-	existingGuilds := make(map[string]*EnhancedGuildData)
+	// Create maps of existing guilds for fast lookup (preserves local colors)
+	existingGuildsByTag := make(map[string]*EnhancedGuildData)
+	existingGuildsByName := make(map[string]*EnhancedGuildData)
 	for i := range gm.guilds {
-		existingGuilds[gm.guilds[i].Tag] = &gm.guilds[i]
+		existingGuildsByTag[gm.guilds[i].Tag] = &gm.guilds[i]
+		existingGuildsByName[gm.guilds[i].Name] = &gm.guilds[i]
 	}
 
 	// Get all guilds from eruntime and merge any new ones
@@ -1499,23 +1526,30 @@ func (gm *EnhancedGuildManager) loadGuildsFromFile() {
 			guildName = guildDisplay[:lastBracket]
 			guildTag = guildDisplay[lastBracket+2 : len(guildDisplay)-1] // Remove " [" and "]"
 		} else {
-			// Fallback: use the display name as both name and tag
 			guildName = guildDisplay
-			guildTag = guildDisplay
+			guildTag = ""
 		}
 
-		// Check if this guild already exists in our local list
-		if _, exists := existingGuilds[guildTag]; !exists {
-			// New guild from eruntime - add it with a default color
-			newGuild := EnhancedGuildData{
-				Name:  guildName,
-				Tag:   guildTag,
-				Color: "#FFAA00", // Default yellow color for new guilds
-			}
-			gm.guilds = append(gm.guilds, newGuild)
-			newGuildsAdded = true
-			fmt.Printf("[GUILD_MANAGER] Added new guild from eruntime: %s [%s]\n", guildName, guildTag)
+		// If a local guild exists with the same name, skip adding (local takes precedence)
+		if _, exists := existingGuildsByName[guildName]; exists {
+			continue
 		}
+		// If a local guild exists with the same tag (and tag is not empty), skip adding
+		if guildTag != "" {
+			if _, exists := existingGuildsByTag[guildTag]; exists {
+				continue
+			}
+		}
+
+		// New guild from eruntime - add it with a default color
+		newGuild := EnhancedGuildData{
+			Name:  guildName,
+			Tag:   guildTag,
+			Color: "#FFAA00", // Default yellow color for new guilds
+		}
+		gm.guilds = append(gm.guilds, newGuild)
+		newGuildsAdded = true
+		fmt.Printf("[GUILD_MANAGER] Added new guild from eruntime: %s [%s]\n", guildName, guildTag)
 	}
 
 	// If we added new guilds, save the updated list

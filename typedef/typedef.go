@@ -40,6 +40,17 @@ const (
 	TreasuryLevelVeryHigh
 )
 
+type TreasuryOverride int8
+
+const (
+	TreasuryOverrideNone     TreasuryOverride = iota // No override, treasury is calculated based on held time
+	TreasuryOverrideVeryLow                          // Override to low treasury level
+	TreasuryOverrideLow                              // Override to low treasury level
+	TreasuryOverrideMedium                           // Override to medium treasury level
+	TreasuryOverrideHigh                             // Override to high treasury level
+	TreasuryOverrideVeryHigh                         // Override to very high treasury level
+)
+
 type Border int8
 
 const (
@@ -113,9 +124,11 @@ type Costs struct {
 
 type Guild struct {
 	// TODO: Define guild structure with allies
-	Name   string   `json:"Name"`   // Guild name
-	Tag    string   `json:"Tag"`    // Guild tag
-	Allies []*Guild `json:"Allies"` // List of allied guilds
+	Name       string         `json:"Name"`       // Guild name
+	Tag        string         `json:"Tag"`        // Guild tag
+	Allies     []*Guild       `json:"Allies"`     // List of allied guilds
+	TributeIn  BasicResources `json:"TributeIn"`  // Resources received from tributes (per hour)
+	TributeOut BasicResources `json:"TributeOut"` // Resources sent as tributes (per hour)
 }
 
 type BasicResourcesInterface interface {
@@ -407,18 +420,24 @@ type TerritoryTax struct {
 }
 
 type TerritoryStorage struct {
-	Capacity BasicResources `json:"-"`                // Total capacity of the storage, calculated on the fly, not serialized
+	Capacity BasicResources `json:"StorageCapacity"`  // Total capacity of the storage, calculated on the fly, not serialized
 	At       BasicResources `json:"CurrentResources"` // Current amount of resources in the storage, calculated on the fly, not serialized
 }
 
 type InTransitResources struct {
 	BasicResources `json:"Resources"` // Resources in transit
-	Origin         *Territory         `json:"OriginTerritory"`      // Origin territory of the resources in transit
-	Destination    *Territory         `json:"DestinationTerritory"` // Destination territory of the resources in transit
-	Next           *Territory         `json:"NextTerritory"`        // Next territory in the trading route, can be nil if this is the last territory in the route
-	NextTax        float64            `json:"NextTerritoryTax"`     // Tax for the next territory in the trading route, from 0.0 to 1.0, -1.0 for invalid tax due to no route or the territory is HQ
-	Route          []*Territory       `json:"TradingRoute"`         // Full route from origin to destination
-	RouteIndex     int                `json:"RouteIndex"`           // Current position in the route (index of the territory that currently has this resource)
+	Origin         *Territory         `json:"-"`                // Origin territory of the resources in transit
+	Destination    *Territory         `json:"-"`                // Destination territory of the resources in transit
+	Next           *Territory         `json:"-"`                // Next territory in the trading route, can be nil if this is the last territory in the route
+	NextTax        float64            `json:"NextTerritoryTax"` // Tax for the next territory in the trading route, from 0.0 to 1.0, -1.0 for invalid tax due to no route or the territory is HQ
+	Route          []*Territory       `json:"-"`                // Full route from origin to destination
+	RouteIndex     int                `json:"RouteIndex"`       // Current position in the route (index of the territory that currently has this resource)
+
+	// JSON safe fields
+	OriginID      string   `json:"OriginID"`      // ID of the origin territory,
+	DestinationID string   `json:"DestinationID"` // ID of the destination territory
+	NextID        string   `json:"NextID"`        // ID of the next territory in
+	Route2        []string `json:"Route"`         // IDs of the territories in the route
 
 	Moved bool `json:"HasMoved"` // Ensure resouce gets moved once
 }
@@ -478,23 +497,25 @@ type Territory struct {
 	ResourceGeneration ResourceGeneration `json:"ResourceGeneration"` // Resource generation, calculated on the fly, not serialized
 
 	// Treasury level
-	Treasury        TreasuryLevel `json:"TreasuryLevel"`
-	GenerationBonus float64       `json:"GenerationBonus"` // Generation bonus in %
-	CapturedAt      uint64        `json:"CapturedAt"`      // State tick when the territory was captured, used for calculating treasury
+	Treasury         TreasuryLevel    `json:"TreasuryLevel"`
+	TreasuryOverride TreasuryOverride `json:"TreasuryOverride"` // Override for the treasury level, can be TreasuryOverrideNone, TreasuryOverrideVeryLow, TreasuryOverrideLow, TreasuryOverrideMedium, TreasuryOverrideHigh, or TreasuryOverrideVeryHigh
+	GenerationBonus  float64          `json:"GenerationBonus"`  // Generation bonus in %
+	CapturedAt       uint64           `json:"CapturedAt"`       // State tick when the territory was captured, used for calculating treasury
 
 	// List of trading routes from this territory to HQ
 	// Can be nil if territory is owned by No Guild [NONE]
 	// Or there's no route to the destination
 	// HQ can have many routes to territories, but only one route from teritories to HQ
 	// TradingRoutes is a slice of slices, where each inner slice represents a route from this territory to the HQ
-	ConnectedTerritories []string       `json:"-"` // Territories connected to this territory, used for trading routes
+	ConnectedTerritories []string       `json:"ConnectedTerritories"` // Territories connected to this territory, used for trading routes
 	TradingRoutes        [][]*Territory `json:"-"`
-	RouteTax             float64        `json:"RouteTax"` // Tax for the trading routes, from 0.0 to 1.0, -1.0 for invalid tax due to no HQ, no route, or the territory is HQ
-	RoutingMode          Routing        `json:"-"`        // Routing mode for the trading routes, can be RoutingCheapest or RoutingFastest
-	Border               Border         `json:"-"`        // Border status of the territory, can be BorderClosed or BorderOpen
+	TradingRoutesJSON    [][]string     `json:"TradingRoutes"` // Serialized trading routes, used for GUI and other purposes
+	RouteTax             float64        `json:"RouteTax"`      // Tax for the trading routes, from 0.0 to 1.0, -1.0 for invalid tax due to no HQ, no route, or the territory is HQ
+	RoutingMode          Routing        `json:"RoutingMode"`   // Routing mode for the trading routes, can be RoutingCheapest or RoutingFastest
+	Border               Border         `json:"BorderControl"` // Border status of the territory, can be BorderClosed or BorderOpen
 
 	// Tax set on the territory
-	Tax TerritoryTax `json:"-"`
+	Tax TerritoryTax `json:"Tax"`
 
 	HQ bool `json:"IsHQ"` // If true, the territory is set as a HQ and other HQ will be unset
 
@@ -515,7 +536,7 @@ type Territory struct {
 	CloseCh func()                  `json:"-"` // Function to close the channel, used to clean up resources when the territory is no longer needed
 	Reset   func()                  `json:"-"` // Function to reset the territory, used to reset the territory to its initial state
 
-	Warning Warning `json:"-"` // Warnings for the territory, can be WarningOverflowEmerald or WarningOverflowResources
+	Warning Warning `json:"ActiveWarnings"` // Warnings for the territory, can be WarningOverflowEmerald or WarningOverflowResources
 
 	// Really important mutex to protect the territory from concurrent access
 	Mu sync.RWMutex
@@ -632,6 +653,20 @@ type GuildJSON struct {
 	Tag  string `json:"tag"`
 }
 
+type ActiveTribute struct {
+	ID              string         `json:"ID"`              // Unique identifier for the tribute
+	From            *Guild         `json:"-"`               // Can be nil if the tribute is spawned in (not from any guild but gets added to HQ storage periodically)
+	FromGuildName   string         `json:"FromGuild"`       // Guild name of the tribute sender
+	To              *Guild         `json:"-"`               // Can be nil if the tribute is spawned in (not to any guild but gets removed HQ storage periodically)
+	ToGuildName     string         `json:"ToGuild"`         // Guild name of the tribute receiver
+	AmountPerHour   BasicResources `json:"AmountPerHour"`   // Amount of resources per hour (user input value)
+	AmountPerMinute BasicResources `json:"AmountPerMinute"` // Amount of resources per minute (calculated from AmountPerHour)
+	IntervalMinutes uint32         `json:"IntervalMinutes"` // How often the tribute transfers (in minutes, aligned with 60-tick cycles)
+	LastTransfer    uint64         `json:"LastTransfer"`    // Tick when the last transfer happened (0 if never transferred)
+	IsActive        bool           `json:"IsActive"`        // Whether this tribute is currently active
+	CreatedAt       uint64         `json:"CreatedAt"`       // Tick when this tribute was created
+}
+
 // EventAction represents the type of action that can be performed in an event.
 type EventAction int8
 
@@ -677,4 +712,6 @@ type RuntimeOptions struct {
 
 	// EnableShm indicates whether the user wants to enable the SHM (Shared Memory) feature
 	EnableShm bool `json:"EnableShm"` //
+
+	EncodeInTransitResources bool `json:"EncodeTreasury"` // If true, the treasury will be encoded in the JSON format for easier storage and retrieval
 }

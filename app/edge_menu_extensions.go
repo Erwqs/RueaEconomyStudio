@@ -443,12 +443,21 @@ func (s *MenuToggleSwitch) Update(mx, my int, deltaTime float64) bool {
 	// Handle click
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		if mx >= s.rect.Min.X && mx < s.rect.Max.X && my >= s.rect.Min.Y && my < s.rect.Max.Y {
-			oldIndex := s.selectedIndex
-			s.selectedIndex = (s.selectedIndex + 1) % len(s.options.Options)
-			if s.callback != nil && oldIndex != s.selectedIndex {
-				s.callback(s.selectedIndex, s.options.Options[s.selectedIndex])
+			// Calculate which option was clicked
+			optionWidth := s.rect.Dx() / len(s.options.Options)
+			clickedIndex := (mx - s.rect.Min.X) / optionWidth
+
+			// Ensure the index is within bounds
+			if clickedIndex >= 0 && clickedIndex < len(s.options.Options) {
+				// Only change if user clicked a different option
+				if clickedIndex != s.selectedIndex {
+					s.selectedIndex = clickedIndex
+					if s.callback != nil {
+						s.callback(s.selectedIndex, s.options.Options[s.selectedIndex])
+					}
+				}
+				return true
 			}
-			return true
 		}
 	}
 
@@ -540,11 +549,26 @@ func (s *MenuToggleSwitch) GetSelectedIndex() int {
 	return s.selectedIndex
 }
 
-func (s *MenuToggleSwitch) GetSelectedValue() string {
-	if s.selectedIndex >= 0 && s.selectedIndex < len(s.options.Options) {
-		return s.options.Options[s.selectedIndex]
+// SetIndex sets the toggle switch to the specified index with animation and callback
+func (s *MenuToggleSwitch) SetIndex(index int) {
+	if index >= 0 && index < len(s.options.Options) && index != s.selectedIndex {
+		s.selectedIndex = index
+		// Don't change animPosition here - let the animation naturally move to the new position
+		if s.callback != nil {
+			s.callback(s.selectedIndex, s.options.Options[s.selectedIndex])
+		}
 	}
-	return ""
+}
+
+// SetIndexImmediate sets the toggle switch to the specified index without animation
+func (s *MenuToggleSwitch) SetIndexImmediate(index int) {
+	if index >= 0 && index < len(s.options.Options) {
+		s.selectedIndex = index
+		s.animPosition = float64(index) // Set animation position immediately
+		if s.callback != nil {
+			s.callback(s.selectedIndex, s.options.Options[s.selectedIndex])
+		}
+	}
 }
 
 // SpacerOptions configures spacer appearance

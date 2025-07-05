@@ -25,7 +25,13 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 	}
 
 	// Get the territory's displayed level
-	level := territory.Treasury
+	var level typedef.TreasuryLevel
+	if territory.TreasuryOverride != typedef.TreasuryOverrideNone {
+		level = typedef.TreasuryLevel(territory.TreasuryOverride - 1)
+		territory.Treasury = level // Update the territory's treasury level
+	} else {
+		level = territory.Treasury
+	}
 
 	// Calculate treasury bonus based on distance and level
 	var treasuryBonus float64
@@ -144,6 +150,10 @@ func updateTreasuryLevel(territory *typedef.Territory) {
 	if territory.Guild.Name == "" || territory.Guild.Name == "No Guild" {
 		territory.Treasury = typedef.TreasuryLevelVeryLow
 		territory.CapturedAt = 0
+		return
+	}
+
+	if territory.TreasuryOverride != typedef.TreasuryOverrideNone {
 		return
 	}
 

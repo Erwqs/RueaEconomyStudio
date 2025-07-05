@@ -322,15 +322,10 @@ func (tm *TransitManager) ClearAllTransits() {
 	tm.atTerritory = make(map[string][]*Transit)
 }
 
-// Helper function to get territory by ID (this would need to be implemented in eruntime)
-// This is a placeholder - you'll need to implement this based on your existing code
+// Helper function to get territory by ID using O(1) map lookup
+// Note: This function assumes the caller already holds appropriate locks
 func (s *state) getTerritoryByID(id string) *typedef.Territory {
-	for _, territory := range s.territories {
-		if territory != nil && territory.ID == id {
-			return territory
-		}
-	}
-	return nil
+	return s.territoryMap[id]
 }
 
 // Updated transit functions using the new system

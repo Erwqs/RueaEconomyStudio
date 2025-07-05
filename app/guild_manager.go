@@ -24,16 +24,17 @@ type GuildData struct {
 
 // GuildManager handles the guild management UI and functionality
 type GuildManager struct {
-	visible        bool
-	modal          *UIModalExtended
-	nameInput      *UITextInputExtended
-	tagInput       *UITextInputExtended
-	guilds         []GuildData
-	filteredGuilds []GuildData
-	scrollOffset   int
-	hoveredIndex   int
-	selectedIndex  int
-	guildFilePath  string
+	visible         bool
+	modal           *UIModalExtended
+	nameInput       *UITextInputExtended
+	tagInput        *UITextInputExtended
+	guilds          []GuildData
+	filteredGuilds  []GuildData
+	scrollOffset    int
+	hoveredIndex    int
+	selectedIndex   int
+	guildFilePath   string
+	framesAfterOpen int // Frames since the manager was opened (to prevent immediate ESC closing)
 }
 
 // NewGuildManager creates a new guild manager
@@ -71,6 +72,7 @@ func NewGuildManager() *GuildManager {
 // Show makes the guild manager visible
 func (gm *GuildManager) Show() {
 	gm.visible = true
+	gm.framesAfterOpen = 0 // Reset frame counter when opening
 }
 
 // Hide makes the guild manager invisible
@@ -91,6 +93,9 @@ func (gm *GuildManager) Update() {
 		return
 	}
 
+	// Increment frame counter
+	gm.framesAfterOpen++
+
 	// Get mouse position
 	mx, my := ebiten.CursorPosition()
 
@@ -102,8 +107,9 @@ func (gm *GuildManager) Update() {
 		}
 	}
 
-	// Close on ESC key
-	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+	// Close on ESC key, but only after a few frames to prevent immediate closing
+	// from queued ESC key presses
+	if gm.framesAfterOpen > 5 && inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		gm.Hide()
 		return
 	}
@@ -536,32 +542,8 @@ func (gcm *GuildClaimManager) LoadClaimsFromFile() error {
 		return err
 	}
 
-	// Convert slice to map
-	gcm.Claims = make(map[string]GuildClaim)
-
-	// Prepare batch guild updates for eruntime
-	guildUpdates := make(map[string]*typedef.Guild)
-
-	for _, claim := range claimsList {
-		gcm.Claims[claim.TerritoryName] = claim
-
-		// Prepare guild for batch update
-		guild := &typedef.Guild{
-			Name:   claim.GuildName,
-			Tag:    claim.GuildTag,
-			Allies: nil,
-		}
-		guildUpdates[claim.TerritoryName] = guild
-	}
-
-	// Synchronize all claims with the eruntime system in a single batch operation
-	if len(guildUpdates) > 0 {
-		updatedTerritories := eruntime.SetGuildBatch(guildUpdates)
-		successCount := len(updatedTerritories)
-
-		fmt.Printf("[GUILD_MANAGER] Batch synchronized %d/%d claims with eruntime\n",
-			successCount, len(guildUpdates))
-	}
+	// Use batch function for all claims
+	gcm.AddClaimsBatch(claimsList)
 
 	fmt.Printf("[GUILD_MANAGER] Loaded %d claims and batch synchronized with eruntime\n", len(claimsList))
 	return nil
@@ -590,6 +572,33 @@ func (gcm *GuildClaimManager) PrintClaims() {
 		}
 	}
 	fmt.Printf("===========================\n")
+}
+
+// AddClaimsBatch sets multiple claims at once and synchronizes with eruntime efficiently.
+func (gcm *GuildClaimManager) AddClaimsBatch(claims []GuildClaim) {
+	gcm.suspendRedraws = true
+
+	guildUpdates := make(map[string]*typedef.Guild)
+	for _, claim := range claims {
+		gcm.Claims[claim.TerritoryName] = claim
+		guild := &typedef.Guild{
+			Name:   claim.GuildName,
+			Tag:    claim.GuildTag,
+			Allies: nil,
+		}
+		guildUpdates[claim.TerritoryName] = guild
+	}
+
+	if len(guildUpdates) > 0 {
+		updatedTerritories := eruntime.SetGuildBatch(guildUpdates)
+		successCount := len(updatedTerritories)
+		fmt.Printf("[GUILD_MANAGER] Batch synchronized %d/%d claims with eruntime\n",
+			successCount, len(guildUpdates))
+	}
+
+	gcm.SaveClaimsToFile()
+	gcm.suspendRedraws = false
+	gcm.TriggerRedraw()
 }
 
 // Draw renders the guild manager

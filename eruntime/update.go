@@ -99,9 +99,10 @@ func (s *state) updateSequential() {
 }
 
 // update2 calculates the next state of the simulation
-// update2() handles resource traversal, routing, storage rounding
+// update2() handles resource traversal, routing, storage rounding, and tribute processing
 // should be called every minute before update()
 func (s *state) update2() {
 	ResourceTraversalAndTaxV2() // Using new decoupled transit system
+	s.processTributes()         // Process tribute transfers
 	s.ClampResource()
 }

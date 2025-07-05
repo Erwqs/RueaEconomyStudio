@@ -129,8 +129,7 @@ func getExternalTerritories(territoryName, guildTag string, maxDistance int) []s
 // updateRoute recalculates trading routes for each territory to its guild HQ.
 // If no HQ is set, or guild owner is No Guild, then the territory will not have a route.
 func (s *state) updateRoute() {
-	fmt.Printf("[ROUTING_DEBUG] updateRoute called - recalculating all trading routes\n")
-
+	// fmt.Printf("[ROUTING_DEBUG] updateRoute called - recalculating all trading routes\n")
 	// Caches for HQs and allies per guild
 	hqCache := make(map[string][]*typedef.Territory)
 	alliesCache := make(map[string][]string)
@@ -179,13 +178,13 @@ func (s *state) updateRoute() {
 		})
 
 		if len(hqTerritories) == 0 {
-			fmt.Printf("[ROUTING_DEBUG] No HQ found for guild %s, skipping territory %s\n", t.Guild.Tag, t.Name)
+			// fmt.Printf("[ROUTING_DEBUG] No HQ found for guild %s, skipping territory %s\n", t.Guild.Tag, t.Name)
 			continue
 		}
 
 		// Skip if this territory is already an HQ
 		if t.HQ {
-			fmt.Printf("[ROUTING_DEBUG] Territory %s is HQ for guild %s, calling updateHQRoutes\n", t.Name, t.Guild.Tag)
+			// fmt.Printf("[ROUTING_DEBUG] Territory %s is HQ for guild %s, calling updateHQRoutes\n", t.Name, t.Guild.Tag)
 			t.RouteTax = -1.0 // HQ has no route tax
 			// Handle HQ routing to all other territories of the same guild
 			updateHQRoutes(t, allies)
@@ -388,7 +387,7 @@ func updateHQRoutes(hq *typedef.Territory, allies []string) {
 		return
 	}
 
-	fmt.Printf("[ROUTING_DEBUG] updateHQRoutes called for HQ: %s, guild: %s [%s]\n", hq.Name, hq.Guild.Name, hq.Guild.Tag)
+	// fmt.Printf("[ROUTING_DEBUG] updateHQRoutes called for HQ: %s, guild: %s [%s]\n", hq.Name, hq.Guild.Name, hq.Guild.Tag)
 
 	// Find all territories of the same guild (excluding the HQ itself)
 	var guildTerritories []*typedef.Territory
@@ -399,18 +398,18 @@ func updateHQRoutes(hq *typedef.Territory, allies []string) {
 			territory.Guild.Tag != "" &&
 			territory.Guild.Tag != "NONE" {
 			guildTerritories = append(guildTerritories, territory)
-			fmt.Printf("[ROUTING_DEBUG] Found guild territory: %s\n", territory.Name)
+			// fmt.Printf("[ROUTING_DEBUG] Found guild territory: %s\n", territory.Name)
 		}
 	}
 
-	fmt.Printf("[ROUTING_DEBUG] HQ %s found %d territories of guild %s to route to\n", hq.Name, len(guildTerritories), hq.Guild.Tag)
+	// fmt.Printf("[ROUTING_DEBUG] HQ %s found %d territories of guild %s to route to\n", hq.Name, len(guildTerritories), hq.Guild.Tag)
 
 	// Reset HQ's trading routes
 	hq.TradingRoutes = make([][]*typedef.Territory, 0, len(guildTerritories))
 
 	// Calculate routes from HQ to each territory
 	for _, target := range guildTerritories {
-		fmt.Printf("[ROUTING_DEBUG] Calculating route from HQ %s to %s\n", hq.Name, target.Name)
+		// fmt.Printf("[ROUTING_DEBUG] Calculating route from HQ %s to %s\n", hq.Name, target.Name)
 
 		var routes [][]*typedef.Territory
 		var err error
@@ -424,17 +423,17 @@ func updateHQRoutes(hq *typedef.Territory, allies []string) {
 
 		if err != nil || len(routes) == 0 {
 			// No route found to this territory (e.g., foreign guild closed borders)
-			fmt.Printf("[ROUTING_DEBUG] No route found from HQ %s to %s: %v\n", hq.Name, target.Name, err)
+			// fmt.Printf("[ROUTING_DEBUG] No route found from HQ %s to %s: %v\n", hq.Name, target.Name, err)
 			continue
 		}
 
 		// Pick one route randomly if multiple routes have the same cost/length
 		selectedRoute := selectRandomRoute(routes)
 		hq.TradingRoutes = append(hq.TradingRoutes, selectedRoute)
-		fmt.Printf("[ROUTING_DEBUG] Added route from HQ %s to %s (length: %d)\n", hq.Name, target.Name, len(selectedRoute))
+		// fmt.Printf("[ROUTING_DEBUG] Added route from HQ %s to %s (length: %d)\n", hq.Name, target.Name, len(selectedRoute))
 	}
 
-	fmt.Printf("[ROUTING_DEBUG] HQ %s final route count: %d\n", hq.Name, len(hq.TradingRoutes))
+	// fmt.Printf("[ROUTING_DEBUG] HQ %s final route count: %d\n", hq.Name, len(hq.TradingRoutes))
 }
 
 // findAllRoutesWithSameTax finds all routes with the same minimum tax
@@ -524,7 +523,7 @@ func SetTerritoryHQ(territoryName string, isHQ bool) error {
 	fmt.Printf("[HQ_DEBUG] Set territory %s HQ status to %v\n", territoryName, isHQ)
 
 	// Update all routes for this guild
-	fmt.Printf("[ROUTING_DEBUG] SetTerritoryHQ: Calling UpdateAllRoutes after setting HQ status\n")
+	// fmt.Printf("[ROUTING_DEBUG] SetTerritoryHQ: Calling UpdateAllRoutes after setting HQ status\n")
 	UpdateAllRoutes()
 
 	// Notify UI components to update after HQ change
@@ -623,4 +622,84 @@ func GetAllTerritories() []*typedef.Territory {
 	result := make([]*typedef.Territory, len(st.territories))
 	copy(result, st.territories)
 	return result
+}
+
+// FindTributeRoute calculates the optimal route between two HQ territories for tribute transfer
+// This function considers tax rates, border closures, and guild relationships
+func FindTributeRoute(fromHQ, toHQ *typedef.Territory) ([]string, error) {
+	if fromHQ == nil || toHQ == nil {
+		return nil, fmt.Errorf("both HQ territories must be non-nil")
+	}
+
+	// If both HQs are the same territory, no route needed
+	if fromHQ.Name == toHQ.Name {
+		return []string{fromHQ.ID}, nil
+	}
+
+	debugf("Finding tribute route from %s HQ (%s) to %s HQ (%s)\n",
+		fromHQ.Guild.Name, fromHQ.Name, toHQ.Guild.Name, toHQ.Name)
+
+	sourceGuildTag := fromHQ.Guild.Tag
+	allies := getGuildAllies(sourceGuildTag)
+
+	// Try different pathfinding strategies based on routing mode preference
+	// For tributes, we prefer the cheapest route to minimize tax costs
+	var bestRoute []*typedef.Territory
+	var bestCost float64 = -1
+	var err error
+
+	// Try cheapest route first (Dijkstra with tax consideration)
+	route, err := pathfinder.Dijkstra(fromHQ, toHQ, TerritoryMap, TradingRoutesMap, sourceGuildTag, allies)
+	if err == nil && len(route) > 0 {
+		cost := pathfinder.CalculateRouteTax(route, sourceGuildTag, allies)
+		if bestCost < 0 || cost < bestCost {
+			bestRoute = route
+			bestCost = cost
+		}
+		debugf("Dijkstra route found: %d territories, tax cost: %.2f\n", len(route), cost)
+	} else {
+		debugf("Dijkstra failed: %v\n", err)
+	}
+
+	// Try fastest route as fallback (BFS)
+	route, err = pathfinder.BFS(fromHQ, toHQ, TerritoryMap, TradingRoutesMap, sourceGuildTag)
+	if err == nil && len(route) > 0 {
+		cost := pathfinder.CalculateRouteTax(route, sourceGuildTag, allies)
+		if bestCost < 0 || cost < bestCost {
+			bestRoute = route
+			bestCost = cost
+		}
+		debugf("BFS route found: %d territories, tax cost: %.2f\n", len(route), cost)
+	} else {
+		debugf("BFS failed: %v\n", err)
+	}
+
+	// If no route found, return error
+	if len(bestRoute) == 0 {
+		debugf("No tribute route found from %s to %s\n", fromHQ.Name, toHQ.Name)
+		return nil, fmt.Errorf("no route found between HQs")
+	}
+
+	// Convert territory path to ID strings
+	routeIDs := make([]string, len(bestRoute))
+	routeNames := make([]string, len(bestRoute))
+	for i, territory := range bestRoute {
+		routeIDs[i] = territory.ID
+		routeNames[i] = territory.Name
+	}
+
+	debugf("Best tribute route found: %v (cost: %.2f, %d territories)\n",
+		routeNames, bestCost, len(bestRoute))
+
+	// Validate that route doesn't pass through closed borders
+	for i := 1; i < len(bestRoute); i++ {
+		territory := bestRoute[i]
+		if !pathfinder.CanPassThroughTerritory(territory, sourceGuildTag) {
+			debugf("Route validation failed: cannot pass through %s (border closed)\n", territory.Name)
+			return nil, fmt.Errorf("route blocked by closed border at %s", territory.Name)
+		}
+	}
+
+	debugf("Route validation successful\n")
+	return routeIDs, nil
 }

@@ -272,12 +272,10 @@ func (smm *StateManagementMenu) Show() {
 			currOpts := eruntime.GetRuntimeOptions()
 			currOpts.TreasuryEnabled = true
 			eruntime.SetRuntimeOptions(currOpts)
-			fmt.Println("[STATE_MGMT] Treasury enabled")
 		} else {
 			currOpts := eruntime.GetRuntimeOptions()
 			currOpts.TreasuryEnabled = false
 			eruntime.SetRuntimeOptions(currOpts)
-			fmt.Println("[STATE_MGMT] Treasury disabled")
 		}
 	}
 
@@ -288,6 +286,29 @@ func (smm *StateManagementMenu) Show() {
 	optionsSection.Text("territory time held", DefaultTextOptions())              // Empty text to ensure proper spacing
 	optionsSection.Spacer(smallSpacerOpts)
 	optionsSection.ToggleSwitch("Treasury Calculation", 0, treasureToggleOpts, treasureToggleCBFunc)
+
+	optionsSection.Spacer(DefaultSpacerOptions())
+
+	// Encode Treasury toggle switch
+	options := []string{"Enabled", "Disabled"}
+	encodeTreasuryToggleOpts := DefaultToggleSwitchOptions()
+	encodeTreasuryToggleOpts.Options = options
+	encodeTreasuryToggleCBFunc := func(index int, value string) {
+		if value == "Enabled" {
+			currOpts := eruntime.GetRuntimeOptions()
+			currOpts.EncodeInTransitResources = true
+			eruntime.SetRuntimeOptions(currOpts)
+		} else {
+			currOpts := eruntime.GetRuntimeOptions()
+			currOpts.EncodeInTransitResources = false
+			eruntime.SetRuntimeOptions(currOpts)
+		}
+	}
+
+	optionsSection.Spacer(DefaultSpacerOptions())
+	optionsSection.Text("Encoding In-Transit Resources", DefaultTextOptions())
+	optionsSection.Text("may increase impact load time.", DefaultTextOptions())
+	optionsSection.ToggleSwitch("Encode In-Transit Resources", 0, encodeTreasuryToggleOpts, encodeTreasuryToggleCBFunc)
 
 	optionsSection.Spacer(DefaultSpacerOptions())
 	optionsSection.Text("Shared memory access allows external", DefaultTextOptions())

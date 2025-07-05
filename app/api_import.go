@@ -13,8 +13,8 @@ type GuildListResponse []GuildInfo
 // GuildInfo represents a guild from the Athena API
 type GuildInfo struct {
 	Name  string `json:"_id"` // Try both name and _id fields
-	Tag   string `json:"prefix,Prefix"`
-	Color string `json:"color,Color"`
+	Tag   string `json:"prefix"`
+	Color string `json:"color"`
 }
 
 // TerritoryListResponse represents the response from the Wynncraft API
@@ -135,6 +135,8 @@ func (gm *EnhancedGuildManager) ImportTerritoriesFromAPI() (int, int, error) {
 	importedCount := 0
 	skippedCount := 0
 
+	// Batch processing for performance
+	claims := make([]GuildClaim, 0, len(territoryListResp))
 	for territoryName, territoryInfo := range territoryListResp {
 		// Skip if the guild name is empty
 		if territoryInfo.Guild.Name == "" {
@@ -157,12 +159,21 @@ func (gm *EnhancedGuildManager) ImportTerritoriesFromAPI() (int, int, error) {
 		}
 
 		if found {
-			// Add the claim
-			claimManager.AddClaim(territoryName, guildName, guildTag)
+			// Add the claim to the batch
+			claims = append(claims, GuildClaim{
+				TerritoryName: territoryName,
+				GuildName:     guildName,
+				GuildTag:      guildTag,
+			})
 			importedCount++
 		} else {
 			skippedCount++
 		}
+	}
+
+	// Execute batch add
+	if len(claims) > 0 {
+		claimManager.AddClaimsBatch(claims)
 	}
 
 	return importedCount, skippedCount, nil

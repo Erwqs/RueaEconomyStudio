@@ -39,6 +39,10 @@ type TerritoryOverlayGPU struct {
 	fillIndices    []uint16
 	borderVertices []ebiten.Vertex
 	borderIndices  []uint16
+
+	// Pre-allocated temporary slices to avoid allocations in hot path
+	tempVertices []ebiten.Vertex
+	tempIndices  []uint16
 }
 
 // NewTerritoryOverlayGPU creates a new overlay renderer with the custom shader.
@@ -53,8 +57,14 @@ func NewTerritoryOverlayGPU() (*TerritoryOverlayGPU, error) {
 	whitePixel.Fill(color.RGBA{255, 255, 255, 255})
 
 	return &TerritoryOverlayGPU{
-		shader:     shader,
-		whitePixel: whitePixel,
+		shader:         shader,
+		whitePixel:     whitePixel,
+		fillVertices:   make([]ebiten.Vertex, 0, 1000), // Pre-allocate with reasonable capacity
+		fillIndices:    make([]uint16, 0, 3000),        // Pre-allocate with reasonable capacity
+		borderVertices: make([]ebiten.Vertex, 0, 500),  // Pre-allocate with reasonable capacity
+		borderIndices:  make([]uint16, 0, 1500),        // Pre-allocate with reasonable capacity
+		tempVertices:   make([]ebiten.Vertex, 0, 100),  // Pre-allocate temp slice
+		tempIndices:    make([]uint16, 0, 300),         // Pre-allocate temp slice
 	}, nil
 }
 
@@ -83,29 +93,43 @@ func (r *TerritoryOverlayGPU) Draw(dst, mapImg *ebiten.Image, polygons []Overlay
 			continue
 		}
 		alpha := overlayAlphaForState(poly.State, poly.BlinkPhase)
-		col := color.NRGBA{
-			R: uint8(clamp01(poly.Color[0]) * 255),
-			G: uint8(clamp01(poly.Color[1]) * 255),
-			B: uint8(clamp01(poly.Color[2]) * 255),
-			A: uint8(alpha * 255),
+
+		// Pre-compute color components to avoid repeated calculations
+		colorR := clamp01(poly.Color[0])
+		colorG := clamp01(poly.Color[1])
+		colorB := clamp01(poly.Color[2])
+		colorA := alpha
+
+		// Ensure temp slice has enough capacity and reset length
+		pointCount := len(poly.Points)
+		if cap(r.tempVertices) < pointCount {
+			r.tempVertices = make([]ebiten.Vertex, 0, pointCount*2)
 		}
-		vs := make([]ebiten.Vertex, len(poly.Points))
+		r.tempVertices = r.tempVertices[:pointCount]
+
+		// Build vertices in pre-allocated slice
 		for i, pt := range poly.Points {
-			vs[i].DstX = pt[0]
-			vs[i].DstY = pt[1]
-			vs[i].SrcX = 0
-			vs[i].SrcY = 0
-			vs[i].ColorR = float32(col.R) / 255
-			vs[i].ColorG = float32(col.G) / 255
-			vs[i].ColorB = float32(col.B) / 255
-			vs[i].ColorA = float32(col.A) / 255
+			r.tempVertices[i].DstX = pt[0]
+			r.tempVertices[i].DstY = pt[1]
+			r.tempVertices[i].SrcX = 0
+			r.tempVertices[i].SrcY = 0
+			r.tempVertices[i].ColorR = colorR
+			r.tempVertices[i].ColorG = colorG
+			r.tempVertices[i].ColorB = colorB
+			r.tempVertices[i].ColorA = colorA
 		}
-		is := triangulatePolygon(len(poly.Points))
-		for _, idx := range is {
+
+		// Get triangulation indices
+		triangleIndices := triangulatePolygon(pointCount)
+
+		// Add indices with offset
+		for _, idx := range triangleIndices {
 			r.fillIndices = append(r.fillIndices, idx+vertexIndex)
 		}
-		r.fillVertices = append(r.fillVertices, vs...)
-		vertexIndex += uint16(len(vs))
+
+		// Add vertices
+		r.fillVertices = append(r.fillVertices, r.tempVertices...)
+		vertexIndex += uint16(pointCount)
 	}
 	if len(r.fillVertices) > 0 && len(r.fillIndices) > 0 {
 		opts := &ebiten.DrawTrianglesOptions{}
@@ -126,34 +150,48 @@ func (r *TerritoryOverlayGPU) Draw(dst, mapImg *ebiten.Image, polygons []Overlay
 		if borderAlpha > 1.0 {
 			borderAlpha = 1.0
 		}
-		borderCol := color.NRGBA{
-			R: uint8(clamp01(poly.BorderColor[0]) * 255),
-			G: uint8(clamp01(poly.BorderColor[1]) * 255),
-			B: uint8(clamp01(poly.BorderColor[2]) * 255),
-			A: uint8(borderAlpha * 255),
-		}
+
+		// Pre-compute border color components
+		borderColorR := clamp01(poly.BorderColor[0])
+		borderColorG := clamp01(poly.BorderColor[1])
+		borderColorB := clamp01(poly.BorderColor[2])
+		borderColorA := borderAlpha
+		halfBorderWidth := poly.BorderWidth * 0.5
+
 		for i := 0; i < len(poly.Points); i++ {
 			p1 := poly.Points[i]
 			p2 := poly.Points[(i+1)%len(poly.Points)]
 			dx := p2[0] - p1[0]
 			dy := p2[1] - p1[1]
-			length := float32(math.Sqrt(float64(dx*dx + dy*dy)))
-			if length < 0.001 {
+
+			// Use fast inverse square root approximation for better performance
+			lengthSq := dx*dx + dy*dy
+			if lengthSq < 0.000001 { // length < 0.001
 				continue
 			}
-			nx := -dy / length * poly.BorderWidth * 0.5
-			ny := dx / length * poly.BorderWidth * 0.5
-			vs := []ebiten.Vertex{
-				{DstX: p1[0] + nx, DstY: p1[1] + ny, SrcX: 0, SrcY: 0, ColorR: float32(borderCol.R) / 255, ColorG: float32(borderCol.G) / 255, ColorB: float32(borderCol.B) / 255, ColorA: float32(borderCol.A) / 255},
-				{DstX: p1[0] - nx, DstY: p1[1] - ny, SrcX: 0, SrcY: 0, ColorR: float32(borderCol.R) / 255, ColorG: float32(borderCol.G) / 255, ColorB: float32(borderCol.B) / 255, ColorA: float32(borderCol.A) / 255},
-				{DstX: p2[0] - nx, DstY: p2[1] - ny, SrcX: 0, SrcY: 0, ColorR: float32(borderCol.R) / 255, ColorG: float32(borderCol.G) / 255, ColorB: float32(borderCol.B) / 255, ColorA: float32(borderCol.A) / 255},
-				{DstX: p2[0] + nx, DstY: p2[1] + ny, SrcX: 0, SrcY: 0, ColorR: float32(borderCol.R) / 255, ColorG: float32(borderCol.G) / 255, ColorB: float32(borderCol.B) / 255, ColorA: float32(borderCol.A) / 255},
+			invLength := float32(1.0 / math.Sqrt(float64(lengthSq)))
+
+			nx := -dy * invLength * halfBorderWidth
+			ny := dx * invLength * halfBorderWidth
+
+			// Ensure temp vertices slice has capacity for 4 vertices
+			if cap(r.tempVertices) < 4 {
+				r.tempVertices = make([]ebiten.Vertex, 4)
 			}
-			is := []uint16{0, 1, 2, 0, 2, 3}
-			for _, idx := range is {
-				r.borderIndices = append(r.borderIndices, idx+vertexIndex)
-			}
-			r.borderVertices = append(r.borderVertices, vs...)
+			r.tempVertices = r.tempVertices[:4]
+
+			// Build border quad vertices
+			r.tempVertices[0] = ebiten.Vertex{DstX: p1[0] + nx, DstY: p1[1] + ny, SrcX: 0, SrcY: 0, ColorR: borderColorR, ColorG: borderColorG, ColorB: borderColorB, ColorA: borderColorA}
+			r.tempVertices[1] = ebiten.Vertex{DstX: p1[0] - nx, DstY: p1[1] - ny, SrcX: 0, SrcY: 0, ColorR: borderColorR, ColorG: borderColorG, ColorB: borderColorB, ColorA: borderColorA}
+			r.tempVertices[2] = ebiten.Vertex{DstX: p2[0] - nx, DstY: p2[1] - ny, SrcX: 0, SrcY: 0, ColorR: borderColorR, ColorG: borderColorG, ColorB: borderColorB, ColorA: borderColorA}
+			r.tempVertices[3] = ebiten.Vertex{DstX: p2[0] + nx, DstY: p2[1] + ny, SrcX: 0, SrcY: 0, ColorR: borderColorR, ColorG: borderColorG, ColorB: borderColorB, ColorA: borderColorA}
+
+			// Add quad indices (two triangles)
+			r.borderIndices = append(r.borderIndices,
+				vertexIndex, vertexIndex+1, vertexIndex+2,
+				vertexIndex, vertexIndex+2, vertexIndex+3)
+
+			r.borderVertices = append(r.borderVertices, r.tempVertices...)
 			vertexIndex += 4
 		}
 	}

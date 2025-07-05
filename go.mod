@@ -10,7 +10,10 @@ require (
 	golang.org/x/image v0.27.0
 )
 
-require github.com/frankban/quicktest v1.14.6 // indirect
+require (
+	github.com/frankban/quicktest v1.14.6 // indirect
+	github.com/gookit/goutil v0.7.0 // indirect
+)
 
 require (
 	github.com/ebitengine/gomobile v0.0.0-20250209143333-6071a2a2351c // indirect

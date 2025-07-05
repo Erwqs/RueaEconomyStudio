@@ -514,39 +514,46 @@ func (s *State) handleKeyEvent(event KeyEvent) {
 	if event.Pressed {
 		switch event.Key {
 		case ebiten.KeyEscape:
-			if s.gameState == StateSession {
-				// Prevent ESC from returning to menu if loadout manager is visible or in apply mode
-				loadoutManager := GetLoadoutManager()
-				if loadoutManager != nil && (loadoutManager.IsVisible() || loadoutManager.IsApplyingLoadout()) {
-					// Let the loadout manager handle ESC/back, do not close gameplay or go to menu
-					return
-				}
-				// Only go to menu if neither territory menu nor guild manager nor EdgeMenu is open
-				if s.gameplayModule != nil {
-					// Check if EdgeMenu is open first
-					if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().IsEdgeMenuOpen() {
-						// Do nothing - the map view will handle closing the EdgeMenu
-					} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().IsTransitResourceMenuOpen() {
-						// Do nothing - the map view will handle closing the transit resource menu
-					} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().IsEditingClaims() {
-						// Do nothing - the map view will handle cancelling claim edit mode
-					} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().JustHandledEscKey() {
-						// Do nothing - the map view already handled the ESC key
-					} else if s.gameplayModule.IsTerritoryMenuOpen() {
-						// Do nothing - the map handler will close the territory menu
-						// and we don't want to go back to the main menu
-					} else if s.gameplayModule.guildManager != nil && s.gameplayModule.guildManager.IsVisible() {
-						// Do nothing - the guild manager will handle its own closure
-					} else {
-						s.gameState = StateMenu
-						s.gameplayModule.SetActive(false)
-					}
-				}
-			} else if s.gameState == StateSettings {
-				s.gameState = StateMenu
-			} else if s.gameState == StateSessionManager {
-				s.gameState = StateMenu
-			}
+			// Completely disable ESC handling to prevent weird menu behavior
+			// Since we start directly in game mode and don't want main menu
+			// if s.gameState == StateSession {
+			// 	// Prevent ESC from returning to menu if loadout manager is visible or in apply mode
+			// 	loadoutManager := GetLoadoutManager()
+			// 	if loadoutManager != nil && (loadoutManager.IsVisible() || loadoutManager.IsApplyingLoadout()) {
+			// 		// Let the loadout manager handle ESC/back, do not close gameplay or go to menu
+			// 		return
+			// 	}
+			// 	// Only go to menu if neither territory menu nor guild manager nor EdgeMenu is open
+			// 	if s.gameplayModule != nil {
+			// 		// Check if EdgeMenu is open first
+			// 		if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().IsEdgeMenuOpen() {
+			// 			// Do nothing - the map view will handle closing the EdgeMenu
+			// 		} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().IsTransitResourceMenuOpen() {
+			// 			// Do nothing - the map view will handle closing the transit resource menu
+			// 		} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().IsEditingClaims() {
+			// 			// Do nothing - the map view will handle cancelling claim edit mode
+			// 		} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().JustHandledEscKey() {
+			// 			// Do nothing - the map view already handled the ESC key
+			// 		} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().TributeMenuJustHandledEscKey() {
+			// 			// Do nothing - the tribute menu already handled the ESC key
+			// 		} else if s.gameplayModule.IsTerritoryMenuOpen() {
+			// 			// Do nothing - the map handler will close the territory menu
+			// 			// and we don't want to go back to the main menu
+			// 		} else if s.gameplayModule.guildManager != nil && s.gameplayModule.guildManager.IsVisible() {
+			// 			// Do nothing - the guild manager will handle its own closure
+			// 		} else {
+			// 			// Commented out to disable main menu return
+			// 			// s.gameState = StateMenu
+			// 			// s.gameplayModule.SetActive(false)
+			// 		}
+			// 	}
+			// } else if s.gameState == StateSettings {
+			// 	// Commented out to disable main menu return
+			// 	// s.gameState = StateMenu
+			// } else if s.gameState == StateSessionManager {
+			// 	// Commented out to disable main menu return
+			// 	// s.gameState = StateMenu
+			// }
 		case ebiten.KeyF11:
 			// Toggle fullscreen (example)
 			if ebiten.IsFullscreen() {
@@ -630,7 +637,8 @@ func New() *Game {
 
 	game := &Game{
 		state: &State{
-			gameState:         StateMenu,
+			gameState: StateSession, // Skip main menu, go straight to game
+			// gameState:         StateMenu, // Original main menu state
 			inputManager:      inputManager,
 			keyEventCh:        keyEventCh,
 			debugModule:       debugModule,
@@ -644,14 +652,21 @@ func New() *Game {
 	game.state.menu = game.createMenu()
 	game.state.settingsScreen = NewSettingsScreen(settingsModule)
 
+	// Since we're starting in StateSession, activate the gameplay module
+	if game.state.gameplayModule != nil {
+		game.state.gameplayModule.SetActive(true)
+	}
+
 	// Initialize session manager
 	game.state.sessionManager = NewSessionManager(func() {
-		game.state.gameState = StateMenu
+		// Commented out to disable main menu return
+		// game.state.gameState = StateMenu
 	})
 
 	// Set up the callback for returning to menu from settings
 	game.state.settingsScreen.backToMenuCallback = func() {
-		game.state.gameState = StateMenu
+		// Commented out to disable main menu return
+		// game.state.gameState = StateMenu
 	}
 
 	return game

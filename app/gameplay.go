@@ -161,38 +161,90 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 		case ebiten.KeyShift:
 			gm.moveSpeed = 4.0 // Run speed
 		case ebiten.KeyR:
-			// Reset map view
-			if gm.mapView != nil {
+			// Check if any text input is currently focused before resetting map view
+			textInputFocused := false
+
+			// Check if guild manager is open and has text input focused
+			if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+				guildManager := gm.mapView.territoriesManager.guildManager
+				if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+					textInputFocused = true
+				}
+			}
+
+			// Check if loadout manager is open and has text input focused
+			loadoutManager := GetLoadoutManager()
+			if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Check if transit resource menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Check if tribute menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Reset map view only if no text input is focused
+			if !textInputFocused && gm.mapView != nil {
 				gm.mapView.ResetView()
 			}
 		case ebiten.KeyEqual, ebiten.KeyNumpadAdd:
+			// Check if tribute menu is active and has text input focused
+			textInputFocused := false
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
 			// Zoom in with smooth zoom
-			if gm.mapView != nil {
+			if !textInputFocused && gm.mapView != nil {
 				mx, my := ebiten.CursorPosition()
 				gm.mapView.handleSmoothZoom(3.0, mx, my)
 			}
 		case ebiten.KeyMinus, ebiten.KeyNumpadSubtract:
+			// Check if tribute menu is active and has text input focused
+			textInputFocused := false
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
 			// Zoom out with smooth zoom
-			if gm.mapView != nil {
+			if !textInputFocused && gm.mapView != nil {
 				mx, my := ebiten.CursorPosition()
 				gm.mapView.handleSmoothZoom(-3.0, mx, my)
 			}
 		case ebiten.KeyC:
+			// Check if tribute menu is active and has text input focused
+			textInputFocused := false
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
 			// Toggle coordinates
-			if gm.mapView != nil {
+			if !textInputFocused && gm.mapView != nil {
 				gm.mapView.ToggleCoordinates()
 			}
 		case ebiten.KeyM:
+			// Check if tribute menu is active and has text input focused
+			textInputFocused := false
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
 			// Add test marker at current mouse position
-			if gm.mapView != nil {
+			if !textInputFocused && gm.mapView != nil {
 				mx, my := ebiten.CursorPosition()
 				mapX, mapY := gm.mapView.GetMapCoordinates(mx, my)
 				markerName := fmt.Sprintf("M%d", int(mapX))
 				gm.mapView.AddMarker(mapX, mapY, markerName, color.RGBA{255, 0, 0, 255}, 10)
 			}
 		case ebiten.KeyX:
+			// Check if tribute menu is active and has text input focused
+			textInputFocused := false
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
 			// Clear all markers
-			if gm.mapView != nil {
+			if !textInputFocused && gm.mapView != nil {
 				gm.mapView.ClearMarkers()
 			}
 		case ebiten.KeyG:
@@ -215,6 +267,11 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 
 			// Check if transit resource menu is open and has text input focused
 			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Check if tribute menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
 				textInputFocused = true
 			}
 
@@ -256,6 +313,11 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 
 			// Check if transit resource menu is open and has text input focused
 			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Check if tribute menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
 				textInputFocused = true
 			}
 

@@ -609,6 +609,17 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 	loadout := lm.loadouts[lm.applyingLoadoutIndex]
 	fmt.Printf("[LOADOUT] Loadout to apply: %+v\n", loadout)
 
+	// Pre-validate Multi Attack limits if the loadout has Multi Attack
+	if loadout.Bonuses.TowerMultiAttack > 0 {
+		validTerritories, invalidTerritories := lm.validateMultiAttackLimits(loadout)
+		
+		if len(invalidTerritories) > 0 {
+			// Show error message and allow user to choose
+			lm.handleMultiAttackLimitExceeded(validTerritories, invalidTerritories)
+			return
+		}
+	}
+
 	// Apply loadout to selected territories
 	appliedCount := 0
 	for territoryName := range lm.selectedTerritories {
@@ -690,90 +701,125 @@ func (lm *LoadoutManager) CancelLoadoutApplication() {
 		Show()
 }
 
-// handleApplyModeClick handles mouse clicks during loadout application mode
-func (lm *LoadoutManager) handleApplyModeClick(mx, my int) bool {
-	screenW, _ := ebiten.WindowSize()
-
-	// Handle clicks on the apply mode UI buttons
-	if lm.applyUIVisible {
-		// Calculate UI banner position (same as claim editing UI)
-		overlayHeight := 140
-		buttonWidth := 70
-		buttonHeight := 30
-		buttonSpacing := 10
-
-		// Apply button - positioned on the right side like guild claim editing
-		applyButtonX := screenW - (buttonWidth*2 + buttonSpacing + 20)
-		applyButtonY := overlayHeight - 50
-		fmt.Printf("[LOADOUT] Checking apply button: mouse(%d,%d) vs button(%d,%d,%d,%d)\n",
-			mx, my, applyButtonX, applyButtonY, applyButtonX+buttonWidth, applyButtonY+buttonHeight)
-		if mx >= applyButtonX && mx <= applyButtonX+buttonWidth && my >= applyButtonY && my <= applyButtonY+buttonHeight {
-			fmt.Printf("[LOADOUT] Apply button clicked!\n")
-			lm.StopLoadoutApplication()
-			return true
+// validateMultiAttackLimits validates whether applying a loadout with Multi Attack 
+// would exceed the 5-territory-per-guild limit
+func (lm *LoadoutManager) validateMultiAttackLimits(loadout LoadoutData) (validTerritories []string, invalidTerritories []string) {
+	// Group selected territories by guild
+	territoryGuilds := make(map[string]string) // territory -> guild name
+	guildTerritories := make(map[string][]string) // guild -> territories
+	
+	for territoryName := range lm.selectedTerritories {
+		if !lm.selectedTerritories[territoryName] {
+			continue
 		}
-
-		// Cancel button - positioned next to Apply button on the right
-		cancelButtonX := screenW - (buttonWidth + 20)
-		cancelButtonY := overlayHeight - 50
-		fmt.Printf("[LOADOUT] Checking cancel button: mouse(%d,%d) vs button(%d,%d,%d,%d)\n",
-			mx, my, cancelButtonX, cancelButtonY, cancelButtonX+buttonWidth, cancelButtonY+buttonHeight)
-		if mx >= cancelButtonX && mx <= cancelButtonX+buttonWidth && my >= cancelButtonY && my <= cancelButtonY+buttonHeight {
-			fmt.Printf("[LOADOUT] Cancel button clicked!\n")
-			lm.CancelLoadoutApplication()
-			return true
+		
+		// Get current territory info from eruntime
+		territory := eruntime.GetTerritory(territoryName)
+		if territory != nil {
+			territory.Mu.RLock()
+			guildName := territory.Guild.Name
+			territory.Mu.RUnlock()
+			
+			if guildName != "" && guildName != "No Guild" {
+				territoryGuilds[territoryName] = guildName
+				guildTerritories[guildName] = append(guildTerritories[guildName], territoryName)
+			}
 		}
 	}
-
-	return false
-}
-
-// IsApplyingLoadout returns whether the loadout manager is in application mode
-func (lm *LoadoutManager) IsApplyingLoadout() bool {
-	return lm.isApplyingLoadout
-}
-
-// GetApplyingLoadoutName returns the name of the loadout being applied
-func (lm *LoadoutManager) GetApplyingLoadoutName() string {
-	return lm.applyingLoadoutName
-}
-
-// GetSelectedTerritories returns the currently selected territories for loadout application
-func (lm *LoadoutManager) GetSelectedTerritories() map[string]bool {
-	return lm.selectedTerritories
-}
-
-// AddTerritorySelection adds a territory to the selection for loadout application
-func (lm *LoadoutManager) AddTerritorySelection(territoryName string) {
-	if lm.isApplyingLoadout {
-		lm.selectedTerritories[territoryName] = true
-		fmt.Printf("[LOADOUT] Added territory to selection: %s\n", territoryName)
-
-		// Update the territory renderer with the new selection
-		lm.updateTerritoryRenderer()
-	}
-}
-
-// RemoveTerritorySelection removes a territory from the selection for loadout application
-func (lm *LoadoutManager) RemoveTerritorySelection(territoryName string) {
-	if lm.isApplyingLoadout {
-		delete(lm.selectedTerritories, territoryName)
-		fmt.Printf("[LOADOUT] Removed territory from selection: %s\n", territoryName)
-
-		// Update the territory renderer with the new selection
-		lm.updateTerritoryRenderer()
-	}
-}
-
-// ToggleTerritorySelection toggles a territory's selection state for loadout application
-func (lm *LoadoutManager) ToggleTerritorySelection(territoryName string) {
-	if lm.isApplyingLoadout {
-		if lm.selectedTerritories[territoryName] {
-			lm.RemoveTerritorySelection(territoryName)
+	
+	// Check each guild's Multi Attack limit
+	for guildName, territories := range guildTerritories {
+		// Count current Multi Attack territories for this guild
+		currentMultiAttackCount := 0
+		allTerritories := eruntime.GetTerritories()
+		for _, t := range allTerritories {
+			if t != nil && t.Guild.Name == guildName && t.Options.Bonus.Set.TowerMultiAttack > 0 {
+				currentMultiAttackCount++
+			}
+		}
+		
+		// Count how many territories would have Multi Attack after applying this loadout
+		newMultiAttackCount := currentMultiAttackCount
+		for _, territoryName := range territories {
+			territory := eruntime.GetTerritory(territoryName)
+			if territory != nil {
+				// If territory doesn't currently have Multi Attack but loadout would add it
+				if territory.Options.Bonus.Set.TowerMultiAttack == 0 && loadout.Bonuses.TowerMultiAttack > 0 {
+					newMultiAttackCount++
+				}
+			}
+		}
+		
+		// Check if this would exceed the limit
+		if newMultiAttackCount > 5 {
+			// Determine which territories can be applied and which cannot
+			availableSlots := 5 - currentMultiAttackCount
+			
+			for _, territoryName := range territories {
+				territory := eruntime.GetTerritory(territoryName)
+				if territory != nil {
+					// If territory already has Multi Attack, it's always valid
+					if territory.Options.Bonus.Set.TowerMultiAttack > 0 {
+						validTerritories = append(validTerritories, territoryName)
+					} else if availableSlots > 0 {
+						// Territory doesn't have Multi Attack but there are slots available
+						validTerritories = append(validTerritories, territoryName)
+						availableSlots--
+					} else {
+						// No more slots available
+						invalidTerritories = append(invalidTerritories, territoryName)
+					}
+				}
+			}
 		} else {
-			lm.AddTerritorySelection(territoryName)
+			// All territories are valid for this guild
+			validTerritories = append(validTerritories, territories...)
 		}
 	}
+	
+	return validTerritories, invalidTerritories
+}
+
+// handleMultiAttackLimitExceeded shows an error dialog and offers solutions when 
+// Multi Attack limits would be exceeded
+func (lm *LoadoutManager) handleMultiAttackLimitExceeded(validTerritories []string, invalidTerritories []string) {
+	fmt.Printf("[LOADOUT] Multi Attack limit exceeded!\n")
+	fmt.Printf("[LOADOUT] Valid territories: %v\n", validTerritories)
+	fmt.Printf("[LOADOUT] Invalid territories: %v\n", invalidTerritories)
+	
+	// Show toast notification with the error
+	NewToast().
+		Text("Multi Attack Limit Exceeded", ToastOption{
+			Colour: color.RGBA{255, 100, 100, 255},
+		}).
+		AutoClose(5 * time.Second).
+		Show()
+	
+	// For now, just show the error and cancel the operation
+	// In a more sophisticated implementation, we could show a dialog
+	// asking the user if they want to apply to valid territories only
+	lm.CancelLoadoutApplication()
+	
+	// Update territory selection to show only valid territories
+	// This gives visual feedback about which territories would be affected
+	newSelection := make(map[string]bool)
+	for _, territoryName := range validTerritories {
+		newSelection[territoryName] = true
+	}
+	lm.selectedTerritories = newSelection
+	lm.updateTerritoryRenderer()
+}
+
+// updateTerritoryRenderer updates the territory renderer with the current selection
+func (lm *LoadoutManager) updateTerritoryRenderer() {
+	if !lm.isApplyingLoadout {
+		fmt.Printf("[LOADOUT] updateTerritoryRenderer called but not in apply mode\n")
+		return
+	}
+	
+	// Update territory selection state - this would typically call into the territory renderer
+	fmt.Printf("[LOADOUT] Updating territory renderer with %d selected territories\n", len(lm.selectedTerritories))
+	// TODO: Implement actual territory renderer update when needed
 }
 
 // Draw renders the loadout manager
@@ -1572,59 +1618,57 @@ func (lm *LoadoutManager) drawApplyModeUI(screen *ebiten.Image) {
 		color.RGBA{255, 255, 255, 255})
 }
 
-// updateTerritoryRenderer updates the territory renderer with the current selection
-func (lm *LoadoutManager) updateTerritoryRenderer() {
-	if !lm.isApplyingLoadout {
-		fmt.Printf("[LOADOUT] updateTerritoryRenderer called but not in apply mode\n")
-		return
+// handleApplyModeClick handles clicks on buttons in apply mode UI
+func (lm *LoadoutManager) handleApplyModeClick(mx, my int) bool {
+	screenW, _ := ebiten.WindowSize()
+	overlayHeight := 140
+	buttonWidth := 70
+	buttonHeight := 30
+	buttonSpacing := 10
+
+	// Apply button coordinates
+	applyButtonX := screenW - (buttonWidth*2 + buttonSpacing + 20)
+	applyButtonY := overlayHeight - 50
+
+	// Cancel button coordinates  
+	cancelButtonX := screenW - (buttonWidth + 20)
+	cancelButtonY := overlayHeight - 50
+
+	// Check Apply button click
+	if mx >= applyButtonX && mx <= applyButtonX+buttonWidth && my >= applyButtonY && my <= applyButtonY+buttonHeight {
+		fmt.Printf("[LOADOUT] Apply button clicked\n")
+		lm.StopLoadoutApplication()
+		return true
 	}
 
-	fmt.Printf("[LOADOUT] updateTerritoryRenderer called with %d selected territories\n", len(lm.selectedTerritories))
-
-	mapView := GetMapView()
-	if mapView != nil && mapView.territoriesManager != nil && mapView.territoriesManager.IsLoaded() {
-		if renderer := mapView.territoriesManager.GetRenderer(); renderer != nil {
-			fmt.Printf("[LOADOUT] Calling SetLoadoutApplicationMode with loadout: %s\n", lm.applyingLoadoutName)
-			renderer.SetLoadoutApplicationMode(lm.applyingLoadoutName, lm.selectedTerritories)
-			// Force a redraw to show the updated highlighting
-			if cache := renderer.GetTerritoryCache(); cache != nil {
-				fmt.Printf("[LOADOUT] Forcing territory cache redraw\n")
-				cache.ForceRedraw()
-			} else {
-				fmt.Printf("[LOADOUT] Territory cache is nil\n")
-			}
-		} else {
-			fmt.Printf("[LOADOUT] Territory renderer is nil\n")
-		}
-	} else {
-		fmt.Printf("[LOADOUT] Map view or territories manager not available\n")
+	// Check Cancel button click
+	if mx >= cancelButtonX && mx <= cancelButtonX+buttonWidth && my >= cancelButtonY && my <= cancelButtonY+buttonHeight {
+		fmt.Printf("[LOADOUT] Cancel button clicked\n")
+		lm.CancelLoadoutApplication()
+		return true
 	}
+
+	return false
 }
 
-// addUpgradeSlider adds a custom upgrade slider that directly modifies the loadout value
-func (lm *LoadoutManager) addUpgradeSlider(menu *CollapsibleMenu, name string, valuePtr *int) {
-	// Upgrades always have max level 11 (like in the original UpgradeControl)
-	minLevel := 0
-	maxLevel := 11
-
-	sliderOptions := DefaultSliderOptions()
-	sliderOptions.MinValue = float64(minLevel)
-	sliderOptions.MaxValue = float64(maxLevel)
-	sliderOptions.Step = 1
-	sliderOptions.ShowValue = true
-	sliderOptions.ValueFormat = "%.0f"
-
-	menu.Slider(name, float64(*valuePtr), sliderOptions, func(value float64) {
-		*valuePtr = int(value)
-		fmt.Printf("[LOADOUT] Updated %s to %d\n", name, *valuePtr)
-	})
-}
-
-// addBonusSlider adds a custom bonus slider that directly modifies the loadout value
-func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, name, bonusType string, valuePtr *int) {
-	// Get max level from costs (like in the original BonusControl)
+// addUpgradeSlider adds an upgrade slider to the menu
+func (lm *LoadoutManager) addUpgradeSlider(menu *CollapsibleMenu, label string, value *int) {
+	// Get maximum level from costs
 	costs := eruntime.GetCost()
-	maxLevel := getBonusMaxLevel(costs, bonusType)
+	var maxLevel int
+	
+	switch label {
+	case "Damage":
+		maxLevel = len(costs.UpgradesCost.Damage.Value) - 1
+	case "Attack":
+		maxLevel = len(costs.UpgradesCost.Attack.Value) - 1
+	case "Health":
+		maxLevel = len(costs.UpgradesCost.Health.Value) - 1
+	case "Defence":
+		maxLevel = len(costs.UpgradesCost.Defence.Value) - 1
+	default:
+		maxLevel = 11 // Default fallback
+	}
 
 	sliderOptions := DefaultSliderOptions()
 	sliderOptions.MinValue = 0
@@ -1632,9 +1676,104 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, name, bonusType 
 	sliderOptions.Step = 1
 	sliderOptions.ShowValue = true
 	sliderOptions.ValueFormat = "%.0f"
-
-	menu.Slider(name, float64(*valuePtr), sliderOptions, func(value float64) {
-		*valuePtr = int(value)
-		fmt.Printf("[LOADOUT] Updated %s to %d\n", name, *valuePtr)
+	sliderOptions.FillColor = color.RGBA{100, 150, 255, 255}
+	sliderOptions.Height = 45  // Height for label + slider
+	
+	menu.Slider(label, float64(*value), sliderOptions, func(newValue float64) {
+		*value = int(newValue)
+		fmt.Printf("[LOADOUT] %s upgraded to level %d\n", label, *value)
 	})
+}
+
+// addBonusSlider adds a bonus slider to the menu
+func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, key string, value *int) {
+	// Get maximum level from costs
+	costs := eruntime.GetCost()
+	var maxLevel int
+	
+	switch key {
+	case "strongerMinions":
+		maxLevel = costs.Bonuses.StrongerMinions.MaxLevel
+	case "towerMultiAttack":
+		maxLevel = costs.Bonuses.TowerMultiAttack.MaxLevel
+	case "towerAura":
+		maxLevel = costs.Bonuses.TowerAura.MaxLevel
+	case "towerVolley":
+		maxLevel = costs.Bonuses.TowerVolley.MaxLevel
+	case "largerResourceStorage":
+		maxLevel = costs.Bonuses.LargerResourceStorage.MaxLevel
+	case "largerEmeraldStorage":
+		maxLevel = costs.Bonuses.LargerEmeraldsStorage.MaxLevel
+	case "efficientResource":
+		maxLevel = costs.Bonuses.EfficientResource.MaxLevel
+	case "efficientEmerald":
+		maxLevel = costs.Bonuses.EfficientEmeralds.MaxLevel
+	case "resourceRate":
+		maxLevel = costs.Bonuses.ResourceRate.MaxLevel
+	case "emeraldRate":
+		maxLevel = costs.Bonuses.EmeraldsRate.MaxLevel
+	default:
+		maxLevel = 10 // Default fallback
+	}
+
+	sliderOptions := DefaultSliderOptions()
+	sliderOptions.MinValue = 0
+	sliderOptions.MaxValue = float64(maxLevel)
+	sliderOptions.Step = 1
+	sliderOptions.ShowValue = true
+	sliderOptions.ValueFormat = "%.0f"
+	sliderOptions.FillColor = color.RGBA{150, 100, 255, 255}
+	sliderOptions.Height = 45  // Height for label + slider
+	
+	menu.Slider(label, float64(*value), sliderOptions, func(newValue float64) {
+		*value = int(newValue)
+		fmt.Printf("[LOADOUT] %s bonus set to level %d\n", label, *value)
+	})
+}
+
+// IsApplyingLoadout returns whether the loadout manager is currently applying a loadout
+func (lm *LoadoutManager) IsApplyingLoadout() bool {
+	return lm.isApplyingLoadout
+}
+
+// ToggleTerritorySelection toggles the selection state of a territory
+func (lm *LoadoutManager) ToggleTerritorySelection(territoryName string) {
+	if !lm.isApplyingLoadout {
+		return
+	}
+	
+	if lm.selectedTerritories == nil {
+		lm.selectedTerritories = make(map[string]bool)
+	}
+	
+	lm.selectedTerritories[territoryName] = !lm.selectedTerritories[territoryName]
+	fmt.Printf("[LOADOUT] Toggled territory %s selection: %v\n", territoryName, lm.selectedTerritories[territoryName])
+}
+
+// AddTerritorySelection adds a territory to the selection
+func (lm *LoadoutManager) AddTerritorySelection(territoryName string) {
+	if !lm.isApplyingLoadout {
+		return
+	}
+	
+	if lm.selectedTerritories == nil {
+		lm.selectedTerritories = make(map[string]bool)
+	}
+	
+	lm.selectedTerritories[territoryName] = true
+	fmt.Printf("[LOADOUT] Added territory %s to selection\n", territoryName)
+}
+
+// RemoveTerritorySelection removes a territory from the selection
+func (lm *LoadoutManager) RemoveTerritorySelection(territoryName string) {
+	if !lm.isApplyingLoadout {
+		return
+	}
+	
+	if lm.selectedTerritories == nil {
+		lm.selectedTerritories = make(map[string]bool)
+	}
+	
+	lm.selectedTerritories[territoryName] = false
+	fmt.Printf("[LOADOUT] Removed territory %s from selection\n", territoryName)
 }

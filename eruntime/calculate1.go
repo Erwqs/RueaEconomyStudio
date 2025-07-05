@@ -5,59 +5,157 @@ import (
 	"fmt"
 )
 
+// Cost calculation constants for better performance
+const (
+	COST_PER_HOUR_TO_PER_SECOND = 1.0 / 3600.0
+)
+
+// Upgrade type constants for faster comparisons
+const (
+	UPGRADE_DAMAGE = iota
+	UPGRADE_ATTACK
+	UPGRADE_HEALTH
+	UPGRADE_DEFENCE
+)
+
+// Bonus type constants for faster comparisons
+const (
+	BONUS_STRONGER_MINIONS = iota
+	BONUS_TOWER_MULTI_ATTACK
+	BONUS_TOWER_AURA
+	BONUS_TOWER_VOLLEY
+	BONUS_XP_SEEKING
+	BONUS_TOME_SEEKING
+	BONUS_EMERALD_SEEKING
+	BONUS_LARGER_RESOURCE_STORAGE
+	BONUS_LARGER_EMERALD_STORAGE
+	BONUS_EFFICIENT_RESOURCE
+	BONUS_EFFICIENT_EMERALD
+	BONUS_RESOURCE_RATE
+	BONUS_EMERALD_RATE
+)
+
+// Pre-computed upgrade type mapping for faster lookups
+var upgradeTypeMap = map[string]int{
+	"damage":  UPGRADE_DAMAGE,
+	"attack":  UPGRADE_ATTACK,
+	"health":  UPGRADE_HEALTH,
+	"defence": UPGRADE_DEFENCE,
+}
+
+// Pre-computed bonus type mapping for faster lookups
+var bonusTypeMap = map[string]int{
+	"StrongerMinions":       BONUS_STRONGER_MINIONS,
+	"TowerMultiAttack":      BONUS_TOWER_MULTI_ATTACK,
+	"TowerAura":             BONUS_TOWER_AURA,
+	"TowerVolley":           BONUS_TOWER_VOLLEY,
+	"XpSeeking":             BONUS_XP_SEEKING,
+	"TomeSeeking":           BONUS_TOME_SEEKING,
+	"EmeraldSeeking":        BONUS_EMERALD_SEEKING,
+	"LargerResourceStorage": BONUS_LARGER_RESOURCE_STORAGE,
+	"LargerEmeraldStorage":  BONUS_LARGER_EMERALD_STORAGE,
+	"EfficientResource":     BONUS_EFFICIENT_RESOURCE,
+	"EfficientEmerald":      BONUS_EFFICIENT_EMERALD,
+	"ResourceRate":          BONUS_RESOURCE_RATE,
+	"EmeraldRate":           BONUS_EMERALD_RATE,
+}
+
 // Helper function to check if a bonus level can be afforded
 func canAffordBonus(storage typedef.BasicResources, bonusType string, level int) bool {
+	bonusID, exists := bonusTypeMap[bonusType]
+	if !exists {
+		return false
+	}
+
 	var cost int
 	var resourceType string
 
-	switch bonusType {
-	case "StrongerMinions":
+	switch bonusID {
+	case BONUS_STRONGER_MINIONS:
+		if level >= len(st.costs.Bonuses.StrongerMinions.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.StrongerMinions.Cost[level]
 		resourceType = st.costs.Bonuses.StrongerMinions.ResourceType
-	case "TowerMultiAttack":
+	case BONUS_TOWER_MULTI_ATTACK:
+		if level >= len(st.costs.Bonuses.TowerMultiAttack.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.TowerMultiAttack.Cost[level]
 		resourceType = st.costs.Bonuses.TowerMultiAttack.ResourceType
-	case "TowerAura":
+	case BONUS_TOWER_AURA:
+		if level >= len(st.costs.Bonuses.TowerAura.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.TowerAura.Cost[level]
 		resourceType = st.costs.Bonuses.TowerAura.ResourceType
-	case "TowerVolley":
+	case BONUS_TOWER_VOLLEY:
+		if level >= len(st.costs.Bonuses.TowerVolley.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.TowerVolley.Cost[level]
 		resourceType = st.costs.Bonuses.TowerVolley.ResourceType
-	case "XpSeeking":
+	case BONUS_XP_SEEKING:
+		if level >= len(st.costs.Bonuses.XpSeeking.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.XpSeeking.Cost[level]
 		resourceType = st.costs.Bonuses.XpSeeking.ResourceType
-	case "TomeSeeking":
+	case BONUS_TOME_SEEKING:
+		if level >= len(st.costs.Bonuses.TomeSeeking.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.TomeSeeking.Cost[level]
 		resourceType = st.costs.Bonuses.TomeSeeking.ResourceType
-	case "EmeraldSeeking":
+	case BONUS_EMERALD_SEEKING:
+		if level >= len(st.costs.Bonuses.EmeraldsSeeking.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.EmeraldsSeeking.Cost[level]
 		resourceType = st.costs.Bonuses.EmeraldsSeeking.ResourceType
-	case "LargerResourceStorage":
+	case BONUS_LARGER_RESOURCE_STORAGE:
+		if level >= len(st.costs.Bonuses.LargerResourceStorage.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.LargerResourceStorage.Cost[level]
 		resourceType = st.costs.Bonuses.LargerResourceStorage.ResourceType
-	case "LargerEmeraldStorage":
+	case BONUS_LARGER_EMERALD_STORAGE:
+		if level >= len(st.costs.Bonuses.LargerEmeraldsStorage.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.LargerEmeraldsStorage.Cost[level]
 		resourceType = st.costs.Bonuses.LargerEmeraldsStorage.ResourceType
-	case "EfficientResource":
+	case BONUS_EFFICIENT_RESOURCE:
+		if level >= len(st.costs.Bonuses.EfficientResource.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.EfficientResource.Cost[level]
 		resourceType = st.costs.Bonuses.EfficientResource.ResourceType
-	case "EfficientEmerald":
+	case BONUS_EFFICIENT_EMERALD:
+		if level >= len(st.costs.Bonuses.EfficientEmeralds.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.EfficientEmeralds.Cost[level]
 		resourceType = st.costs.Bonuses.EfficientEmeralds.ResourceType
-	case "ResourceRate":
+	case BONUS_RESOURCE_RATE:
+		if level >= len(st.costs.Bonuses.ResourceRate.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.ResourceRate.Cost[level]
 		resourceType = st.costs.Bonuses.ResourceRate.ResourceType
-	case "EmeraldRate":
+	case BONUS_EMERALD_RATE:
+		if level >= len(st.costs.Bonuses.EmeraldsRate.Cost) {
+			return false
+		}
 		cost = st.costs.Bonuses.EmeraldsRate.Cost[level]
 		resourceType = st.costs.Bonuses.EmeraldsRate.ResourceType
 	default:
 		return false
 	}
 
-	costFloat := float64(cost)
+	// Pre-compute per second cost
+	costPerSec := float64(cost) * COST_PER_HOUR_TO_PER_SECOND
 
-	// Need to calculate per second cost for upgrades
-	costPerSec := float64(costFloat / 3600.0) // Convert to per second cost
 	switch resourceType {
 	case "emeralds":
 		return storage.Emeralds >= costPerSec
@@ -129,29 +227,34 @@ func setAffordableUpgrades(territory *typedef.Territory, storage typedef.BasicRe
 
 // Helper function to check if an upgrade level can be afforded
 func canAffordUpgrade(storage typedef.BasicResources, upgradeType string, level int) bool {
+	upgradeID, exists := upgradeTypeMap[upgradeType]
+	if !exists {
+		return false
+	}
+
 	var cost int
 	var resourceType string
 
-	switch upgradeType {
-	case "damage":
+	switch upgradeID {
+	case UPGRADE_DAMAGE:
 		if level >= len(st.costs.UpgradesCost.Damage.Value) {
 			return false
 		}
 		cost = st.costs.UpgradesCost.Damage.Value[level]
 		resourceType = st.costs.UpgradesCost.Damage.ResourceType
-	case "attack":
+	case UPGRADE_ATTACK:
 		if level >= len(st.costs.UpgradesCost.Attack.Value) {
 			return false
 		}
 		cost = st.costs.UpgradesCost.Attack.Value[level]
 		resourceType = st.costs.UpgradesCost.Attack.ResourceType
-	case "health":
+	case UPGRADE_HEALTH:
 		if level >= len(st.costs.UpgradesCost.Health.Value) {
 			return false
 		}
 		cost = st.costs.UpgradesCost.Health.Value[level]
 		resourceType = st.costs.UpgradesCost.Health.ResourceType
-	case "defence":
+	case UPGRADE_DEFENCE:
 		if level >= len(st.costs.UpgradesCost.Defence.Value) {
 			return false
 		}
@@ -161,10 +264,9 @@ func canAffordUpgrade(storage typedef.BasicResources, upgradeType string, level 
 		return false
 	}
 
-	costFloat := float64(cost)
+	// Pre-compute per second cost
+	costPerSec := float64(cost) * COST_PER_HOUR_TO_PER_SECOND
 
-	// Need to calculate per second cost for upgrades
-	costPerSec := float64(costFloat / 3600.0) // Convert to per second cost
 	switch resourceType {
 	case "emeralds":
 		return storage.Emeralds >= costPerSec
@@ -258,42 +360,81 @@ func calculateAffordableCosts(territory *typedef.Territory) typedef.BasicResourc
 	costNow := typedef.BasicResourcesSecond{}
 	storage := territory.Storage.At
 
-	// Check upgrades individually - they need the full cost per second
-	damagePerSecond := float64(st.costs.UpgradesCost.Damage.Value[territory.Options.Upgrade.Set.Damage]) / 3600.0
-	if storage.Ores >= damagePerSecond {
-		costNow.Ores += damagePerSecond
+	// Pre-compute upgrade costs per second to avoid repeated division
+	damageLevel := territory.Options.Upgrade.Set.Damage
+	if damageLevel < len(st.costs.UpgradesCost.Damage.Value) {
+		damagePerSecond := float64(st.costs.UpgradesCost.Damage.Value[damageLevel]) * COST_PER_HOUR_TO_PER_SECOND
+		if storage.Ores >= damagePerSecond {
+			costNow.Ores += damagePerSecond
+		}
 	}
 
-	attackPerSecond := float64(st.costs.UpgradesCost.Attack.Value[territory.Options.Upgrade.Set.Attack]) / 3600.0
-	if storage.Crops >= attackPerSecond {
-		costNow.Crops += attackPerSecond
+	attackLevel := territory.Options.Upgrade.Set.Attack
+	if attackLevel < len(st.costs.UpgradesCost.Attack.Value) {
+		attackPerSecond := float64(st.costs.UpgradesCost.Attack.Value[attackLevel]) * COST_PER_HOUR_TO_PER_SECOND
+		if storage.Crops >= attackPerSecond {
+			costNow.Crops += attackPerSecond
+		}
 	}
 
-	defencePerSecond := float64(st.costs.UpgradesCost.Defence.Value[territory.Options.Upgrade.Set.Defence]) / 3600.0
-	if storage.Fish >= defencePerSecond {
-		costNow.Fish += defencePerSecond
+	defenceLevel := territory.Options.Upgrade.Set.Defence
+	if defenceLevel < len(st.costs.UpgradesCost.Defence.Value) {
+		defencePerSecond := float64(st.costs.UpgradesCost.Defence.Value[defenceLevel]) * COST_PER_HOUR_TO_PER_SECOND
+		if storage.Fish >= defencePerSecond {
+			costNow.Fish += defencePerSecond
+		}
 	}
 
-	healthPerSecond := float64(st.costs.UpgradesCost.Health.Value[territory.Options.Upgrade.Set.Health]) / 3600.0
-	if storage.Wood >= healthPerSecond {
-		costNow.Wood += healthPerSecond
+	healthLevel := territory.Options.Upgrade.Set.Health
+	if healthLevel < len(st.costs.UpgradesCost.Health.Value) {
+		healthPerSecond := float64(st.costs.UpgradesCost.Health.Value[healthLevel]) * COST_PER_HOUR_TO_PER_SECOND
+		if storage.Wood >= healthPerSecond {
+			costNow.Wood += healthPerSecond
+		}
 	}
 
-	// For bonuses, use the "At" levels since they're already calculated based on affordability
-	// This means if a bonus can't be afforded, its "At" level is 0, so cost will be 0
-	costNow.Wood += float64(st.costs.Bonuses.StrongerMinions.Cost[territory.Options.Bonus.At.StrongerMinions]) / 3600.0
-	costNow.Fish += float64(st.costs.Bonuses.TowerMultiAttack.Cost[territory.Options.Bonus.At.TowerMultiAttack]) / 3600.0
-	costNow.Crops += float64(st.costs.Bonuses.TowerAura.Cost[territory.Options.Bonus.At.TowerAura]) / 3600.0
-	costNow.Ores += float64(st.costs.Bonuses.TowerVolley.Cost[territory.Options.Bonus.At.TowerVolley]) / 3600.0
-	costNow.Emeralds += float64(st.costs.Bonuses.XpSeeking.Cost[territory.Options.Bonus.At.XpSeeking]) / 3600.0
-	costNow.Fish += float64(st.costs.Bonuses.TomeSeeking.Cost[territory.Options.Bonus.At.TomeSeeking]) / 3600.0
-	costNow.Wood += float64(st.costs.Bonuses.EmeraldsSeeking.Cost[territory.Options.Bonus.At.EmeraldSeeking]) / 3600.0
-	costNow.Emeralds += float64(st.costs.Bonuses.LargerResourceStorage.Cost[territory.Options.Bonus.At.LargerResourceStorage]) / 3600.0
-	costNow.Wood += float64(st.costs.Bonuses.LargerEmeraldsStorage.Cost[territory.Options.Bonus.At.LargerEmeraldStorage]) / 3600.0
-	costNow.Emeralds += float64(st.costs.Bonuses.EfficientResource.Cost[territory.Options.Bonus.At.EfficientResource]) / 3600.0
-	costNow.Ores += float64(st.costs.Bonuses.EfficientEmeralds.Cost[territory.Options.Bonus.At.EfficientEmerald]) / 3600.0
-	costNow.Emeralds += float64(st.costs.Bonuses.ResourceRate.Cost[territory.Options.Bonus.At.ResourceRate]) / 3600.0
-	costNow.Crops += float64(st.costs.Bonuses.EmeraldsRate.Cost[territory.Options.Bonus.At.EmeraldRate]) / 3600.0
+	// For bonuses, use the "At" levels and pre-compute costs
+	bonuses := territory.Options.Bonus.At
+
+	if bonuses.StrongerMinions < len(st.costs.Bonuses.StrongerMinions.Cost) {
+		costNow.Wood += float64(st.costs.Bonuses.StrongerMinions.Cost[bonuses.StrongerMinions]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.TowerMultiAttack < len(st.costs.Bonuses.TowerMultiAttack.Cost) {
+		costNow.Fish += float64(st.costs.Bonuses.TowerMultiAttack.Cost[bonuses.TowerMultiAttack]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.TowerAura < len(st.costs.Bonuses.TowerAura.Cost) {
+		costNow.Crops += float64(st.costs.Bonuses.TowerAura.Cost[bonuses.TowerAura]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.TowerVolley < len(st.costs.Bonuses.TowerVolley.Cost) {
+		costNow.Ores += float64(st.costs.Bonuses.TowerVolley.Cost[bonuses.TowerVolley]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.XpSeeking < len(st.costs.Bonuses.XpSeeking.Cost) {
+		costNow.Emeralds += float64(st.costs.Bonuses.XpSeeking.Cost[bonuses.XpSeeking]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.TomeSeeking < len(st.costs.Bonuses.TomeSeeking.Cost) {
+		costNow.Fish += float64(st.costs.Bonuses.TomeSeeking.Cost[bonuses.TomeSeeking]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.EmeraldSeeking < len(st.costs.Bonuses.EmeraldsSeeking.Cost) {
+		costNow.Wood += float64(st.costs.Bonuses.EmeraldsSeeking.Cost[bonuses.EmeraldSeeking]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.LargerResourceStorage < len(st.costs.Bonuses.LargerResourceStorage.Cost) {
+		costNow.Emeralds += float64(st.costs.Bonuses.LargerResourceStorage.Cost[bonuses.LargerResourceStorage]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.LargerEmeraldStorage < len(st.costs.Bonuses.LargerEmeraldsStorage.Cost) {
+		costNow.Wood += float64(st.costs.Bonuses.LargerEmeraldsStorage.Cost[bonuses.LargerEmeraldStorage]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.EfficientResource < len(st.costs.Bonuses.EfficientResource.Cost) {
+		costNow.Emeralds += float64(st.costs.Bonuses.EfficientResource.Cost[bonuses.EfficientResource]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.EfficientEmerald < len(st.costs.Bonuses.EfficientEmeralds.Cost) {
+		costNow.Ores += float64(st.costs.Bonuses.EfficientEmeralds.Cost[bonuses.EfficientEmerald]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.ResourceRate < len(st.costs.Bonuses.ResourceRate.Cost) {
+		costNow.Emeralds += float64(st.costs.Bonuses.ResourceRate.Cost[bonuses.ResourceRate]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.EmeraldRate < len(st.costs.Bonuses.EmeraldsRate.Cost) {
+		costNow.Crops += float64(st.costs.Bonuses.EmeraldsRate.Cost[bonuses.EmeraldRate]) * COST_PER_HOUR_TO_PER_SECOND
+	}
 
 	return costNow
 }
@@ -593,16 +734,32 @@ func calculateTowerStats(territory *typedef.Territory) typedef.TowerStats {
 	newDefence := baseDefence * defenceMultiplier // Defense is already in decimal form (0.1 = 10%)
 
 	// Calculate territory level for display purposes (based on actual affordable levels)
-	activeAuraLv := territory.Options.Bonus.At.TowerAura * 5
-	activeVolleyLv := territory.Options.Bonus.At.TowerVolley * 3
+	// Calculate Aura bonus: Aura 0 = +0, Aura 1 = +5, Aura 2 = +6, Aura 3 = +7, Aura 4 = +8, etc.
+	calcAuraBonus := func(aura int) int {
+		if aura == 0 {
+			return 0
+		}
+		return 4 + aura
+	}
+
+	// Calculate Volley bonus: Volley 0 = +0, Volley 1 = +3, Volley 2 = +4, Volley 3 = +5, etc.
+	calcVolleyBonus := func(volley int) int {
+		if volley == 0 {
+			return 0
+		}
+		return 2 + volley
+	}
+
+	activeAuraLv := calcAuraBonus(territory.Options.Bonus.At.TowerAura)
+	activeVolleyLv := calcVolleyBonus(territory.Options.Bonus.At.TowerVolley)
 
 	territory.LevelInt = uint8(damageLevel + attackLevel + healthLevel + defenceLevel +
 		territory.Options.Bonus.At.TowerAura + territory.Options.Bonus.At.TowerVolley +
 		activeAuraLv + activeVolleyLv)
 
 	// Calculate set level for display purposes (based on user-configured levels)
-	setAuraLv := territory.Options.Bonus.Set.TowerAura * 5
-	setVolleyLv := territory.Options.Bonus.Set.TowerVolley * 3
+	setAuraLv := calcAuraBonus(territory.Options.Bonus.Set.TowerAura)
+	setVolleyLv := calcVolleyBonus(territory.Options.Bonus.Set.TowerVolley)
 
 	territory.SetLevelInt = uint8(territory.Options.Upgrade.Set.Damage + territory.Options.Upgrade.Set.Attack +
 		territory.Options.Upgrade.Set.Health + territory.Options.Upgrade.Set.Defence +

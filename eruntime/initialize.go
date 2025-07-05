@@ -59,6 +59,9 @@ func loadTerritories() {
 		TradingRoutesMap[name] = t.TradingRoutes
 		TerritoryMap[name] = territory
 
+		// Also populate the state's territory map for fast lookups by ID
+		st.territoryMap[territory.ID] = territory
+
 		st.territories = append(st.territories, territory)
 	}
 
@@ -154,6 +157,15 @@ func loadFromETF(path string) error {
 func (s *state) load(newState *state) {
 	s.territories = newState.territories
 	s.guilds = newState.guilds
+	s.activeTributes = newState.activeTributes
 	s.savedSnapshots = newState.savedSnapshots
 	s.tick = newState.tick
+
+	// Rebuild the territory map for fast lookups
+	s.territoryMap = make(map[string]*typedef.Territory)
+	for _, territory := range s.territories {
+		if territory != nil {
+			s.territoryMap[territory.ID] = territory
+		}
+	}
 }

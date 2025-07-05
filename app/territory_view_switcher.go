@@ -21,6 +21,7 @@ const (
 	ViewSetDefence
 	ViewAtDefence
 	ViewTreasury
+	ViewTreasuryOverrides
 	ViewWarning
 )
 
@@ -58,6 +59,7 @@ func NewTerritoryViewSwitcher() *TerritoryViewSwitcher {
 			{Name: "Set Defence", Description: "Set defence level view", HiddenGuild: "__VIEW_SET_DEFENCE__"},
 			{Name: "At Defence", Description: "At defence level view", HiddenGuild: "__VIEW_AT_DEFENCE__"},
 			{Name: "Treasury", Description: "Treasury level view", HiddenGuild: "__VIEW_TREASURY__"},
+			{Name: "Treasury Overrides", Description: "Treasury override view", HiddenGuild: "__VIEW_TREASURY_OVERRIDES__"},
 			{Name: "Warning", Description: "Warning status view", HiddenGuild: "__VIEW_WARNING__"},
 		},
 		hiddenGuilds: make(map[string]color.RGBA),
@@ -91,6 +93,14 @@ func (tvs *TerritoryViewSwitcher) initializeHiddenGuilds() {
 	tvs.hiddenGuilds["__TREASURY_MEDIUM__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255}  // Yellow
 	tvs.hiddenGuilds["__TREASURY_HIGH__"] = color.RGBA{R: 255, G: 165, B: 0, A: 255}    // Orange
 	tvs.hiddenGuilds["__TREASURY_VERY_HIGH__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
+
+	// Treasury override colors (similar to treasury but with different saturation)
+	tvs.hiddenGuilds["__TREASURY_OVERRIDE_NONE__"] = color.RGBA{R: 128, G: 128, B: 128, A: 255}    // Gray for no override
+	tvs.hiddenGuilds["__TREASURY_OVERRIDE_VERY_LOW__"] = color.RGBA{R: 0, G: 100, B: 0, A: 255}    // Darker green
+	tvs.hiddenGuilds["__TREASURY_OVERRIDE_LOW__"] = color.RGBA{R: 34, G: 139, B: 34, A: 255}       // Forest green
+	tvs.hiddenGuilds["__TREASURY_OVERRIDE_MEDIUM__"] = color.RGBA{R: 218, G: 165, B: 32, A: 255}   // Goldenrod
+	tvs.hiddenGuilds["__TREASURY_OVERRIDE_HIGH__"] = color.RGBA{R: 255, G: 140, B: 0, A: 255}      // Dark orange
+	tvs.hiddenGuilds["__TREASURY_OVERRIDE_VERY_HIGH__"] = color.RGBA{R: 220, G: 20, B: 60, A: 255} // Crimson
 
 	// Warning colors
 	tvs.hiddenGuilds["__WARNING_ACTIVE__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255} // Yellow for warnings
@@ -183,6 +193,9 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorForCurrentView(territoryName 
 	case ViewTreasury:
 		return tvs.getTreasuryColor(territory.Treasury), true
 
+	case ViewTreasuryOverrides:
+		return tvs.getTreasuryOverrideColor(territory.TreasuryOverride), true
+
 	case ViewWarning:
 		return tvs.getWarningColor(territory.Warning), true
 
@@ -231,6 +244,9 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorsForCurrentView(territoryName
 			hasColor = true
 		case ViewTreasury:
 			territoryColor = tvs.getTreasuryColor(territory.Treasury)
+			hasColor = true
+		case ViewTreasuryOverrides:
+			territoryColor = tvs.getTreasuryOverrideColor(territory.TreasuryOverride)
 			hasColor = true
 		case ViewWarning:
 			territoryColor = tvs.getWarningColor(territory.Warning)
@@ -334,6 +350,26 @@ func (tvs *TerritoryViewSwitcher) getTreasuryColor(level typedef.TreasuryLevel) 
 	}
 }
 
+// getTreasuryOverrideColor returns color based on treasury override level
+func (tvs *TerritoryViewSwitcher) getTreasuryOverrideColor(level typedef.TreasuryOverride) color.RGBA {
+	switch level {
+	case typedef.TreasuryOverrideNone:
+		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_NONE__"]
+	case typedef.TreasuryOverrideVeryLow:
+		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_VERY_LOW__"]
+	case typedef.TreasuryOverrideLow:
+		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_LOW__"]
+	case typedef.TreasuryOverrideMedium:
+		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_MEDIUM__"]
+	case typedef.TreasuryOverrideHigh:
+		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_HIGH__"]
+	case typedef.TreasuryOverrideVeryHigh:
+		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_VERY_HIGH__"]
+	default:
+		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_NONE__"]
+	}
+}
+
 // getWarningColor returns color based on warning status
 func (tvs *TerritoryViewSwitcher) getWarningColor(warning typedef.Warning) color.RGBA {
 	if warning != 0 {
@@ -432,6 +468,8 @@ func (tvs *TerritoryViewSwitcher) GetHiddenGuildNameForTerritory(territoryName s
 		return tvs.getDefenceHiddenGuild(territory.Level)
 	case ViewTreasury:
 		return tvs.getTreasuryHiddenGuild(territory.Treasury)
+	case ViewTreasuryOverrides:
+		return tvs.getTreasuryOverrideHiddenGuild(territory.TreasuryOverride)
 	case ViewWarning:
 		return tvs.getWarningHiddenGuild(territory.Warning)
 	default:
@@ -523,6 +561,26 @@ func (tvs *TerritoryViewSwitcher) getTreasuryHiddenGuild(level typedef.TreasuryL
 		return "__TREASURY_VERY_HIGH__"
 	default:
 		return "__TREASURY_VERY_LOW__"
+	}
+}
+
+// getTreasuryOverrideHiddenGuild returns the hidden guild name for treasury override view
+func (tvs *TerritoryViewSwitcher) getTreasuryOverrideHiddenGuild(level typedef.TreasuryOverride) string {
+	switch level {
+	case typedef.TreasuryOverrideNone:
+		return "__TREASURY_OVERRIDE_NONE__"
+	case typedef.TreasuryOverrideVeryLow:
+		return "__TREASURY_OVERRIDE_VERY_LOW__"
+	case typedef.TreasuryOverrideLow:
+		return "__TREASURY_OVERRIDE_LOW__"
+	case typedef.TreasuryOverrideMedium:
+		return "__TREASURY_OVERRIDE_MEDIUM__"
+	case typedef.TreasuryOverrideHigh:
+		return "__TREASURY_OVERRIDE_HIGH__"
+	case typedef.TreasuryOverrideVeryHigh:
+		return "__TREASURY_OVERRIDE_VERY_HIGH__"
+	default:
+		return "__TREASURY_OVERRIDE_NONE__"
 	}
 }
 
