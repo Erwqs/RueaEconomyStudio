@@ -24,6 +24,10 @@ const (
 	BONUS_TOWER_MULTI_ATTACK
 	BONUS_TOWER_AURA
 	BONUS_TOWER_VOLLEY
+	BONUS_GATHERING_EXPERIENCE
+	BONUS_MOB_EXPERIENCE
+	BONUS_MOB_DAMAGE
+	BONUS_PVP_DAMAGE
 	BONUS_XP_SEEKING
 	BONUS_TOME_SEEKING
 	BONUS_EMERALD_SEEKING
@@ -49,7 +53,11 @@ var bonusTypeMap = map[string]int{
 	"TowerMultiAttack":      BONUS_TOWER_MULTI_ATTACK,
 	"TowerAura":             BONUS_TOWER_AURA,
 	"TowerVolley":           BONUS_TOWER_VOLLEY,
-	"XpSeeking":             BONUS_XP_SEEKING,
+	"GatheringExperience":   BONUS_GATHERING_EXPERIENCE,
+	"MobExperience":         BONUS_MOB_EXPERIENCE,
+	"MobDamage":             BONUS_MOB_DAMAGE,
+	"PvPDamage":             BONUS_PVP_DAMAGE,
+	"XPSeeking":             BONUS_XP_SEEKING,
 	"TomeSeeking":           BONUS_TOME_SEEKING,
 	"EmeraldSeeking":        BONUS_EMERALD_SEEKING,
 	"LargerResourceStorage": BONUS_LARGER_RESOURCE_STORAGE,
@@ -95,12 +103,36 @@ func canAffordBonus(storage typedef.BasicResources, bonusType string, level int)
 		}
 		cost = st.costs.Bonuses.TowerVolley.Cost[level]
 		resourceType = st.costs.Bonuses.TowerVolley.ResourceType
-	case BONUS_XP_SEEKING:
-		if level >= len(st.costs.Bonuses.XpSeeking.Cost) {
+	case BONUS_GATHERING_EXPERIENCE:
+		if level >= len(st.costs.Bonuses.GatheringExperience.Cost) {
 			return false
 		}
-		cost = st.costs.Bonuses.XpSeeking.Cost[level]
-		resourceType = st.costs.Bonuses.XpSeeking.ResourceType
+		cost = st.costs.Bonuses.GatheringExperience.Cost[level]
+		resourceType = st.costs.Bonuses.GatheringExperience.ResourceType
+	case BONUS_MOB_EXPERIENCE:
+		if level >= len(st.costs.Bonuses.MobExperience.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.MobExperience.Cost[level]
+		resourceType = st.costs.Bonuses.MobExperience.ResourceType
+	case BONUS_MOB_DAMAGE:
+		if level >= len(st.costs.Bonuses.MobDamage.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.MobDamage.Cost[level]
+		resourceType = st.costs.Bonuses.MobDamage.ResourceType
+	case BONUS_PVP_DAMAGE:
+		if level >= len(st.costs.Bonuses.PvPDamage.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.PvPDamage.Cost[level]
+		resourceType = st.costs.Bonuses.PvPDamage.ResourceType
+	case BONUS_XP_SEEKING:
+		if level >= len(st.costs.Bonuses.XPSeeking.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.XPSeeking.Cost[level]
+		resourceType = st.costs.Bonuses.XPSeeking.ResourceType
 	case BONUS_TOME_SEEKING:
 		if level >= len(st.costs.Bonuses.TomeSeeking.Cost) {
 			return false
@@ -183,9 +215,18 @@ func setAffordableBonuses(territory *typedef.Territory, storage typedef.BasicRes
 		{"TowerMultiAttack", territory.Options.Bonus.Set.TowerMultiAttack, &territory.Options.Bonus.At.TowerMultiAttack},
 		{"TowerAura", territory.Options.Bonus.Set.TowerAura, &territory.Options.Bonus.At.TowerAura},
 		{"TowerVolley", territory.Options.Bonus.Set.TowerVolley, &territory.Options.Bonus.At.TowerVolley},
-		{"XpSeeking", territory.Options.Bonus.Set.XpSeeking, &territory.Options.Bonus.At.XpSeeking},
+
+		{"GatheringExperience", territory.Options.Bonus.Set.GatheringExperience, &territory.Options.Bonus.At.GatheringExperience},
+		{"MobExperience", territory.Options.Bonus.Set.MobExperience, &territory.Options.Bonus.At.MobExperience},
+		{"MobDamage", territory.Options.Bonus.Set.MobDamage, &territory.Options.Bonus.At.MobDamage},
+		{"PvPDamage", territory.Options.Bonus.Set.PvPDamage, &territory.Options.Bonus.At.PvPDamage},
+		{"TowerVolley", territory.Options.Bonus.Set.TowerVolley, &territory.Options.Bonus.At.TowerVolley},
+		{"TowerVolley", territory.Options.Bonus.Set.TowerVolley, &territory.Options.Bonus.At.TowerVolley},
+		{"TowerVolley", territory.Options.Bonus.Set.TowerVolley, &territory.Options.Bonus.At.TowerVolley},
+		{"XPSeeking", territory.Options.Bonus.Set.XPSeeking, &territory.Options.Bonus.At.XPSeeking},
 		{"TomeSeeking", territory.Options.Bonus.Set.TomeSeeking, &territory.Options.Bonus.At.TomeSeeking},
 		{"EmeraldSeeking", territory.Options.Bonus.Set.EmeraldSeeking, &territory.Options.Bonus.At.EmeraldSeeking},
+
 		{"LargerResourceStorage", territory.Options.Bonus.Set.LargerResourceStorage, &territory.Options.Bonus.At.LargerResourceStorage},
 		{"LargerEmeraldStorage", territory.Options.Bonus.Set.LargerEmeraldStorage, &territory.Options.Bonus.At.LargerEmeraldStorage},
 		{"EfficientResource", territory.Options.Bonus.Set.EfficientResource, &territory.Options.Bonus.At.EfficientResource},
@@ -331,26 +372,38 @@ func calculateGenerationInternal(territory *typedef.Territory) (static typedef.B
 func calculateTotalCosts(territory *typedef.Territory) typedef.BasicResources {
 	cost := typedef.BasicResources{}
 
-	// Upgrades
-	cost.Ores += float64(st.costs.UpgradesCost.Damage.Value[territory.Options.Upgrade.Set.Damage])
-	cost.Crops += float64(st.costs.UpgradesCost.Attack.Value[territory.Options.Upgrade.Set.Attack])
-	cost.Fish += float64(st.costs.UpgradesCost.Defence.Value[territory.Options.Upgrade.Set.Defence])
-	cost.Wood += float64(st.costs.UpgradesCost.Health.Value[territory.Options.Upgrade.Set.Health])
+	// Helper function to safely get cost with bounds checking
+	getCost := func(costArray []int, level int) float64 {
+		if level >= 0 && level < len(costArray) {
+			return float64(costArray[level])
+		}
+		return 0.0
+	}
 
-	// Bonuses
-	cost.Wood += float64(st.costs.Bonuses.StrongerMinions.Cost[territory.Options.Bonus.Set.StrongerMinions])
-	cost.Fish += float64(st.costs.Bonuses.TowerMultiAttack.Cost[territory.Options.Bonus.Set.TowerMultiAttack])
-	cost.Crops += float64(st.costs.Bonuses.TowerAura.Cost[territory.Options.Bonus.Set.TowerAura])
-	cost.Ores += float64(st.costs.Bonuses.TowerVolley.Cost[territory.Options.Bonus.Set.TowerVolley])
-	cost.Emeralds += float64(st.costs.Bonuses.XpSeeking.Cost[territory.Options.Bonus.Set.XpSeeking])
-	cost.Fish += float64(st.costs.Bonuses.TomeSeeking.Cost[territory.Options.Bonus.Set.TomeSeeking])
-	cost.Wood += float64(st.costs.Bonuses.EmeraldsSeeking.Cost[territory.Options.Bonus.Set.EmeraldSeeking])
-	cost.Emeralds += float64(st.costs.Bonuses.LargerResourceStorage.Cost[territory.Options.Bonus.Set.LargerResourceStorage])
-	cost.Wood += float64(st.costs.Bonuses.LargerEmeraldsStorage.Cost[territory.Options.Bonus.Set.LargerEmeraldStorage])
-	cost.Emeralds += float64(st.costs.Bonuses.EfficientResource.Cost[territory.Options.Bonus.Set.EfficientResource])
-	cost.Ores += float64(st.costs.Bonuses.EfficientEmeralds.Cost[territory.Options.Bonus.Set.EfficientEmerald])
-	cost.Emeralds += float64(st.costs.Bonuses.ResourceRate.Cost[territory.Options.Bonus.Set.ResourceRate])
-	cost.Crops += float64(st.costs.Bonuses.EmeraldsRate.Cost[territory.Options.Bonus.Set.EmeraldRate])
+	// Upgrades
+	cost.Ores += getCost(st.costs.UpgradesCost.Damage.Value, territory.Options.Upgrade.Set.Damage)
+	cost.Crops += getCost(st.costs.UpgradesCost.Attack.Value, territory.Options.Upgrade.Set.Attack)
+	cost.Fish += getCost(st.costs.UpgradesCost.Defence.Value, territory.Options.Upgrade.Set.Defence)
+	cost.Wood += getCost(st.costs.UpgradesCost.Health.Value, territory.Options.Upgrade.Set.Health)
+
+	// Bonuses with bounds checking
+	cost.Wood += getCost(st.costs.Bonuses.StrongerMinions.Cost, territory.Options.Bonus.Set.StrongerMinions)
+	cost.Fish += getCost(st.costs.Bonuses.TowerMultiAttack.Cost, territory.Options.Bonus.Set.TowerMultiAttack)
+	cost.Crops += getCost(st.costs.Bonuses.TowerAura.Cost, territory.Options.Bonus.Set.TowerAura)
+	cost.Ores += getCost(st.costs.Bonuses.TowerVolley.Cost, territory.Options.Bonus.Set.TowerVolley)
+	cost.Wood += getCost(st.costs.Bonuses.GatheringExperience.Cost, territory.Options.Bonus.Set.GatheringExperience)
+	cost.Fish += getCost(st.costs.Bonuses.MobExperience.Cost, territory.Options.Bonus.Set.MobExperience)
+	cost.Wood += getCost(st.costs.Bonuses.MobDamage.Cost, territory.Options.Bonus.Set.MobDamage)
+	cost.Wood += getCost(st.costs.Bonuses.PvPDamage.Cost, territory.Options.Bonus.Set.PvPDamage)
+	cost.Emeralds += getCost(st.costs.Bonuses.XPSeeking.Cost, territory.Options.Bonus.Set.XPSeeking)
+	cost.Fish += getCost(st.costs.Bonuses.TomeSeeking.Cost, territory.Options.Bonus.Set.TomeSeeking)
+	cost.Wood += getCost(st.costs.Bonuses.EmeraldsSeeking.Cost, territory.Options.Bonus.Set.EmeraldSeeking)
+	cost.Emeralds += getCost(st.costs.Bonuses.LargerResourceStorage.Cost, territory.Options.Bonus.Set.LargerResourceStorage)
+	cost.Wood += getCost(st.costs.Bonuses.LargerEmeraldsStorage.Cost, territory.Options.Bonus.Set.LargerEmeraldStorage)
+	cost.Emeralds += getCost(st.costs.Bonuses.EfficientResource.Cost, territory.Options.Bonus.Set.EfficientResource)
+	cost.Ores += getCost(st.costs.Bonuses.EfficientEmeralds.Cost, territory.Options.Bonus.Set.EfficientEmerald)
+	cost.Emeralds += getCost(st.costs.Bonuses.ResourceRate.Cost, territory.Options.Bonus.Set.ResourceRate)
+	cost.Crops += getCost(st.costs.Bonuses.EmeraldsRate.Cost, territory.Options.Bonus.Set.EmeraldRate)
 
 	return cost
 }
@@ -408,8 +461,20 @@ func calculateAffordableCosts(territory *typedef.Territory) typedef.BasicResourc
 	if bonuses.TowerVolley < len(st.costs.Bonuses.TowerVolley.Cost) {
 		costNow.Ores += float64(st.costs.Bonuses.TowerVolley.Cost[bonuses.TowerVolley]) * COST_PER_HOUR_TO_PER_SECOND
 	}
-	if bonuses.XpSeeking < len(st.costs.Bonuses.XpSeeking.Cost) {
-		costNow.Emeralds += float64(st.costs.Bonuses.XpSeeking.Cost[bonuses.XpSeeking]) * COST_PER_HOUR_TO_PER_SECOND
+	if bonuses.GatheringExperience < len(st.costs.Bonuses.GatheringExperience.Cost) {
+		costNow.Wood += float64(st.costs.Bonuses.GatheringExperience.Cost[bonuses.GatheringExperience]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.MobExperience < len(st.costs.Bonuses.MobExperience.Cost) {
+		costNow.Fish += float64(st.costs.Bonuses.MobExperience.Cost[bonuses.MobExperience]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.MobDamage < len(st.costs.Bonuses.MobDamage.Cost) {
+		costNow.Wood += float64(st.costs.Bonuses.MobDamage.Cost[bonuses.MobDamage]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.PvPDamage < len(st.costs.Bonuses.PvPDamage.Cost) {
+		costNow.Wood += float64(st.costs.Bonuses.PvPDamage.Cost[bonuses.PvPDamage]) * COST_PER_HOUR_TO_PER_SECOND
+	}
+	if bonuses.XPSeeking < len(st.costs.Bonuses.XPSeeking.Cost) {
+		costNow.Emeralds += float64(st.costs.Bonuses.XPSeeking.Cost[bonuses.XPSeeking]) * COST_PER_HOUR_TO_PER_SECOND
 	}
 	if bonuses.TomeSeeking < len(st.costs.Bonuses.TomeSeeking.Cost) {
 		costNow.Fish += float64(st.costs.Bonuses.TomeSeeking.Cost[bonuses.TomeSeeking]) * COST_PER_HOUR_TO_PER_SECOND

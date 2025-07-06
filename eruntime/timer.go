@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"time"
 )
+var StateTick = make(chan struct{})
 
 // Start creates a timer ticker that calls update() every tick
 func (s *state) start() {
@@ -21,6 +22,7 @@ func (s *state) start() {
 			}
 
 			s.nexttick() // Advance the simulation state by 1 tick
+
 		}
 	}()
 }
@@ -146,4 +148,18 @@ func (s *state) setTickRate(ticksPerSecond int) {
 			s.nexttick() // Advance the simulation state by 1 tick
 		}
 	}()
+}
+
+func SendStateTick() {
+	// Try sending without blocking
+	select {
+	case StateTick <- struct{}{}:
+		// Successfully sent tick notification
+	default:
+		// Channel is full, skip sending to avoid blocking
+	}
+}
+
+func GetStateTick() <-chan struct{} {
+	return StateTick
 }

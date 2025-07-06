@@ -447,7 +447,11 @@ func (lm *LoadoutManager) addLoadout() {
 				TowerMultiAttack:      0,
 				TowerAura:             0,
 				TowerVolley:           0,
-				XpSeeking:             0,
+				GatheringExperience:   0,
+				MobExperience:         0,
+				MobDamage:             0,
+				PvPDamage:             0,
+				XPSeeking:             0,
 				TomeSeeking:           0,
 				EmeraldSeeking:        0,
 				LargerResourceStorage: 0,
@@ -612,10 +616,21 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 	// Pre-validate Multi Attack limits if the loadout has Multi Attack
 	if loadout.Bonuses.TowerMultiAttack > 0 {
 		validTerritories, invalidTerritories := lm.validateMultiAttackLimits(loadout)
-		
+
 		if len(invalidTerritories) > 0 {
 			// Show error message and allow user to choose
 			lm.handleMultiAttackLimitExceeded(validTerritories, invalidTerritories)
+			return
+		}
+	}
+
+	// Pre-validate seeking limits if the loadout has seeking bonuses
+	if loadout.Bonuses.XPSeeking > 0 || loadout.Bonuses.TomeSeeking > 0 || loadout.Bonuses.EmeraldSeeking > 0 {
+		validTerritories, invalidTerritories, errors := lm.validateSeekingLimits(loadout)
+
+		if len(invalidTerritories) > 0 {
+			// Show error message and allow user to choose
+			lm.handleSeekingLimitExceeded(validTerritories, invalidTerritories, errors)
 			return
 		}
 	}
@@ -631,6 +646,11 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 			fmt.Printf("[LOADOUT] Applying loadout to territory: %s\n", territoryName)
 			fmt.Printf("[LOADOUT] Loadout upgrades: Damage=%d, Attack=%d, Health=%d, Defence=%d\n",
 				loadout.Upgrades.Damage, loadout.Upgrades.Attack, loadout.Upgrades.Health, loadout.Upgrades.Defence)
+			fmt.Printf("[LOADOUT] Loadout bonuses: MultiAttack=%d, GatheringXP=%d, MobXP=%d, MobDmg=%d, PvPDmg=%d\n",
+				loadout.Bonuses.TowerMultiAttack, loadout.Bonuses.GatheringExperience,
+				loadout.Bonuses.MobExperience, loadout.Bonuses.MobDamage, loadout.Bonuses.PvPDamage)
+			fmt.Printf("[LOADOUT] Loadout seeking: XP=%d, Tome=%d, Emerald=%d\n",
+				loadout.Bonuses.XPSeeking, loadout.Bonuses.TomeSeeking, loadout.Bonuses.EmeraldSeeking)
 
 			result := eruntime.Set(territoryName, opts)
 			if result != nil {
@@ -701,32 +721,32 @@ func (lm *LoadoutManager) CancelLoadoutApplication() {
 		Show()
 }
 
-// validateMultiAttackLimits validates whether applying a loadout with Multi Attack 
+// validateMultiAttackLimits validates whether applying a loadout with Multi Attack
 // would exceed the 5-territory-per-guild limit
 func (lm *LoadoutManager) validateMultiAttackLimits(loadout LoadoutData) (validTerritories []string, invalidTerritories []string) {
 	// Group selected territories by guild
-	territoryGuilds := make(map[string]string) // territory -> guild name
+	territoryGuilds := make(map[string]string)    // territory -> guild name
 	guildTerritories := make(map[string][]string) // guild -> territories
-	
+
 	for territoryName := range lm.selectedTerritories {
 		if !lm.selectedTerritories[territoryName] {
 			continue
 		}
-		
+
 		// Get current territory info from eruntime
 		territory := eruntime.GetTerritory(territoryName)
 		if territory != nil {
 			territory.Mu.RLock()
 			guildName := territory.Guild.Name
 			territory.Mu.RUnlock()
-			
+
 			if guildName != "" && guildName != "No Guild" {
 				territoryGuilds[territoryName] = guildName
 				guildTerritories[guildName] = append(guildTerritories[guildName], territoryName)
 			}
 		}
 	}
-	
+
 	// Check each guild's Multi Attack limit
 	for guildName, territories := range guildTerritories {
 		// Count current Multi Attack territories for this guild
@@ -737,7 +757,7 @@ func (lm *LoadoutManager) validateMultiAttackLimits(loadout LoadoutData) (validT
 				currentMultiAttackCount++
 			}
 		}
-		
+
 		// Count how many territories would have Multi Attack after applying this loadout
 		newMultiAttackCount := currentMultiAttackCount
 		for _, territoryName := range territories {
@@ -749,12 +769,12 @@ func (lm *LoadoutManager) validateMultiAttackLimits(loadout LoadoutData) (validT
 				}
 			}
 		}
-		
+
 		// Check if this would exceed the limit
 		if newMultiAttackCount > 5 {
 			// Determine which territories can be applied and which cannot
 			availableSlots := 5 - currentMultiAttackCount
-			
+
 			for _, territoryName := range territories {
 				territory := eruntime.GetTerritory(territoryName)
 				if territory != nil {
@@ -776,17 +796,165 @@ func (lm *LoadoutManager) validateMultiAttackLimits(loadout LoadoutData) (validT
 			validTerritories = append(validTerritories, territories...)
 		}
 	}
-	
+
 	return validTerritories, invalidTerritories
 }
 
-// handleMultiAttackLimitExceeded shows an error dialog and offers solutions when 
+// validateSeekingLimits validates that applying the loadout won't exceed the 8 per guild limit for seeking bonuses
+func (lm *LoadoutManager) validateSeekingLimits(loadout LoadoutData) (validTerritories []string, invalidTerritories []string, errors []string) {
+	// Check if loadout has any seeking bonuses
+	hasSeekingBonuses := loadout.Bonuses.XPSeeking > 0 || loadout.Bonuses.TomeSeeking > 0 || loadout.Bonuses.EmeraldSeeking > 0
+	if !hasSeekingBonuses {
+		// If no seeking bonuses in loadout, all territories are valid
+		for territoryName := range lm.selectedTerritories {
+			if lm.selectedTerritories[territoryName] {
+				validTerritories = append(validTerritories, territoryName)
+			}
+		}
+		return validTerritories, invalidTerritories, errors
+	}
+
+	// Group selected territories by guild
+	territoryGuilds := make(map[string]string)    // territory -> guild name
+	guildTerritories := make(map[string][]string) // guild -> territories
+
+	for territoryName := range lm.selectedTerritories {
+		if !lm.selectedTerritories[territoryName] {
+			continue
+		}
+
+		// Get current territory info from eruntime
+		territory := eruntime.GetTerritory(territoryName)
+		if territory != nil {
+			territory.Mu.RLock()
+			guildName := territory.Guild.Name
+			territory.Mu.RUnlock()
+
+			if guildName != "" && guildName != "No Guild" {
+				territoryGuilds[territoryName] = guildName
+				guildTerritories[guildName] = append(guildTerritories[guildName], territoryName)
+			}
+		}
+	}
+
+	// Check each guild's seeking limits for each seeking bonus type
+	seekingTypes := []struct {
+		name       string
+		loadoutVal int
+		getterFunc func(*typedef.Territory) int
+	}{
+		{"XP Seeking", loadout.Bonuses.XPSeeking, func(t *typedef.Territory) int { return t.Options.Bonus.Set.XPSeeking }},
+		{"Tome Seeking", loadout.Bonuses.TomeSeeking, func(t *typedef.Territory) int { return t.Options.Bonus.Set.TomeSeeking }},
+		{"Emerald Seeking", loadout.Bonuses.EmeraldSeeking, func(t *typedef.Territory) int { return t.Options.Bonus.Set.EmeraldSeeking }},
+	}
+
+	guildValid := make(map[string]map[string]bool) // guild -> territory -> valid
+
+	for guildName, territories := range guildTerritories {
+		guildValid[guildName] = make(map[string]bool)
+
+		for _, seekingType := range seekingTypes {
+			if seekingType.loadoutVal <= 0 {
+				// Loadout doesn't set this seeking bonus, all territories are valid for this bonus
+				for _, territoryName := range territories {
+					if _, exists := guildValid[guildName][territoryName]; !exists {
+						guildValid[guildName][territoryName] = true
+					}
+				}
+				continue
+			}
+
+			// Count current territories with this seeking bonus for this guild
+			currentSeekingCount := 0
+			allTerritories := eruntime.GetTerritories()
+			for _, t := range allTerritories {
+				if t != nil && t.Guild.Name == guildName && seekingType.getterFunc(t) > 0 {
+					currentSeekingCount++
+				}
+			}
+
+			// Count how many territories would have this seeking bonus after applying loadout
+			newSeekingCount := currentSeekingCount
+			for _, territoryName := range territories {
+				territory := eruntime.GetTerritory(territoryName)
+				if territory != nil {
+					// If territory doesn't currently have this seeking bonus but loadout would add it
+					if seekingType.getterFunc(territory) == 0 && seekingType.loadoutVal > 0 {
+						newSeekingCount++
+					}
+				}
+			}
+
+			// Check if this would exceed the limit
+			if newSeekingCount > 8 {
+				availableSlots := 8 - currentSeekingCount
+
+				for _, territoryName := range territories {
+					territory := eruntime.GetTerritory(territoryName)
+					if territory != nil {
+						// If territory already has this seeking bonus, it's valid for this bonus type
+						if seekingType.getterFunc(territory) > 0 {
+							// Keep existing validity or set to true
+							if _, exists := guildValid[guildName][territoryName]; !exists {
+								guildValid[guildName][territoryName] = true
+							}
+						} else if availableSlots > 0 {
+							// Territory doesn't have seeking bonus but there are slots available
+							if _, exists := guildValid[guildName][territoryName]; !exists {
+								guildValid[guildName][territoryName] = true
+							}
+							availableSlots--
+						} else {
+							// No more slots available for this seeking bonus
+							guildValid[guildName][territoryName] = false
+							if !contains(errors, fmt.Sprintf("%s limit exceeded for guild %s", seekingType.name, guildName)) {
+								errors = append(errors, fmt.Sprintf("%s limit exceeded for guild %s", seekingType.name, guildName))
+							}
+						}
+					}
+				}
+			} else {
+				// All territories are valid for this seeking bonus type
+				for _, territoryName := range territories {
+					if _, exists := guildValid[guildName][territoryName]; !exists {
+						guildValid[guildName][territoryName] = true
+					}
+				}
+			}
+		}
+	}
+
+	// Compile final valid and invalid territory lists
+	for _, territoryValidity := range guildValid {
+		for territoryName, isValid := range territoryValidity {
+			if isValid {
+				validTerritories = append(validTerritories, territoryName)
+			} else {
+				invalidTerritories = append(invalidTerritories, territoryName)
+			}
+		}
+	}
+
+	return validTerritories, invalidTerritories, errors
+}
+
+// contains checks if a string slice contains a specific string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// handleMultiAttackLimitExceeded shows an error dialog and offers solutions when
 // Multi Attack limits would be exceeded
 func (lm *LoadoutManager) handleMultiAttackLimitExceeded(validTerritories []string, invalidTerritories []string) {
 	fmt.Printf("[LOADOUT] Multi Attack limit exceeded!\n")
 	fmt.Printf("[LOADOUT] Valid territories: %v\n", validTerritories)
 	fmt.Printf("[LOADOUT] Invalid territories: %v\n", invalidTerritories)
-	
+
 	// Show toast notification with the error
 	NewToast().
 		Text("Multi Attack Limit Exceeded", ToastOption{
@@ -794,32 +962,36 @@ func (lm *LoadoutManager) handleMultiAttackLimitExceeded(validTerritories []stri
 		}).
 		AutoClose(5 * time.Second).
 		Show()
-	
-	// For now, just show the error and cancel the operation
-	// In a more sophisticated implementation, we could show a dialog
-	// asking the user if they want to apply to valid territories only
+
+	// Cancel the operation and clear the highlighting
 	lm.CancelLoadoutApplication()
-	
-	// Update territory selection to show only valid territories
-	// This gives visual feedback about which territories would be affected
-	newSelection := make(map[string]bool)
-	for _, territoryName := range validTerritories {
-		newSelection[territoryName] = true
-	}
-	lm.selectedTerritories = newSelection
-	lm.updateTerritoryRenderer()
 }
 
-// updateTerritoryRenderer updates the territory renderer with the current selection
-func (lm *LoadoutManager) updateTerritoryRenderer() {
-	if !lm.isApplyingLoadout {
-		fmt.Printf("[LOADOUT] updateTerritoryRenderer called but not in apply mode\n")
-		return
+// handleSeekingLimitExceeded shows an error dialog when seeking limits would be exceeded
+func (lm *LoadoutManager) handleSeekingLimitExceeded(validTerritories []string, invalidTerritories []string, errors []string) {
+	fmt.Printf("[LOADOUT] Seeking bonus limits exceeded!\n")
+	fmt.Printf("[LOADOUT] Valid territories: %v\n", validTerritories)
+	fmt.Printf("[LOADOUT] Invalid territories: %v\n", invalidTerritories)
+	fmt.Printf("[LOADOUT] Errors: %v\n", errors)
+
+	// Show toast notification with the errors
+	errorText := "Seeking Limit Exceeded"
+	if len(errors) > 0 {
+		errorText = strings.Join(errors, ", ")
 	}
-	
-	// Update territory selection state - this would typically call into the territory renderer
-	fmt.Printf("[LOADOUT] Updating territory renderer with %d selected territories\n", len(lm.selectedTerritories))
-	// TODO: Implement actual territory renderer update when needed
+
+	NewToast().
+		Text("Seeking Bonus Limits Exceeded", ToastOption{
+			Colour: color.RGBA{255, 100, 100, 255},
+		}).
+		Text(errorText, ToastOption{
+			Colour: color.RGBA{255, 150, 150, 255},
+		}).
+		AutoClose(7 * time.Second).
+		Show()
+
+	// Cancel the operation and clear the highlighting
+	lm.CancelLoadoutApplication()
 }
 
 // Draw renders the loadout manager
@@ -1319,6 +1491,9 @@ func (lm *LoadoutManager) buildEditSideMenuContent() {
 		return
 	}
 
+	// Debug cost information
+	debugCostInfo()
+
 	// Update the menu title to reflect the current loadout being edited
 	lm.editSideMenu.SetTitle(fmt.Sprintf("Loadout: %s", lm.editingLoadout.Name))
 
@@ -1347,9 +1522,13 @@ func (lm *LoadoutManager) buildEditSideMenuContent() {
 	lm.addBonusSlider(bonusesMenu, "Tower Multi-Attack", "towerMultiAttack", &lm.editingLoadout.Bonuses.TowerMultiAttack)
 	lm.addBonusSlider(bonusesMenu, "Tower Aura", "towerAura", &lm.editingLoadout.Bonuses.TowerAura)
 	lm.addBonusSlider(bonusesMenu, "Tower Volley", "towerVolley", &lm.editingLoadout.Bonuses.TowerVolley)
-	// lm.addBonusSlider(bonusesMenu, "XP Seeking", "xpSeeking", &lm.editingLoadout.Bonuses.XpSeeking)
-	// lm.addBonusSlider(bonusesMenu, "Tome Seeking", "tomeSeeking", &lm.editingLoadout.Bonuses.TomeSeeking)
-	// lm.addBonusSlider(bonusesMenu, "Emerald Seeking", "emeraldSeeking", &lm.editingLoadout.Bonuses.EmeraldSeeking)
+	lm.addBonusSlider(bonusesMenu, "Gathering Experience", "gatheringExperience", &lm.editingLoadout.Bonuses.GatheringExperience)
+	lm.addBonusSlider(bonusesMenu, "Mob Experience", "mobExperience", &lm.editingLoadout.Bonuses.MobExperience)
+	lm.addBonusSlider(bonusesMenu, "Mob Damage", "mobDamage", &lm.editingLoadout.Bonuses.MobDamage)
+	lm.addBonusSlider(bonusesMenu, "PvP Damage", "pvpDamage", &lm.editingLoadout.Bonuses.PvPDamage)
+	lm.addBonusSlider(bonusesMenu, "XP Seeking", "xpSeeking", &lm.editingLoadout.Bonuses.XPSeeking)
+	lm.addBonusSlider(bonusesMenu, "Tome Seeking", "tomeSeeking", &lm.editingLoadout.Bonuses.TomeSeeking)
+	lm.addBonusSlider(bonusesMenu, "Emerald Seeking", "emeraldSeeking", &lm.editingLoadout.Bonuses.EmeraldSeeking)
 	lm.addBonusSlider(bonusesMenu, "Larger Resource Storage", "largerResourceStorage", &lm.editingLoadout.Bonuses.LargerResourceStorage)
 	lm.addBonusSlider(bonusesMenu, "Larger Emerald Storage", "largerEmeraldStorage", &lm.editingLoadout.Bonuses.LargerEmeraldStorage)
 	lm.addBonusSlider(bonusesMenu, "Efficient Resource", "efficientResource", &lm.editingLoadout.Bonuses.EfficientResource)
@@ -1630,7 +1809,7 @@ func (lm *LoadoutManager) handleApplyModeClick(mx, my int) bool {
 	applyButtonX := screenW - (buttonWidth*2 + buttonSpacing + 20)
 	applyButtonY := overlayHeight - 50
 
-	// Cancel button coordinates  
+	// Cancel button coordinates
 	cancelButtonX := screenW - (buttonWidth + 20)
 	cancelButtonY := overlayHeight - 50
 
@@ -1656,7 +1835,9 @@ func (lm *LoadoutManager) addUpgradeSlider(menu *CollapsibleMenu, label string, 
 	// Get maximum level from costs
 	costs := eruntime.GetCost()
 	var maxLevel int
-	
+
+	fmt.Printf("[DEBUG] Creating upgrade slider for %s\n", label)
+
 	switch label {
 	case "Damage":
 		maxLevel = len(costs.UpgradesCost.Damage.Value) - 1
@@ -1677,11 +1858,25 @@ func (lm *LoadoutManager) addUpgradeSlider(menu *CollapsibleMenu, label string, 
 	sliderOptions.ShowValue = true
 	sliderOptions.ValueFormat = "%.0f"
 	sliderOptions.FillColor = color.RGBA{100, 150, 255, 255}
-	sliderOptions.Height = 45  // Height for label + slider
-	
+	sliderOptions.Height = 45 // Height for label + slider
+
 	menu.Slider(label, float64(*value), sliderOptions, func(newValue float64) {
 		*value = int(newValue)
 		fmt.Printf("[LOADOUT] %s upgraded to level %d\n", label, *value)
+
+		// Also update the fake territory for cost preview and persistence
+		if lm.editingLoadout != nil {
+			// Create updated options with the new upgrade values
+			opts := lm.editingLoadout.TerritoryOptions
+
+			// Apply the changes to the fake "loadout" territory for cost calculation
+			result := eruntime.Set("loadout", opts)
+			if result != nil {
+				fmt.Printf("[LOADOUT] Updated fake territory for %s upgrade\n", label)
+			} else {
+				fmt.Printf("[LOADOUT] Failed to update fake territory for %s upgrade\n", label)
+			}
+		}
 	})
 }
 
@@ -1690,7 +1885,9 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 	// Get maximum level from costs
 	costs := eruntime.GetCost()
 	var maxLevel int
-	
+
+	fmt.Printf("[DEBUG] Creating slider for %s (%s)\n", label, key)
+
 	switch key {
 	case "strongerMinions":
 		maxLevel = costs.Bonuses.StrongerMinions.MaxLevel
@@ -1700,6 +1897,20 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 		maxLevel = costs.Bonuses.TowerAura.MaxLevel
 	case "towerVolley":
 		maxLevel = costs.Bonuses.TowerVolley.MaxLevel
+	case "gatheringExperience":
+		maxLevel = costs.Bonuses.GatheringExperience.MaxLevel
+	case "mobExperience":
+		maxLevel = costs.Bonuses.MobExperience.MaxLevel
+	case "mobDamage":
+		maxLevel = costs.Bonuses.MobDamage.MaxLevel
+	case "pvpDamage":
+		maxLevel = costs.Bonuses.PvPDamage.MaxLevel
+	case "xpSeeking":
+		maxLevel = costs.Bonuses.XPSeeking.MaxLevel
+	case "tomeSeeking":
+		maxLevel = costs.Bonuses.TomeSeeking.MaxLevel
+	case "emeraldSeeking":
+		maxLevel = costs.Bonuses.EmeraldsSeeking.MaxLevel
 	case "largerResourceStorage":
 		maxLevel = costs.Bonuses.LargerResourceStorage.MaxLevel
 	case "largerEmeraldStorage":
@@ -1716,6 +1927,13 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 		maxLevel = 10 // Default fallback
 	}
 
+	fmt.Printf("[LOADOUT] Creating slider for %s (key: %s) with maxLevel: %d, currentValue: %d\n", label, key, maxLevel, *value)
+
+	if maxLevel == 0 {
+		fmt.Printf("[ERROR] MaxLevel is 0 for %s! This will cause slider issues.\n", label)
+		maxLevel = 10 // Force a default to prevent 0-range sliders
+	}
+
 	sliderOptions := DefaultSliderOptions()
 	sliderOptions.MinValue = 0
 	sliderOptions.MaxValue = float64(maxLevel)
@@ -1723,57 +1941,82 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 	sliderOptions.ShowValue = true
 	sliderOptions.ValueFormat = "%.0f"
 	sliderOptions.FillColor = color.RGBA{150, 100, 255, 255}
-	sliderOptions.Height = 45  // Height for label + slider
-	
+	sliderOptions.Height = 45 // Height for label + slider
+
 	menu.Slider(label, float64(*value), sliderOptions, func(newValue float64) {
 		*value = int(newValue)
 		fmt.Printf("[LOADOUT] %s bonus set to level %d\n", label, *value)
+
+		// Also update the fake territory for cost preview and persistence
+		if lm.editingLoadout != nil {
+			// Create updated options with the new bonus values
+			opts := lm.editingLoadout.TerritoryOptions
+
+			// Apply the changes to the fake "loadout" territory for cost calculation
+			result := eruntime.Set("loadout", opts)
+			if result != nil {
+				fmt.Printf("[LOADOUT] Updated fake territory for %s bonus\n", label)
+			} else {
+				fmt.Printf("[LOADOUT] Failed to update fake territory for %s bonus\n", label)
+			}
+		}
 	})
 }
 
-// IsApplyingLoadout returns whether the loadout manager is currently applying a loadout
+// Debug function to print cost information
+func debugCostInfo() {
+	costs := eruntime.GetCost()
+	fmt.Printf("[DEBUG] Cost info:\n")
+	fmt.Printf("  GatheringExperience MaxLevel: %d, Cost array length: %d\n",
+		costs.Bonuses.GatheringExperience.MaxLevel, len(costs.Bonuses.GatheringExperience.Cost))
+	fmt.Printf("  MobExperience MaxLevel: %d, Cost array length: %d\n",
+		costs.Bonuses.MobExperience.MaxLevel, len(costs.Bonuses.MobExperience.Cost))
+	fmt.Printf("  MobDamage MaxLevel: %d, Cost array length: %d\n",
+		costs.Bonuses.MobDamage.MaxLevel, len(costs.Bonuses.MobDamage.Cost))
+	fmt.Printf("  PvPDamage MaxLevel: %d, Cost array length: %d\n",
+		costs.Bonuses.PvPDamage.MaxLevel, len(costs.Bonuses.PvPDamage.Cost))
+	fmt.Printf("  XPSeeking MaxLevel: %d, Cost array length: %d\n",
+		costs.Bonuses.XPSeeking.MaxLevel, len(costs.Bonuses.XPSeeking.Cost))
+	fmt.Printf("  TomeSeeking MaxLevel: %d, Cost array length: %d\n",
+		costs.Bonuses.TomeSeeking.MaxLevel, len(costs.Bonuses.TomeSeeking.Cost))
+	fmt.Printf("  EmeraldsSeeking MaxLevel: %d, Cost array length: %d\n",
+		costs.Bonuses.EmeraldsSeeking.MaxLevel, len(costs.Bonuses.EmeraldsSeeking.Cost))
+}
+
+// GetSelectedTerritories returns the currently selected territories for loadout application
+func (lm *LoadoutManager) GetSelectedTerritories() map[string]bool {
+	return lm.selectedTerritories
+}
+
+// GetApplyingLoadoutName returns the name of the loadout currently being applied
+func (lm *LoadoutManager) GetApplyingLoadoutName() string {
+	return lm.applyingLoadoutName
+}
+
+// IsApplyingLoadout returns whether the loadout manager is currently in apply mode
 func (lm *LoadoutManager) IsApplyingLoadout() bool {
 	return lm.isApplyingLoadout
 }
 
-// ToggleTerritorySelection toggles the selection state of a territory
+// ToggleTerritorySelection toggles the selection state of a territory for loadout application
 func (lm *LoadoutManager) ToggleTerritorySelection(territoryName string) {
-	if !lm.isApplyingLoadout {
-		return
-	}
-	
 	if lm.selectedTerritories == nil {
 		lm.selectedTerritories = make(map[string]bool)
 	}
-	
 	lm.selectedTerritories[territoryName] = !lm.selectedTerritories[territoryName]
-	fmt.Printf("[LOADOUT] Toggled territory %s selection: %v\n", territoryName, lm.selectedTerritories[territoryName])
 }
 
-// AddTerritorySelection adds a territory to the selection
-func (lm *LoadoutManager) AddTerritorySelection(territoryName string) {
-	if !lm.isApplyingLoadout {
-		return
-	}
-	
-	if lm.selectedTerritories == nil {
-		lm.selectedTerritories = make(map[string]bool)
-	}
-	
-	lm.selectedTerritories[territoryName] = true
-	fmt.Printf("[LOADOUT] Added territory %s to selection\n", territoryName)
-}
-
-// RemoveTerritorySelection removes a territory from the selection
+// RemoveTerritorySelection removes a territory from the selection for loadout application
 func (lm *LoadoutManager) RemoveTerritorySelection(territoryName string) {
-	if !lm.isApplyingLoadout {
-		return
+	if lm.selectedTerritories != nil {
+		lm.selectedTerritories[territoryName] = false
 	}
-	
+}
+
+// AddTerritorySelection adds a territory to the selection for loadout application
+func (lm *LoadoutManager) AddTerritorySelection(territoryName string) {
 	if lm.selectedTerritories == nil {
 		lm.selectedTerritories = make(map[string]bool)
 	}
-	
-	lm.selectedTerritories[territoryName] = false
-	fmt.Printf("[LOADOUT] Removed territory %s from selection\n", territoryName)
+	lm.selectedTerritories[territoryName] = true
 }

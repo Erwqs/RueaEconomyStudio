@@ -507,6 +507,10 @@ func (s *MenuSlider) Draw(screen *ebiten.Image, x, y, width int, font font.Face)
 
 	// Draw background
 	bgColor := s.options.BackgroundColor
+	if !s.options.Enabled {
+		// Gray out the background when disabled
+		bgColor = color.RGBA{60, 60, 60, 255}
+	}
 	bgColor.A = uint8(float32(bgColor.A) * alpha)
 	vector.DrawFilledRect(screen, float32(sliderX), float32(sliderY-sliderHeight/2), float32(sliderWidth), float32(sliderHeight), bgColor, false)
 
@@ -514,12 +518,20 @@ func (s *MenuSlider) Draw(screen *ebiten.Image, x, y, width int, font font.Face)
 	fillRatio := (s.value - s.options.MinValue) / (s.options.MaxValue - s.options.MinValue)
 	fillWidth := float32(sliderWidth) * float32(fillRatio)
 	fillColor := s.options.FillColor
+	if !s.options.Enabled {
+		// Gray out the fill when disabled
+		fillColor = color.RGBA{80, 80, 80, 255}
+	}
 	fillColor.A = uint8(float32(fillColor.A) * alpha)
 	vector.DrawFilledRect(screen, float32(sliderX), float32(sliderY-sliderHeight/2), fillWidth, float32(sliderHeight), fillColor, false)
 
 	// Draw handle
 	handleX := float32(sliderX) + fillWidth - 5
 	handleColor := s.options.HandleColor
+	if !s.options.Enabled {
+		// Gray out the handle when disabled
+		handleColor = color.RGBA{100, 100, 100, 255}
+	}
 	handleColor.A = uint8(float32(handleColor.A) * alpha)
 	vector.DrawFilledRect(screen, handleX, float32(sliderY-sliderHeight/2), 10, float32(sliderHeight), handleColor, false)
 
@@ -1718,8 +1730,16 @@ func getBonusMaxLevel(costs *typedef.Costs, bonusType string) int {
 		return costs.Bonuses.TowerAura.MaxLevel
 	case "towerVolley":
 		return costs.Bonuses.TowerVolley.MaxLevel
+	case "gatheringExperience":
+		return costs.Bonuses.GatheringExperience.MaxLevel
+	case "mobExperience":
+		return costs.Bonuses.MobExperience.MaxLevel
+	case "mobDamage":
+		return costs.Bonuses.MobDamage.MaxLevel
+	case "pvpDamage":
+		return costs.Bonuses.PvPDamage.MaxLevel
 	case "xpSeeking":
-		return costs.Bonuses.XpSeeking.MaxLevel
+		return costs.Bonuses.XPSeeking.MaxLevel
 	case "tomeSeeking":
 		return costs.Bonuses.TomeSeeking.MaxLevel
 	case "emeraldSeeking":
@@ -1793,6 +1813,22 @@ func (bc *BonusControl) updateCostDisplay() {
 		return
 	}
 
+	if !bc.enabled && (bc.bonusType == "xpSeeking" || bc.bonusType == "tomeSeeking" || bc.bonusType == "emeraldSeeking") {
+		costOptions := DefaultTextOptions()
+		costOptions.Color = color.RGBA{255, 80, 80, 255} // Red for error
+		var bonusName string
+		switch bc.bonusType {
+		case "xpSeeking":
+			bonusName = "XP Seeking"
+		case "tomeSeeking":
+			bonusName = "Tome Seeking"
+		case "emeraldSeeking":
+			bonusName = "Emerald Seeking"
+		}
+		bc.costText = NewMenuText(fmt.Sprintf("Maximum %s Reached (8/8)", bonusName), costOptions)
+		return
+	}
+
 	cost, resourceType := eruntime.GetBonusCost(bc.bonusType, bc.currentLevel)
 	if cost > 0 {
 		costOptions := DefaultTextOptions()
@@ -1842,6 +1878,15 @@ func (bc *BonusControl) isAffordable() bool {
 	case "emeraldRate":
 		setLevel = territory.Options.Bonus.Set.EmeraldRate
 		atLevel = territory.Options.Bonus.At.EmeraldRate
+	case "xpSeeking":
+		setLevel = territory.Options.Bonus.Set.XPSeeking
+		atLevel = territory.Options.Bonus.At.XPSeeking
+	case "tomeSeeking":
+		setLevel = territory.Options.Bonus.Set.TomeSeeking
+		atLevel = territory.Options.Bonus.At.TomeSeeking
+	case "emeraldSeeking":
+		setLevel = territory.Options.Bonus.Set.EmeraldSeeking
+		atLevel = territory.Options.Bonus.At.EmeraldSeeking
 	default:
 		return true
 	}
@@ -1856,8 +1901,80 @@ func (bc *BonusControl) Update(mx, my int, deltaTime float64) bool {
 
 	bc.updateAnimation(deltaTime)
 
+	// For Tower Multi-Attack, recalculate enabled state in real-time to ensure limits are enforced
+	if bc.bonusType == "towerMultiAttack" {
+		territory := eruntime.GetTerritory(bc.territoryName)
+		if territory != nil {
+			territories := eruntime.GetTerritories()
+			currentGuild := territory.Guild.Name
+			multiAttackCount := 0
+			for _, t := range territories {
+				if t != nil && t.Guild.Name == currentGuild && t.Options.Bonus.Set.TowerMultiAttack > 0 {
+					multiAttackCount++
+				}
+			}
+			// Enable if we have less than 5 OR this territory already has it enabled
+			bc.enabled = multiAttackCount < 5 || territory.Options.Bonus.Set.TowerMultiAttack > 0
+		}
+	}
+
+	// For seeking bonuses, recalculate enabled state in real-time to ensure limits are enforced
+	if bc.bonusType == "xpSeeking" || bc.bonusType == "tomeSeeking" || bc.bonusType == "emeraldSeeking" {
+		territory := eruntime.GetTerritory(bc.territoryName)
+		if territory != nil && territory.Guild.Name != "" {
+			territories := eruntime.GetTerritories()
+			currentGuild := territory.Guild.Name
+			seekingCount := 0
+
+			// Count territories with the specific seeking bonus
+			for _, t := range territories {
+				if t != nil && t.Guild.Name != "" && t.Guild.Name == currentGuild {
+					switch bc.bonusType {
+					case "xpSeeking":
+						if t.Options.Bonus.Set.XPSeeking > 0 {
+							seekingCount++
+						}
+					case "tomeSeeking":
+						if t.Options.Bonus.Set.TomeSeeking > 0 {
+							seekingCount++
+						}
+					case "emeraldSeeking":
+						if t.Options.Bonus.Set.EmeraldSeeking > 0 {
+							seekingCount++
+						}
+					}
+				}
+			}
+
+			// Enable if we have less than 8 OR this territory already has it enabled
+			var currentSeekingLevel int
+			switch bc.bonusType {
+			case "xpSeeking":
+				currentSeekingLevel = territory.Options.Bonus.Set.XPSeeking
+			case "tomeSeeking":
+				currentSeekingLevel = territory.Options.Bonus.Set.TomeSeeking
+			case "emeraldSeeking":
+				currentSeekingLevel = territory.Options.Bonus.Set.EmeraldSeeking
+			}
+			wasEnabled := bc.enabled
+			bc.enabled = seekingCount < 8 || currentSeekingLevel > 0
+
+			// Update slider and button enabled states if they changed
+			if wasEnabled != bc.enabled {
+				bc.slider.options.Enabled = bc.enabled
+				bc.decrementBtn.options.Enabled = bc.enabled
+				bc.incrementBtn.options.Enabled = bc.enabled
+			}
+		} else {
+			// If territory is nil or has no guild, disable the control
+			bc.enabled = false
+		}
+	}
+
 	// Update slider color and enabled state based on affordability and enabled state
 	bc.slider.options.Enabled = bc.enabled
+	bc.decrementBtn.options.Enabled = bc.enabled
+	bc.incrementBtn.options.Enabled = bc.enabled
 	if !bc.enabled {
 		bc.slider.options.FillColor = color.RGBA{80, 80, 80, 255} // Dark grey when disabled
 	} else if bc.isAffordable() {
@@ -1963,6 +2080,12 @@ func (bc *BonusControl) refreshData() {
 		setLevel = territory.Options.Bonus.Set.ResourceRate
 	case "emeraldRate":
 		setLevel = territory.Options.Bonus.Set.EmeraldRate
+	case "xpSeeking":
+		setLevel = territory.Options.Bonus.Set.XPSeeking
+	case "tomeSeeking":
+		setLevel = territory.Options.Bonus.Set.TomeSeeking
+	case "emeraldSeeking":
+		setLevel = territory.Options.Bonus.Set.EmeraldSeeking
 	default:
 		return
 	}
@@ -1989,13 +2112,60 @@ func (bc *BonusControl) refreshData() {
 		}
 	}
 
+	// For seeking bonuses, recalculate enabled state based on 8 territory limit
+	if bc.bonusType == "xpSeeking" || bc.bonusType == "tomeSeeking" || bc.bonusType == "emeraldSeeking" {
+		territories := eruntime.GetTerritories()
+		currentGuild := territory.Guild.Name
+		seekingCount := 0
+
+		// Count territories with the specific seeking bonus
+		for _, t := range territories {
+			if t != nil && t.Guild.Name == currentGuild {
+				switch bc.bonusType {
+				case "xpSeeking":
+					if t.Options.Bonus.Set.XPSeeking > 0 {
+						seekingCount++
+					}
+				case "tomeSeeking":
+					if t.Options.Bonus.Set.TomeSeeking > 0 {
+						seekingCount++
+					}
+				case "emeraldSeeking":
+					if t.Options.Bonus.Set.EmeraldSeeking > 0 {
+						seekingCount++
+					}
+				}
+			}
+		}
+
+		// Enable if we have less than 8 OR this territory already has it enabled
+		wasEnabled := bc.enabled
+		var currentSeekingLevel int
+		switch bc.bonusType {
+		case "xpSeeking":
+			currentSeekingLevel = territory.Options.Bonus.Set.XPSeeking
+		case "tomeSeeking":
+			currentSeekingLevel = territory.Options.Bonus.Set.TomeSeeking
+		case "emeraldSeeking":
+			currentSeekingLevel = territory.Options.Bonus.Set.EmeraldSeeking
+		}
+		bc.enabled = seekingCount < 8 || currentSeekingLevel > 0
+
+		// Update slider and button enabled states if they changed
+		if wasEnabled != bc.enabled {
+			bc.slider.options.Enabled = bc.enabled
+			bc.decrementBtn.options.Enabled = bc.enabled
+			bc.incrementBtn.options.Enabled = bc.enabled
+		}
+	}
+
 	// Update current level if it changed
 	if bc.currentLevel != setLevel {
 		bc.currentLevel = setLevel
 		bc.slider.SetValue(float64(setLevel))
 		bc.updateCostDisplay()
-	} else if bc.bonusType == "towerMultiAttack" {
-		// For Tower Multi-Attack, always update cost display to show the error message if needed
+	} else if bc.bonusType == "towerMultiAttack" || bc.bonusType == "xpSeeking" || bc.bonusType == "tomeSeeking" || bc.bonusType == "emeraldSeeking" {
+		// For bonuses with limits, always update cost display to show error messages if needed
 		bc.updateCostDisplay()
 	}
 }

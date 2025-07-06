@@ -784,6 +784,65 @@ func SetTerritoryBonus(territoryName string, bonusType string, level int) *typed
 		opts.Bonuses.TowerAura = level
 	case "towerVolley":
 		opts.Bonuses.TowerVolley = level
+	case "gatheringExperience":
+		opts.Bonuses.GatheringExperience = level
+	case "mobExperience":
+		opts.Bonuses.MobExperience = level
+	case "mobDamage":
+		opts.Bonuses.MobDamage = level
+	case "pvpDamage":
+		opts.Bonuses.PvPDamage = level
+	case "xpSeeking":
+		// Enforce max 8 per guild
+		if level > 0 {
+			guildName := territory.Guild.Name
+			count := 0
+			for _, t := range GetTerritories() {
+				if t != nil && t.Guild.Name == guildName && t.Options.Bonus.Set.XPSeeking > 0 {
+					if t.Name != territory.Name || t.Options.Bonus.Set.XPSeeking > 0 {
+						count++
+					}
+				}
+			}
+			if count >= 8 && territory.Options.Bonus.Set.XPSeeking == 0 {
+				panic("Cannot enable XP Seeking on more than 8 territories per guild!")
+			}
+		}
+		opts.Bonuses.XPSeeking = level
+	case "tomeSeeking":
+		// Enforce max 8 per guild
+		if level > 0 {
+			guildName := territory.Guild.Name
+			count := 0
+			for _, t := range GetTerritories() {
+				if t != nil && t.Guild.Name == guildName && t.Options.Bonus.Set.TomeSeeking > 0 {
+					if t.Name != territory.Name || t.Options.Bonus.Set.TomeSeeking > 0 {
+						count++
+					}
+				}
+			}
+			if count >= 8 && territory.Options.Bonus.Set.TomeSeeking == 0 {
+				panic("Cannot enable Tome Seeking on more than 8 territories per guild!")
+			}
+		}
+		opts.Bonuses.TomeSeeking = level
+	case "emeraldSeeking":
+		// Enforce max 8 per guild
+		if level > 0 {
+			guildName := territory.Guild.Name
+			count := 0
+			for _, t := range GetTerritories() {
+				if t != nil && t.Guild.Name == guildName && t.Options.Bonus.Set.EmeraldSeeking > 0 {
+					if t.Name != territory.Name || t.Options.Bonus.Set.EmeraldSeeking > 0 {
+						count++
+					}
+				}
+			}
+			if count >= 8 && territory.Options.Bonus.Set.EmeraldSeeking == 0 {
+				panic("Cannot enable Emerald Seeking on more than 8 territories per guild!")
+			}
+		}
+		opts.Bonuses.EmeraldSeeking = level
 	case "largerResourceStorage":
 		opts.Bonuses.LargerResourceStorage = level
 	case "largerEmeraldStorage":
@@ -814,6 +873,20 @@ func getBonusMaxLevelFromCosts(costs *typedef.Costs, bonusType string) int {
 		return costs.Bonuses.TowerAura.MaxLevel
 	case "towerVolley":
 		return costs.Bonuses.TowerVolley.MaxLevel
+	case "gatheringExperience":
+		return costs.Bonuses.GatheringExperience.MaxLevel
+	case "mobExperience":
+		return costs.Bonuses.MobExperience.MaxLevel
+	case "mobDamage":
+		return costs.Bonuses.MobDamage.MaxLevel
+	case "pvpDamage":
+		return costs.Bonuses.PvPDamage.MaxLevel
+	case "xpSeeking":
+		return costs.Bonuses.XPSeeking.MaxLevel
+	case "tomeSeeking":
+		return costs.Bonuses.TomeSeeking.MaxLevel
+	case "emeraldSeeking":
+		return costs.Bonuses.EmeraldsSeeking.MaxLevel
 	case "largerResourceStorage":
 		return costs.Bonuses.LargerResourceStorage.MaxLevel
 	case "largerEmeraldStorage":
@@ -845,6 +918,20 @@ func GetBonusCost(bonusType string, level int) (int, string) {
 		bonusCosts = costs.Bonuses.TowerAura
 	case "towerVolley":
 		bonusCosts = costs.Bonuses.TowerVolley
+	case "gatheringExperience":
+		bonusCosts = costs.Bonuses.GatheringExperience
+	case "mobExperience":
+		bonusCosts = costs.Bonuses.MobExperience
+	case "mobDamage":
+		bonusCosts = costs.Bonuses.MobDamage
+	case "pvpDamage":
+		bonusCosts = costs.Bonuses.PvPDamage
+	case "xpSeeking":
+		bonusCosts = costs.Bonuses.XPSeeking
+	case "tomeSeeking":
+		bonusCosts = costs.Bonuses.TomeSeeking
+	case "emeraldSeeking":
+		bonusCosts = costs.Bonuses.EmeraldsSeeking
 	case "largerResourceStorage":
 		bonusCosts = costs.Bonuses.LargerResourceStorage
 	case "largerEmeraldStorage":

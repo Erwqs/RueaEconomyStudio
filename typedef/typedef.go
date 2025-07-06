@@ -110,7 +110,11 @@ type Costs struct {
 		TowerMultiAttack      BonusCosts `json:"towerMultiAttack"`
 		TowerAura             BonusCosts `json:"towerAura"`
 		TowerVolley           BonusCosts `json:"towerVolley"`
-		XpSeeking             BonusCosts `json:"xpSeeking"`
+		GatheringExperience   BonusCosts `json:"gatheringExperience"`
+		MobExperience         BonusCosts `json:"mobExperience"`
+		MobDamage             BonusCosts `json:"mobDamage"`
+		PvPDamage             BonusCosts `json:"pvpDamage"`
+		XPSeeking             BonusCosts `json:"xpSeeking"`
 		TomeSeeking           BonusCosts `json:"tomeSeeking"`
 		EmeraldsSeeking       BonusCosts `json:"emeraldsSeeking"`
 		LargerResourceStorage BonusCosts `json:"largerResourceStorage"`
@@ -402,7 +406,11 @@ type Bonus struct {
 	TowerMultiAttack      int `json:"TowerMultiAttackLevel"`
 	TowerAura             int `json:"TowerAuraLevel"`
 	TowerVolley           int `json:"TowerVolleyLevel"`
-	XpSeeking             int `json:"XpSeekingLevel"`
+	GatheringExperience   int `json:"GatheringExperienceLevel"`
+	MobExperience         int `json:"MobExperienceLevel"`
+	MobDamage             int `json:"MobDamageLevel"`
+	PvPDamage             int `json:"PvPDamageLevel"`
+	XPSeeking             int `json:"XPSeekingLevel"`
 	TomeSeeking           int `json:"TomeSeekingLevel"`
 	EmeraldSeeking        int `json:"EmeraldSeekingLevel"`
 	LargerResourceStorage int `json:"LargerResourceStorageLevel"`

@@ -1972,6 +1972,9 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 			}).
 			Option("Open Tribute Menu", "B", true, func() {
 				m.tributeMenu.Show()
+			}).
+			Option("Open Loadout Manager", "L", true, func() {
+				GetLoadoutManager().Show()
 			})
 
 		m.contextMenu.Divider()
@@ -2281,16 +2284,30 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 
 	// Bonuses (collapsible) - Interactive controls with sliders and +/- buttons
 	bonusesMenu := m.edgeMenu.CollapsibleMenu("Bonuses", DefaultCollapsibleMenuOptions())
-	bonusesMenu.BonusControl("Stronger Minions", "strongerMinions", territoryName, territory.Options.Bonus.Set.StrongerMinions)
-	bonusesMenu.BonusControl("Tower Multi-Attack", "towerMultiAttack", territoryName, territory.Options.Bonus.Set.TowerMultiAttack)
-	bonusesMenu.BonusControl("Tower Aura", "towerAura", territoryName, territory.Options.Bonus.Set.TowerAura)
-	bonusesMenu.BonusControl("Tower Volley", "towerVolley", territoryName, territory.Options.Bonus.Set.TowerVolley)
-	bonusesMenu.BonusControl("Larger Resource Storage", "largerResourceStorage", territoryName, territory.Options.Bonus.Set.LargerResourceStorage)
-	bonusesMenu.BonusControl("Larger Emerald Storage", "largerEmeraldStorage", territoryName, territory.Options.Bonus.Set.LargerEmeraldStorage)
-	bonusesMenu.BonusControl("Efficient Resource", "efficientResource", territoryName, territory.Options.Bonus.Set.EfficientResource)
-	bonusesMenu.BonusControl("Efficient Emerald", "efficientEmerald", territoryName, territory.Options.Bonus.Set.EfficientEmerald)
-	bonusesMenu.BonusControl("Resource Rate", "resourceRate", territoryName, territory.Options.Bonus.Set.ResourceRate)
-	bonusesMenu.BonusControl("Emerald Rate", "emeraldRate", territoryName, territory.Options.Bonus.Set.EmeraldRate)
+
+	bonuses1 := bonusesMenu.CollapsibleMenu("Tower Bonuses", DefaultCollapsibleMenuOptions())
+	bonuses2 := bonusesMenu.CollapsibleMenu("Territorial Bonuses", DefaultCollapsibleMenuOptions())
+	bonuses3 := bonusesMenu.CollapsibleMenu("Resource Bonuses", DefaultCollapsibleMenuOptions())
+
+	bonuses1.BonusControl("Stronger Minions", "strongerMinions", territoryName, territory.Options.Bonus.Set.StrongerMinions)
+	bonuses1.BonusControl("Tower Multi-Attack", "towerMultiAttack", territoryName, territory.Options.Bonus.Set.TowerMultiAttack)
+	bonuses1.BonusControl("Tower Aura", "towerAura", territoryName, territory.Options.Bonus.Set.TowerAura)
+	bonuses1.BonusControl("Tower Volley", "towerVolley", territoryName, territory.Options.Bonus.Set.TowerVolley)
+
+	bonuses2.BonusControl("Gathering Experience", "gatheringExperience", territoryName, territory.Options.Bonus.Set.GatheringExperience)
+	bonuses2.BonusControl("Mob Experience", "mobExperience", territoryName, territory.Options.Bonus.Set.MobExperience)
+	bonuses2.BonusControl("Mob Damage", "mobDamage", territoryName, territory.Options.Bonus.Set.MobDamage)
+	bonuses2.BonusControl("PvP Damage", "pvpDamage", territoryName, territory.Options.Bonus.Set.PvPDamage)
+	bonuses2.BonusControl("XP Seeking", "xpSeeking", territoryName, territory.Options.Bonus.Set.XPSeeking)                // 8 territories limit
+	bonuses2.BonusControl("Tome Seeking", "tomeSeeking", territoryName, territory.Options.Bonus.Set.TomeSeeking)          // 8 territories limit
+	bonuses2.BonusControl("Emerald Seeking", "emeraldSeeking", territoryName, territory.Options.Bonus.Set.EmeraldSeeking) // 8 territories limit
+
+	bonuses3.BonusControl("Larger Resource Storage", "largerResourceStorage", territoryName, territory.Options.Bonus.Set.LargerResourceStorage)
+	bonuses3.BonusControl("Larger Emerald Storage", "largerEmeraldStorage", territoryName, territory.Options.Bonus.Set.LargerEmeraldStorage)
+	bonuses3.BonusControl("Efficient Resource", "efficientResource", territoryName, territory.Options.Bonus.Set.EfficientResource)
+	bonuses3.BonusControl("Efficient Emerald", "efficientEmerald", territoryName, territory.Options.Bonus.Set.EfficientEmerald)
+	bonuses3.BonusControl("Resource Rate", "resourceRate", territoryName, territory.Options.Bonus.Set.ResourceRate)
+	bonuses3.BonusControl("Emerald Rate", "emeraldRate", territoryName, territory.Options.Bonus.Set.EmeraldRate)
 
 	// Total Costs (collapsible)
 	costsMenu := m.edgeMenu.CollapsibleMenu("Total Costs", DefaultCollapsibleMenuOptions())
@@ -3550,7 +3567,15 @@ func (m *MapView) applyCurrentAreaSelection() {
 		// Update the territory renderer with the updated loadout selection (only for loadout application mode)
 		if isLoadoutMode && m.territoriesManager != nil && m.territoriesManager.IsLoaded() && m.territoriesManager.territoryRenderer != nil {
 			if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsApplyingLoadout() {
-				loadoutManager.updateTerritoryRenderer()
+				if renderer := m.territoriesManager.GetRenderer(); renderer != nil {
+					selectedTerritories := loadoutManager.GetSelectedTerritories()
+					applyingLoadoutName := loadoutManager.GetApplyingLoadoutName()
+					renderer.SetLoadoutApplicationMode(applyingLoadoutName, selectedTerritories)
+					// Force a redraw to show the highlighting
+					if cache := renderer.GetTerritoryCache(); cache != nil {
+						cache.ForceRedraw()
+					}
+				}
 			}
 		}
 

@@ -704,7 +704,7 @@ func (tm *TerritoriesManager) readAndParseTerritoriesJSON() error {
 		territory.Bonuses["towerMultiAttack"] = int(eruntimeTerritory.Options.Bonus.Set.TowerMultiAttack)
 		territory.Bonuses["towerAura"] = int(eruntimeTerritory.Options.Bonus.Set.TowerAura)
 		territory.Bonuses["towerVolley"] = int(eruntimeTerritory.Options.Bonus.Set.TowerVolley)
-		territory.Bonuses["xpSeeking"] = int(eruntimeTerritory.Options.Bonus.Set.XpSeeking)
+		territory.Bonuses["xpSeeking"] = int(eruntimeTerritory.Options.Bonus.Set.XPSeeking)
 		territory.Bonuses["tomeSeeking"] = int(eruntimeTerritory.Options.Bonus.Set.TomeSeeking)
 		territory.Bonuses["emeraldSeeking"] = int(eruntimeTerritory.Options.Bonus.Set.EmeraldSeeking)
 

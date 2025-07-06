@@ -310,7 +310,7 @@ func LoadStateFromFile(filepath string) error {
 	st.territories = stateData.Territories
 	st.activeTributes = stateData.ActiveTributes
 	st.runtimeOptions = stateData.RuntimeOptions
-	st.costs = stateData.Costs
+
 
 	// Rebuild territory map for fast lookups
 	TerritoryMap = make(map[string]*typedef.Territory)
