@@ -51,6 +51,7 @@ type LoadoutManager struct {
 	isApplyingLoadout    bool
 	applyingLoadoutIndex int             // Index of loadout being applied
 	applyingLoadoutName  string          // Name of loadout being applied
+	applyingLoadoutMode  string          // Mode: "merge" or "replace"
 	selectedTerritories  map[string]bool // Selected territories for loadout application
 	applyUIVisible       bool            // Whether apply mode UI is visible
 
@@ -58,7 +59,8 @@ type LoadoutManager struct {
 	addButtonHovered    bool
 	editButtonHovered   map[int]bool
 	deleteButtonHovered map[int]bool
-	applyButtonHovered  map[int]bool
+	mergeButtonHovered  map[int]bool
+	replaceButtonHovered map[int]bool
 	importButtonHovered bool
 	exportButtonHovered bool
 	closeButtonHovered  bool
@@ -75,7 +77,8 @@ func NewLoadoutManager() *LoadoutManager {
 		editSideMenuVisible: false,
 		editButtonHovered:   make(map[int]bool),
 		deleteButtonHovered: make(map[int]bool),
-		applyButtonHovered:  make(map[int]bool),
+		mergeButtonHovered:  make(map[int]bool),
+		replaceButtonHovered: make(map[int]bool),
 		isApplyingLoadout:   false,
 		selectedTerritories: make(map[string]bool),
 		applyUIVisible:      false,
@@ -323,23 +326,30 @@ func (lm *LoadoutManager) handleClick(mx, my int) {
 		itemWidth := panelWidth - 60 // Match the drawLoadoutItem call: width-60 = 740
 
 		// Edit button - coordinates relative to item position
-		editButtonX := itemX + itemWidth - 180
+		editButtonX := itemX + itemWidth - 230
 		if mx >= editButtonX && mx <= editButtonX+50 && my >= itemY+10 && my <= itemY+40 {
 			lm.editLoadout(itemIndex)
 			return
 		}
 
 		// Delete button - coordinates relative to item position
-		deleteButtonX := itemX + itemWidth - 120
+		deleteButtonX := itemX + itemWidth - 175
 		if mx >= deleteButtonX && mx <= deleteButtonX+50 && my >= itemY+10 && my <= itemY+40 {
 			lm.deleteLoadout(itemIndex)
 			return
 		}
 
-		// Apply button - coordinates relative to item position
-		applyButtonX := itemX + itemWidth - 60
-		if mx >= applyButtonX && mx <= applyButtonX+50 && my >= itemY+10 && my <= itemY+40 {
-			lm.applyLoadout(itemIndex)
+		// Merge button - coordinates relative to item position
+		mergeButtonX := itemX + itemWidth - 120
+		if mx >= mergeButtonX && mx <= mergeButtonX+50 && my >= itemY+10 && my <= itemY+40 {
+			lm.mergeLoadout(itemIndex)
+			return
+		}
+
+		// Replace button - coordinates relative to item position
+		replaceButtonX := itemX + itemWidth - 65
+		if mx >= replaceButtonX && mx <= replaceButtonX+50 && my >= itemY+10 && my <= itemY+40 {
+			lm.replaceLoadout(itemIndex)
 			return
 		}
 	}
@@ -372,7 +382,8 @@ func (lm *LoadoutManager) updateHoverStates(mx, my int) {
 	for i := range lm.editButtonHovered {
 		lm.editButtonHovered[i] = false
 		lm.deleteButtonHovered[i] = false
-		lm.applyButtonHovered[i] = false
+		lm.mergeButtonHovered[i] = false
+		lm.replaceButtonHovered[i] = false
 	}
 
 	// Loadout list item hovers (use same logic as drawing and click detection)
@@ -397,16 +408,20 @@ func (lm *LoadoutManager) updateHoverStates(mx, my int) {
 		itemWidth := panelWidth - 60 // Match the drawLoadoutItem call: width-60 = 740
 
 		// Edit button hover - coordinates relative to item position (aligned with drawn button)
-		editButtonX := itemX + itemWidth - 180
+		editButtonX := itemX + itemWidth - 230
 		lm.editButtonHovered[itemIndex] = mx >= editButtonX && mx <= editButtonX+50 && my >= itemY+10 && my <= itemY+40
 
 		// Delete button hover - coordinates relative to item position (aligned with drawn button)
-		deleteButtonX := itemX + itemWidth - 120
+		deleteButtonX := itemX + itemWidth - 175
 		lm.deleteButtonHovered[itemIndex] = mx >= deleteButtonX && mx <= deleteButtonX+50 && my >= itemY+10 && my <= itemY+40
 
-		// Apply button hover - coordinates relative to item position (aligned with drawn button)
-		applyButtonX := itemX + itemWidth - 60
-		lm.applyButtonHovered[itemIndex] = mx >= applyButtonX && mx <= applyButtonX+50 && my >= itemY+10 && my <= itemY+40
+		// Merge button hover - coordinates relative to item position (aligned with drawn button)
+		mergeButtonX := itemX + itemWidth - 120
+		lm.mergeButtonHovered[itemIndex] = mx >= mergeButtonX && mx <= mergeButtonX+50 && my >= itemY+10 && my <= itemY+40
+
+		// Replace button hover - coordinates relative to item position (aligned with drawn button)
+		replaceButtonX := itemX + itemWidth - 65
+		lm.replaceButtonHovered[itemIndex] = mx >= replaceButtonX && mx <= replaceButtonX+50 && my >= itemY+10 && my <= itemY+40
 	}
 }
 
@@ -545,15 +560,31 @@ func (lm *LoadoutManager) deleteLoadout(index int) {
 
 // applyLoadout starts the loadout application mode for territory selection
 func (lm *LoadoutManager) applyLoadout(index int) {
+	lm.startLoadoutApplication(index, "replace")
+}
+
+// mergeLoadout starts the loadout merge mode for territory selection
+func (lm *LoadoutManager) mergeLoadout(index int) {
+	lm.startLoadoutApplication(index, "merge")
+}
+
+// replaceLoadout starts the loadout replace mode for territory selection
+func (lm *LoadoutManager) replaceLoadout(index int) {
+	lm.startLoadoutApplication(index, "replace")
+}
+
+// startLoadoutApplication starts the loadout application mode for territory selection
+func (lm *LoadoutManager) startLoadoutApplication(index int, mode string) {
 	if index < 0 || index >= len(lm.loadouts) {
 		return
 	}
 
-	fmt.Printf("[LOADOUT] Starting loadout application mode for: %s\n", lm.loadouts[index].Name)
+	fmt.Printf("[LOADOUT] Starting loadout application mode for: %s (mode: %s)\n", lm.loadouts[index].Name, mode)
 
 	lm.isApplyingLoadout = true
 	lm.applyingLoadoutIndex = index
 	lm.applyingLoadoutName = lm.loadouts[index].Name
+	lm.applyingLoadoutMode = mode
 	lm.selectedTerritories = make(map[string]bool)
 	lm.applyUIVisible = true
 
@@ -639,18 +670,126 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 	appliedCount := 0
 	for territoryName := range lm.selectedTerritories {
 		if lm.selectedTerritories[territoryName] {
-			// Don't change HQ status when applying loadout
-			opts := loadout.TerritoryOptions
-			opts.HQ = false
+			var opts typedef.TerritoryOptions
+			
+			if lm.applyingLoadoutMode == "merge" {
+				// Merge mode: combine current territory settings with loadout (only non-zero values from loadout)
+				currentStats := eruntime.GetTerritoryStats(territoryName)
+				if currentStats == nil {
+					fmt.Printf("[LOADOUT] Failed to get current stats for territory: %s\n", territoryName)
+					continue
+				}
+				
+				// Start with current territory settings
+				opts = typedef.TerritoryOptions{
+					Upgrades:    currentStats.Upgrades,
+					Bonuses:     currentStats.Bonuses,
+					Tax:         currentStats.Tax,
+					RoutingMode: currentStats.RoutingMode,
+					Border:      currentStats.Border,
+					HQ:          false, // Don't change HQ status
+				}
+				
+				// Merge non-zero upgrade values from loadout
+				if loadout.Upgrades.Damage > 0 {
+					opts.Upgrades.Damage = loadout.Upgrades.Damage
+				}
+				if loadout.Upgrades.Attack > 0 {
+					opts.Upgrades.Attack = loadout.Upgrades.Attack
+				}
+				if loadout.Upgrades.Health > 0 {
+					opts.Upgrades.Health = loadout.Upgrades.Health
+				}
+				if loadout.Upgrades.Defence > 0 {
+					opts.Upgrades.Defence = loadout.Upgrades.Defence
+				}
+				
+				// Merge non-zero bonus values from loadout
+				if loadout.Bonuses.StrongerMinions > 0 {
+					opts.Bonuses.StrongerMinions = loadout.Bonuses.StrongerMinions
+				}
+				if loadout.Bonuses.TowerMultiAttack > 0 {
+					opts.Bonuses.TowerMultiAttack = loadout.Bonuses.TowerMultiAttack
+				}
+				if loadout.Bonuses.TowerAura > 0 {
+					opts.Bonuses.TowerAura = loadout.Bonuses.TowerAura
+				}
+				if loadout.Bonuses.TowerVolley > 0 {
+					opts.Bonuses.TowerVolley = loadout.Bonuses.TowerVolley
+				}
+				if loadout.Bonuses.GatheringExperience > 0 {
+					opts.Bonuses.GatheringExperience = loadout.Bonuses.GatheringExperience
+				}
+				if loadout.Bonuses.MobExperience > 0 {
+					opts.Bonuses.MobExperience = loadout.Bonuses.MobExperience
+				}
+				if loadout.Bonuses.MobDamage > 0 {
+					opts.Bonuses.MobDamage = loadout.Bonuses.MobDamage
+				}
+				if loadout.Bonuses.PvPDamage > 0 {
+					opts.Bonuses.PvPDamage = loadout.Bonuses.PvPDamage
+				}
+				if loadout.Bonuses.XPSeeking > 0 {
+					opts.Bonuses.XPSeeking = loadout.Bonuses.XPSeeking
+				}
+				if loadout.Bonuses.TomeSeeking > 0 {
+					opts.Bonuses.TomeSeeking = loadout.Bonuses.TomeSeeking
+				}
+				if loadout.Bonuses.EmeraldSeeking > 0 {
+					opts.Bonuses.EmeraldSeeking = loadout.Bonuses.EmeraldSeeking
+				}
+				if loadout.Bonuses.LargerResourceStorage > 0 {
+					opts.Bonuses.LargerResourceStorage = loadout.Bonuses.LargerResourceStorage
+				}
+				if loadout.Bonuses.LargerEmeraldStorage > 0 {
+					opts.Bonuses.LargerEmeraldStorage = loadout.Bonuses.LargerEmeraldStorage
+				}
+				if loadout.Bonuses.EfficientResource > 0 {
+					opts.Bonuses.EfficientResource = loadout.Bonuses.EfficientResource
+				}
+				if loadout.Bonuses.EfficientEmerald > 0 {
+					opts.Bonuses.EfficientEmerald = loadout.Bonuses.EfficientEmerald
+				}
+				if loadout.Bonuses.ResourceRate > 0 {
+					opts.Bonuses.ResourceRate = loadout.Bonuses.ResourceRate
+				}
+				if loadout.Bonuses.EmeraldRate > 0 {
+					opts.Bonuses.EmeraldRate = loadout.Bonuses.EmeraldRate
+				}
+				
+				// Merge non-default tax values (only if different from 5%)
+				if loadout.Tax.Tax != 0.05 {
+					opts.Tax.Tax = loadout.Tax.Tax
+				}
+				if loadout.Tax.Ally != 0.05 {
+					opts.Tax.Ally = loadout.Tax.Ally
+				}
+				
+				// Merge routing mode and border if they're different from defaults
+				if loadout.RoutingMode != typedef.RoutingCheapest {
+					opts.RoutingMode = loadout.RoutingMode
+				}
+				if loadout.Border != typedef.BorderOpen {
+					opts.Border = loadout.Border
+				}
+				
+				fmt.Printf("[LOADOUT] Merging loadout with territory: %s\n", territoryName)
+			} else {
+				// Replace mode: completely replace territory settings with loadout (current behavior)
+				opts = loadout.TerritoryOptions
+				opts.HQ = false // Don't change HQ status
+				
+				fmt.Printf("[LOADOUT] Replacing territory settings: %s\n", territoryName)
+			}
 
-			fmt.Printf("[LOADOUT] Applying loadout to territory: %s\n", territoryName)
-			fmt.Printf("[LOADOUT] Loadout upgrades: Damage=%d, Attack=%d, Health=%d, Defence=%d\n",
-				loadout.Upgrades.Damage, loadout.Upgrades.Attack, loadout.Upgrades.Health, loadout.Upgrades.Defence)
-			fmt.Printf("[LOADOUT] Loadout bonuses: MultiAttack=%d, GatheringXP=%d, MobXP=%d, MobDmg=%d, PvPDmg=%d\n",
-				loadout.Bonuses.TowerMultiAttack, loadout.Bonuses.GatheringExperience,
-				loadout.Bonuses.MobExperience, loadout.Bonuses.MobDamage, loadout.Bonuses.PvPDamage)
-			fmt.Printf("[LOADOUT] Loadout seeking: XP=%d, Tome=%d, Emerald=%d\n",
-				loadout.Bonuses.XPSeeking, loadout.Bonuses.TomeSeeking, loadout.Bonuses.EmeraldSeeking)
+			fmt.Printf("[LOADOUT] Applying loadout to territory: %s (mode: %s)\n", territoryName, lm.applyingLoadoutMode)
+			fmt.Printf("[LOADOUT] Final upgrades: Damage=%d, Attack=%d, Health=%d, Defence=%d\n",
+				opts.Upgrades.Damage, opts.Upgrades.Attack, opts.Upgrades.Health, opts.Upgrades.Defence)
+			fmt.Printf("[LOADOUT] Final bonuses: MultiAttack=%d, GatheringXP=%d, MobXP=%d, MobDmg=%d, PvPDmg=%d\n",
+				opts.Bonuses.TowerMultiAttack, opts.Bonuses.GatheringExperience,
+				opts.Bonuses.MobExperience, opts.Bonuses.MobDamage, opts.Bonuses.PvPDamage)
+			fmt.Printf("[LOADOUT] Final seeking: XP=%d, Tome=%d, Emerald=%d\n",
+				opts.Bonuses.XPSeeking, opts.Bonuses.TomeSeeking, opts.Bonuses.EmeraldSeeking)
 
 			result := eruntime.Set(territoryName, opts)
 			if result != nil {
@@ -683,7 +822,7 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 
 	NewToast().
 		Text("Loadout Applied", ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
-		Text(fmt.Sprintf("Applied loadout '%s' to %d territories", loadout.Name, appliedCount), ToastOption{Colour: color.RGBA{200, 255, 200, 255}}).
+		Text(fmt.Sprintf("Applied loadout '%s' (%s mode) to %d territories", loadout.Name, lm.applyingLoadoutMode, appliedCount), ToastOption{Colour: color.RGBA{200, 255, 200, 255}}).
 		AutoClose(time.Second * 5).
 		Show()
 }
@@ -700,6 +839,7 @@ func (lm *LoadoutManager) CancelLoadoutApplication() {
 	lm.isApplyingLoadout = false
 	lm.applyingLoadoutIndex = -1
 	lm.applyingLoadoutName = ""
+	lm.applyingLoadoutMode = ""
 	lm.selectedTerritories = make(map[string]bool)
 	lm.applyUIVisible = false
 
@@ -1219,7 +1359,7 @@ func (lm *LoadoutManager) drawLoadoutItem(screen *ebiten.Image, x, y, width int,
 	text.Draw(screen, summaryText, smallFont, x+10, y+35, summaryColor)
 
 	// Edit button
-	editButtonX := x + width - 180
+	editButtonX := x + width - 230
 	editButtonColor := color.RGBA{70, 100, 150, 255}
 	if lm.editButtonHovered[index] {
 		editButtonColor = color.RGBA{90, 130, 200, 255}
@@ -1229,7 +1369,7 @@ func (lm *LoadoutManager) drawLoadoutItem(screen *ebiten.Image, x, y, width int,
 	text.Draw(screen, "Edit", smallFont, editButtonX+15, y+25, color.RGBA{255, 255, 255, 255})
 
 	// Delete button
-	deleteButtonX := x + width - 120
+	deleteButtonX := x + width - 175
 	deleteButtonColor := color.RGBA{150, 70, 70, 255}
 	if lm.deleteButtonHovered[index] {
 		deleteButtonColor = color.RGBA{200, 90, 90, 255}
@@ -1238,15 +1378,25 @@ func (lm *LoadoutManager) drawLoadoutItem(screen *ebiten.Image, x, y, width int,
 	vector.StrokeRect(screen, float32(deleteButtonX), float32(y+10), 50, 30, 2, color.RGBA{100, 100, 120, 255}, false)
 	text.Draw(screen, "Delete", smallFont, deleteButtonX+10, y+25, color.RGBA{255, 255, 255, 255})
 
-	// Apply button
-	applyButtonX := x + width - 60
-	applyButtonColor := color.RGBA{70, 150, 70, 255}
-	if lm.applyButtonHovered[index] {
-		applyButtonColor = color.RGBA{90, 200, 90, 255}
+	// Merge button
+	mergeButtonX := x + width - 120
+	mergeButtonColor := color.RGBA{70, 120, 200, 255} // Blue for merge
+	if lm.mergeButtonHovered[index] {
+		mergeButtonColor = color.RGBA{90, 150, 255, 255}
 	}
-	vector.DrawFilledRect(screen, float32(applyButtonX), float32(y+10), 50, 30, applyButtonColor, false)
-	vector.StrokeRect(screen, float32(applyButtonX), float32(y+10), 50, 30, 2, color.RGBA{100, 100, 120, 255}, false)
-	text.Draw(screen, "Apply", smallFont, applyButtonX+10, y+25, color.RGBA{255, 255, 255, 255})
+	vector.DrawFilledRect(screen, float32(mergeButtonX), float32(y+10), 50, 30, mergeButtonColor, false)
+	vector.StrokeRect(screen, float32(mergeButtonX), float32(y+10), 50, 30, 2, color.RGBA{100, 100, 120, 255}, false)
+	text.Draw(screen, "Merge", smallFont, mergeButtonX+8, y+25, color.RGBA{255, 255, 255, 255})
+
+	// Replace button
+	replaceButtonX := x + width - 65
+	replaceButtonColor := color.RGBA{200, 120, 70, 255} // Orange for replace
+	if lm.replaceButtonHovered[index] {
+		replaceButtonColor = color.RGBA{255, 150, 90, 255}
+	}
+	vector.DrawFilledRect(screen, float32(replaceButtonX), float32(y+10), 50, 30, replaceButtonColor, false)
+	vector.StrokeRect(screen, float32(replaceButtonX), float32(y+10), 50, 30, 2, color.RGBA{100, 100, 120, 255}, false)
+	text.Draw(screen, "Apply", smallFont, replaceButtonX+3, y+25, color.RGBA{255, 255, 255, 255})
 }
 
 // Helper functions for displaying loadout information
@@ -1727,16 +1877,25 @@ func (lm *LoadoutManager) drawApplyModeUI(screen *ebiten.Image) {
 	titleX := (screenW - titleBounds.Dx()) / 2
 	text.Draw(screen, titleText, titleFont, titleX, 35, color.RGBA{255, 255, 255, 255})
 
-	// Subtitle with loadout name
+	// Subtitle with loadout name and mode
 	subtitleFont := loadWynncraftFont(18)
-	subtitleText := fmt.Sprintf("Applying: %s", lm.applyingLoadoutName)
+	modeText := "Replace"
+	if lm.applyingLoadoutMode == "merge" {
+		modeText = "Merge"
+	}
+	subtitleText := fmt.Sprintf("Applying: %s (%s Mode)", lm.applyingLoadoutName, modeText)
 	subtitleBounds := text.BoundString(subtitleFont, subtitleText)
 	subtitleX := (screenW - subtitleBounds.Dx()) / 2
 	text.Draw(screen, subtitleText, subtitleFont, subtitleX, 60, color.RGBA{200, 220, 255, 255})
 
 	// Instructions
 	instructionFont := loadWynncraftFont(14)
-	instructionText := "Click territories to select/deselect. Use Ctrl+drag for area selection. Press Enter to apply or Escape to cancel."
+	var instructionText string
+	if lm.applyingLoadoutMode == "merge" {
+		instructionText = "Merge Mode: Only non-zero loadout values will be applied. Click territories to select/deselect. Press Enter to apply or Escape to cancel."
+	} else {
+		instructionText = "Replace Mode: Territory settings will be completely replaced. Click territories to select/deselect. Press Enter to apply or Escape to cancel."
+	}
 	instructionBounds := text.BoundString(instructionFont, instructionText)
 	instructionX := (screenW - instructionBounds.Dx()) / 2
 	text.Draw(screen, instructionText, instructionFont, instructionX, 85, color.RGBA{180, 200, 240, 255})

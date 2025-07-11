@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"etools/eruntime" // Add eruntime import
+	"etools/numbers"
 	"etools/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -130,6 +132,9 @@ type MapView struct {
 	areaSelectDragging      bool            // Whether user is currently dragging for area selection
 	areaSelectTempHighlight map[string]bool // Temporarily highlighted territories during area selection
 	areaSelectIsDeselecting bool            // Whether we're in deselection mode (right-click)
+
+	// Event Editor GUI
+	eventEditor *EventEditorGUI // Event editor interface
 }
 
 // NewMapView creates a new map view component
@@ -198,11 +203,17 @@ func NewMapView() *MapView {
 		// Initialize tribute menu
 		tributeMenu: NewTributeMenu(),
 
+		// Initialize event editor (will be set after mapView is created)
+		eventEditor: nil,
+
 		// Initialize transit resource cache
 		cachedTransitResources: make(map[string][]typedef.InTransitResources),
 		cachedTransitTick:      0,
 		transitCacheValid:      false,
 	}
+
+	// Initialize event editor after mapView is created
+	mapView.eventEditor = NewEventEditorGUI(mapView)
 
 	// EdgeMenu already handles its own refresh mechanism via refreshMenuData()
 	// No need to set a refresh callback that would rebuild the entire menu
@@ -401,6 +412,19 @@ func (m *MapView) Update(screenW, screenH int) {
 		m.territoryViewSwitcher.Update()
 	}
 
+	// Handle event editor input first (E key to open)
+	if !tributeMenuHandledInput && m.HandleEventEditorInput() {
+		return // Don't process other input this frame
+	}
+
+	// Update event editor if visible (handles ESC and mouse back button to close)
+	if m.IsEventEditorVisible() {
+		eventEditorHandledInput := m.UpdateEventEditor(screenW, screenH)
+		if eventEditorHandledInput {
+			return // Event editor handled input, don't process map input
+		}
+	}
+
 	// Handle P key and MouseButton4 BEFORE checking if input was handled
 	// Toggle state management menu with P key
 	if !tributeMenuHandledInput && inpututil.IsKeyJustPressed(ebiten.KeyP) {
@@ -426,8 +450,8 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Only toggle state management menu if no text input is focused
-		if !textInputFocused {
+		// Only toggle state management menu if no text input is focused and event editor is not visible
+		if !textInputFocused && !m.IsEventEditorVisible() {
 			m.ToggleStateManagementMenu()
 			return // Don't process other input this frame
 		}
@@ -457,8 +481,8 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Only toggle state management menu if no text input is focused
-		if !textInputFocused {
+		// Only toggle state management menu if no text input is focused and event editor is not visible
+		if !textInputFocused && !m.IsEventEditorVisible() {
 			m.ToggleStateManagementMenu()
 			return // Don't process other input this frame
 		}
@@ -469,10 +493,15 @@ func (m *MapView) Update(screenW, screenH int) {
 		return
 	}
 
-	// Process user input first - always accept wheel input
+	// Process user input first - always accept wheel input (unless event editor is maximized)
 	_, wheelY := ebiten.Wheel()
 	if wheelY != 0 {
 		mx, my := ebiten.CursorPosition()
+
+		// Block map zoom if event editor is visible but not in minimal mode OR if territory picker is active
+		if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
+			return
+		}
 
 		// Check if EdgeMenu is consuming wheel input first
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
@@ -495,12 +524,14 @@ func (m *MapView) Update(screenW, screenH int) {
 		m.handleSmoothZoom(wheelY, mx, my)
 	}
 
-	// Handle keyboard zoom with +/- keys (using smooth zoom)
-	if !tributeMenuHandledInput && (inpututil.IsKeyJustPressed(ebiten.KeyEqual) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadAdd)) {
-		m.handleSmoothZoom(3.0, screenW/2, screenH/2)
-	}
-	if !tributeMenuHandledInput && (inpututil.IsKeyJustPressed(ebiten.KeyMinus) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadSubtract)) {
-		m.handleSmoothZoom(-3.0, screenW/2, screenH/2)
+	// Handle keyboard zoom with +/- keys (using smooth zoom) - block if event editor is maximized or territory picker is active
+	if !tributeMenuHandledInput && (!m.IsEventEditorVisible() || (m.IsEventEditorVisible() && m.IsEventEditorInMinimalMode())) && !m.IsTerritoryPickerActive() {
+		if inpututil.IsKeyJustPressed(ebiten.KeyEqual) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadAdd) {
+			m.handleSmoothZoom(3.0, screenW/2, screenH/2)
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyMinus) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadSubtract) {
+			m.handleSmoothZoom(-3.0, screenW/2, screenH/2)
+		}
 	}
 
 	// Toggle territory display with T key
@@ -557,8 +588,8 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Only toggle transit resource menu if no text input is focused
-		if !textInputFocused && m.transitResourceMenu != nil {
+		// Only toggle transit resource menu if no text input is focused and event editor is not open
+		if !textInputFocused && !m.IsEventEditorVisible() && m.transitResourceMenu != nil {
 			if m.transitResourceMenu.IsVisible() {
 				m.transitResourceMenu.Hide()
 			} else {
@@ -592,8 +623,8 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Only toggle tribute menu if no text input is focused
-		if !textInputFocused && m.tributeMenu != nil {
+		// Only toggle tribute menu if no text input is focused and event editor is not open
+		if !textInputFocused && !m.IsEventEditorVisible() && m.tributeMenu != nil {
 			if m.tributeMenu.IsVisible() {
 				m.tributeMenu.Hide()
 			} else {
@@ -809,6 +840,13 @@ func (m *MapView) Update(screenW, screenH int) {
 		m.lastMouseX = mx
 		m.lastMouseY = my
 
+		// Block most map interactions if event editor is maximized OR if territory picker is active
+		if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
+			// Still allow map dragging but block other functionality
+			m.dragging = true
+			return
+		}
+
 		// Check if EdgeMenu is visible and mouse is inside EdgeMenu area
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
 			// Only block input if mouse is actually inside the EdgeMenu bounds
@@ -842,6 +880,13 @@ func (m *MapView) Update(screenW, screenH int) {
 
 	} else if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
+
+		// If event editor is maximized or territory picker is active, only allow dragging to end but block other interactions
+		if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
+			// Reset dragging state and return early
+			m.dragging = false
+			return
+		}
 
 		// Check if EdgeMenu is visible and mouse is inside EdgeMenu area
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
@@ -904,6 +949,14 @@ func (m *MapView) Update(screenW, screenH int) {
 
 			// Check for double-click (time threshold: 500ms)
 			isDoubleClick := timeSinceLastClick < 500*time.Millisecond
+
+			// Block double-click functionality if event editor is maximized
+			if isDoubleClick && m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode() {
+				// Update last click time but don't process double-click logic
+				m.lastClickTime = currentTime
+				m.dragging = false
+				return
+			}
 
 			// Handle claim editing UI button clicks FIRST (before territory selection)
 			if m.isEditingClaims {
@@ -997,7 +1050,8 @@ func (m *MapView) Update(screenW, screenH int) {
 
 					// If territory was clicked and it's a double-click, select and center it
 					// Don't do this in claim editing mode - we only want single-click territory toggling
-					if isDoubleClick && territoryClicked != "" && !m.isEditingClaims {
+					// Also don't show EdgeMenu if event editor is visible
+					if isDoubleClick && territoryClicked != "" && !m.isEditingClaims && !m.IsEventEditorVisible() {
 						// Center the territory first
 						m.CenterTerritory(territoryClicked)
 
@@ -1211,6 +1265,9 @@ func (m *MapView) drawOverlayElements(screen *ebiten.Image) {
 		m.drawAreaSelection(screen)
 	}
 
+	// Draw event editor GUI if visible (should be on top of most elements)
+	m.DrawEventEditor(screen)
+
 	// Draw territory view switcher modal (should be on top of everything)
 	if m.territoryViewSwitcher != nil {
 		m.territoryViewSwitcher.Draw(screen)
@@ -1327,37 +1384,37 @@ func (m *MapView) drawTerritoryHover(screen *ebiten.Image) {
 	resources := []ResourceInfo{
 		{
 			Name:       "Emerald",
-			Generation: territoryStats.CurrentGeneration.Emeralds,
-			Stored:     territoryStats.StoredResources.Emeralds,
-			Capacity:   territoryStats.StorageCapacity.Emeralds,
+			Generation: territoryStats.CurrentGeneration.Emeralds.Float64(),
+			Stored:     territoryStats.StoredResources.Emeralds.Float64(),
+			Capacity:   territoryStats.StorageCapacity.Emeralds.Float64(),
 			Color:      color.RGBA{144, 238, 144, 255}, // Light green
 		},
 		{
 			Name:       "Ore",
-			Generation: territoryStats.CurrentGeneration.Ores,
-			Stored:     territoryStats.StoredResources.Ores,
-			Capacity:   territoryStats.StorageCapacity.Ores,
+			Generation: territoryStats.CurrentGeneration.Ores.Float64(),
+			Stored:     territoryStats.StoredResources.Ores.Float64(),
+			Capacity:   territoryStats.StorageCapacity.Ores.Float64(),
 			Color:      color.RGBA{220, 220, 220, 255}, // White
 		},
 		{
 			Name:       "Crop",
-			Generation: territoryStats.CurrentGeneration.Crops,
-			Stored:     territoryStats.StoredResources.Crops,
-			Capacity:   territoryStats.StorageCapacity.Crops,
+			Generation: territoryStats.CurrentGeneration.Crops.Float64(),
+			Stored:     territoryStats.StoredResources.Crops.Float64(),
+			Capacity:   territoryStats.StorageCapacity.Crops.Float64(),
 			Color:      color.RGBA{255, 255, 0, 255}, // Yellow
 		},
 		{
 			Name:       "Wood",
-			Generation: territoryStats.CurrentGeneration.Wood,
-			Stored:     territoryStats.StoredResources.Wood,
-			Capacity:   territoryStats.StorageCapacity.Wood,
+			Generation: territoryStats.CurrentGeneration.Wood.Float64(),
+			Stored:     territoryStats.StoredResources.Wood.Float64(),
+			Capacity:   territoryStats.StorageCapacity.Wood.Float64(),
 			Color:      color.RGBA{34, 139, 34, 255}, // Forest green (darker than emerald)
 		},
 		{
 			Name:       "Fish",
-			Generation: territoryStats.CurrentGeneration.Fish,
-			Stored:     territoryStats.StoredResources.Fish,
-			Capacity:   territoryStats.StorageCapacity.Fish,
+			Generation: territoryStats.CurrentGeneration.Fish.Float64(),
+			Stored:     territoryStats.StoredResources.Fish.Float64(),
+			Capacity:   territoryStats.StorageCapacity.Fish.Float64(),
 			Color:      color.RGBA{127, 216, 230, 255}, // Light blue
 		},
 	}
@@ -1961,19 +2018,19 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 	} else {
 		// Context menu for empty map area
 		m.contextMenu.
-			Option("Open Guild Manager", "G", true, func() {
+			Option("Open Guild Manager", "G", !m.IsEventEditorVisible(), func() {
 				m.territoriesManager.guildManager.Show()
 			}).
-			Option("Open State Management", "P", true, func() {
+			Option("Open State Management", "P", !m.IsEventEditorVisible(), func() {
 				m.stateManagementMenu.Show()
 			}).
-			Option("Open Resource Inspector", "I", true, func() {
+			Option("Open Resource Inspector", "I", !m.IsEventEditorVisible(), func() {
 				m.transitResourceMenu.Show()
 			}).
-			Option("Open Tribute Menu", "B", true, func() {
+			Option("Open Tribute Menu", "B", !m.IsEventEditorVisible(), func() {
 				m.tributeMenu.Show()
 			}).
-			Option("Open Loadout Manager", "L", true, func() {
+			Option("Open Loadout Manager", "L", !m.IsEventEditorVisible(), func() {
 				GetLoadoutManager().Show()
 			})
 
@@ -2052,46 +2109,46 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	// Create text elements for all resources, but set visibility based on production
 	emeraldProdOptions := DefaultTextOptions()
 	emeraldProdOptions.Color = color.RGBA{0, 255, 0, 255} // Green for emeralds
-	emeraldProdText = NewMenuText(fmt.Sprintf("%d Emerald per Hour", int(territoryStats.CurrentGeneration.Emeralds)), emeraldProdOptions)
-	emeraldProdText.SetVisible(territoryStats.CurrentGeneration.Emeralds > 0)
+	emeraldProdText = NewMenuText(fmt.Sprintf("%d Emerald per Hour", territoryStats.CurrentGeneration.Emeralds.Integer()), emeraldProdOptions)
+	emeraldProdText.SetVisible(territoryStats.CurrentGeneration.Emeralds.Integer() > 0)
 	productionMenu.AddElement(emeraldProdText)
-	if territoryStats.CurrentGeneration.Emeralds > 0 {
+	if territoryStats.CurrentGeneration.Emeralds.Integer() > 0 {
 		hasProduction = true
 	}
 
 	oreProdOptions := DefaultTextOptions()
 	oreProdOptions.Color = color.RGBA{180, 180, 180, 255} // Light grey for ores
-	oreProdText = NewMenuText(fmt.Sprintf("%d Ore per Hour", int(territoryStats.CurrentGeneration.Ores)), oreProdOptions)
-	oreProdText.SetVisible(territoryStats.CurrentGeneration.Ores > 0)
+	oreProdText = NewMenuText(fmt.Sprintf("%d Ore per Hour", territoryStats.CurrentGeneration.Ores.Integer()), oreProdOptions)
+	oreProdText.SetVisible(territoryStats.CurrentGeneration.Ores.Integer() > 0)
 	productionMenu.AddElement(oreProdText)
-	if territoryStats.CurrentGeneration.Ores > 0 {
+	if territoryStats.CurrentGeneration.Ores.Integer() > 0 {
 		hasProduction = true
 	}
 
 	woodProdOptions := DefaultTextOptions()
 	woodProdOptions.Color = color.RGBA{139, 69, 19, 255} // Brown for wood
-	woodProdText = NewMenuText(fmt.Sprintf("%d Wood per Hour", int(territoryStats.CurrentGeneration.Wood)), woodProdOptions)
-	woodProdText.SetVisible(territoryStats.CurrentGeneration.Wood > 0)
+	woodProdText = NewMenuText(fmt.Sprintf("%d Wood per Hour", territoryStats.CurrentGeneration.Wood.Integer()), woodProdOptions)
+	woodProdText.SetVisible(territoryStats.CurrentGeneration.Wood.Integer() > 0)
 	productionMenu.AddElement(woodProdText)
-	if territoryStats.CurrentGeneration.Wood > 0 {
+	if territoryStats.CurrentGeneration.Wood.Integer() > 0 {
 		hasProduction = true
 	}
 
 	fishProdOptions := DefaultTextOptions()
 	fishProdOptions.Color = color.RGBA{0, 150, 255, 255} // Blue for fish
-	fishProdText = NewMenuText(fmt.Sprintf("%d Fish per Hour", int(territoryStats.CurrentGeneration.Fish)), fishProdOptions)
-	fishProdText.SetVisible(territoryStats.CurrentGeneration.Fish > 0)
+	fishProdText = NewMenuText(fmt.Sprintf("%d Fish per Hour", territoryStats.CurrentGeneration.Fish.Integer()), fishProdOptions)
+	fishProdText.SetVisible(territoryStats.CurrentGeneration.Fish.Integer() > 0)
 	productionMenu.AddElement(fishProdText)
-	if territoryStats.CurrentGeneration.Fish > 0 {
+	if territoryStats.CurrentGeneration.Fish.Integer() > 0 {
 		hasProduction = true
 	}
 
 	cropProdOptions := DefaultTextOptions()
 	cropProdOptions.Color = color.RGBA{255, 255, 0, 255} // Yellow for crops
-	cropProdText = NewMenuText(fmt.Sprintf("%d Crop per Hour", int(territoryStats.CurrentGeneration.Crops)), cropProdOptions)
-	cropProdText.SetVisible(territoryStats.CurrentGeneration.Crops > 0)
+	cropProdText = NewMenuText(fmt.Sprintf("%d Crop per Hour", territoryStats.CurrentGeneration.Crops.Integer()), cropProdOptions)
+	cropProdText.SetVisible(territoryStats.CurrentGeneration.Crops.Integer() > 0)
 	productionMenu.AddElement(cropProdText)
-	if territoryStats.CurrentGeneration.Crops > 0 {
+	if territoryStats.CurrentGeneration.Crops.Integer() > 0 {
 		hasProduction = true
 	}
 
@@ -2110,31 +2167,31 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 		updatedStats := eruntime.GetTerritoryStats(territory.Name)
 
 		// Update emerald production
-		emeraldProdText.SetText(fmt.Sprintf("%d Emerald per Hour", int(updatedStats.CurrentGeneration.Emeralds)))
-		emeraldProdText.SetVisible(updatedStats.CurrentGeneration.Emeralds > 0)
+		emeraldProdText.SetText(fmt.Sprintf("%d Emerald per Hour", updatedStats.CurrentGeneration.Emeralds.Integer()))
+		emeraldProdText.SetVisible(updatedStats.CurrentGeneration.Emeralds.Integer() > 0)
 
 		// Update ore production
-		oreProdText.SetText(fmt.Sprintf("%d Ore per Hour", int(updatedStats.CurrentGeneration.Ores)))
-		oreProdText.SetVisible(updatedStats.CurrentGeneration.Ores > 0)
+		oreProdText.SetText(fmt.Sprintf("%d Ore per Hour", updatedStats.CurrentGeneration.Ores.Integer()))
+		oreProdText.SetVisible(updatedStats.CurrentGeneration.Ores.Integer() > 0)
 
 		// Update wood production
-		woodProdText.SetText(fmt.Sprintf("%d Wood per Hour", int(updatedStats.CurrentGeneration.Wood)))
-		woodProdText.SetVisible(updatedStats.CurrentGeneration.Wood > 0)
+		woodProdText.SetText(fmt.Sprintf("%d Wood per Hour", updatedStats.CurrentGeneration.Wood.Integer()))
+		woodProdText.SetVisible(updatedStats.CurrentGeneration.Wood.Integer() > 0)
 
 		// Update fish production
-		fishProdText.SetText(fmt.Sprintf("%d Fish per Hour", int(updatedStats.CurrentGeneration.Fish)))
-		fishProdText.SetVisible(updatedStats.CurrentGeneration.Fish > 0)
+		fishProdText.SetText(fmt.Sprintf("%d Fish per Hour", updatedStats.CurrentGeneration.Fish.Integer()))
+		fishProdText.SetVisible(updatedStats.CurrentGeneration.Fish.Integer() > 0)
 
 		// Update crop production
-		cropProdText.SetText(fmt.Sprintf("%d Crop per Hour", int(updatedStats.CurrentGeneration.Crops)))
-		cropProdText.SetVisible(updatedStats.CurrentGeneration.Crops > 0)
+		cropProdText.SetText(fmt.Sprintf("%d Crop per Hour", updatedStats.CurrentGeneration.Crops.Integer()))
+		cropProdText.SetVisible(updatedStats.CurrentGeneration.Crops.Integer() > 0)
 
 		// Check if any production exists
-		newHasProduction := updatedStats.CurrentGeneration.Emeralds > 0 ||
-			updatedStats.CurrentGeneration.Ores > 0 ||
-			updatedStats.CurrentGeneration.Wood > 0 ||
-			updatedStats.CurrentGeneration.Fish > 0 ||
-			updatedStats.CurrentGeneration.Crops > 0
+		newHasProduction := updatedStats.CurrentGeneration.Emeralds.Integer() > 0 ||
+			updatedStats.CurrentGeneration.Ores.Integer() > 0 ||
+			updatedStats.CurrentGeneration.Wood.Integer() > 0 ||
+			updatedStats.CurrentGeneration.Fish.Integer() > 0 ||
+			updatedStats.CurrentGeneration.Crops.Integer() > 0
 
 		// Update "No production" text visibility
 		noProdText.SetVisible(!newHasProduction)
@@ -2315,32 +2372,32 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	emeraldCostOptions := DefaultTextOptions()
 	emeraldCostOptions.Color = color.RGBA{0, 255, 0, 255} // Green for emeralds
 
-	costsMenu.Text(fmt.Sprintf("%d Emerald per Hour", int(territory.Costs.Emeralds)), emeraldCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Emerald per Hour", territory.Costs.Emeralds.Integer()), emeraldCostOptions)
 	oreCostOptions := DefaultTextOptions()
 	oreCostOptions.Color = color.RGBA{180, 180, 180, 255} // Light grey for ores
-	costsMenu.Text(fmt.Sprintf("%d Ore per Hour", int(territory.Costs.Ores)), oreCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Ore per Hour", territory.Costs.Ores.Integer()), oreCostOptions)
 
 	woodCostOptions := DefaultTextOptions()
 	woodCostOptions.Color = color.RGBA{139, 69, 19, 255} // Brown for wood
-	costsMenu.Text(fmt.Sprintf("%d Wood per Hour", int(territory.Costs.Wood)), woodCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Wood per Hour", territory.Costs.Wood.Integer()), woodCostOptions)
 
 	fishCostOptions := DefaultTextOptions()
 	fishCostOptions.Color = color.RGBA{0, 150, 255, 255} // Blue for fish
-	costsMenu.Text(fmt.Sprintf("%d Fish per Hour", int(territory.Costs.Fish)), fishCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Fish per Hour", territory.Costs.Fish.Integer()), fishCostOptions)
 
 	cropCostOptions := DefaultTextOptions()
 	cropCostOptions.Color = color.RGBA{255, 255, 0, 255} // Yellow for crops
-	costsMenu.Text(fmt.Sprintf("%d Crop per Hour", int(territory.Costs.Crops)), cropCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Crop per Hour", territory.Costs.Crops.Integer()), cropCostOptions)
 
 	// Resources (collapsible)
 	resourcesMenu := m.edgeMenu.CollapsibleMenu("Resources", DefaultCollapsibleMenuOptions())
 
 	// Calculate transit resources using the new decoupled transit system, with caching
-	transitEmeralds := 0.0
-	transitOres := 0.0
-	transitWood := 0.0
-	transitFish := 0.0
-	transitCrops := 0.0
+	transitEmeralds := numbers.NewFixedPoint(0, 0)
+	transitOres := numbers.NewFixedPoint(0, 0)
+	transitWood := numbers.NewFixedPoint(0, 0)
+	transitFish := numbers.NewFixedPoint(0, 0)
+	transitCrops := numbers.NewFixedPoint(0, 0)
 
 	// Use tick as cache key (assume eruntime.Tick() returns current tick)
 	currentTick := eruntime.Tick()
@@ -2360,33 +2417,35 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 		m.transitCacheValid = true
 	}
 	for _, transit := range transitResources {
-		transitEmeralds += transit.Emeralds
-		transitOres += transit.Ores
-		transitWood += transit.Wood
-		transitFish += transit.Fish
-		transitCrops += transit.Crops
+		transitEmeralds = transitEmeralds.Add(transit.Emeralds)
+		transitOres = transitOres.Add(transit.Ores)
+		transitWood = transitWood.Add(transit.Wood)
+		transitFish = transitFish.Add(transit.Fish)
+		transitCrops = transitCrops.Add(transit.Crops)
 	}
 
 	// Create interactive resource storage controls
 	resourcesMenu.ResourceStorageControl("Emerald", "emeralds", territoryName,
-		int(territory.Storage.At.Emeralds), int(territory.Storage.Capacity.Emeralds), int(transitEmeralds), int(territoryStats.CurrentGeneration.Emeralds),
+		territory.Storage.At.Emeralds.Integer(), territory.Storage.Capacity.Emeralds.Integer(), transitEmeralds.Integer(), territoryStats.CurrentGeneration.Emeralds.Integer(),
 		color.RGBA{0, 255, 0, 255}) // Green for emeralds
 
 	resourcesMenu.ResourceStorageControl("Ore", "ores", territoryName,
-		int(territory.Storage.At.Ores), int(territory.Storage.Capacity.Ores), int(transitOres), int(territoryStats.CurrentGeneration.Ores),
+		territory.Storage.At.Ores.Integer(), territory.Storage.Capacity.Ores.Integer(), transitOres.Integer(), territoryStats.CurrentGeneration.Ores.Integer(),
 		color.RGBA{180, 180, 180, 255}) // Light grey for ores
 
 	resourcesMenu.ResourceStorageControl("Wood", "wood", territoryName,
-		int(territory.Storage.At.Wood), int(territory.Storage.Capacity.Wood), int(transitWood), int(territoryStats.CurrentGeneration.Wood),
+		territory.Storage.At.Wood.Integer(), territory.Storage.Capacity.Wood.Integer(), transitWood.Integer(), territoryStats.CurrentGeneration.Wood.Integer(),
 		color.RGBA{139, 69, 19, 255}) // Brown for wood
 
 	resourcesMenu.ResourceStorageControl("Fish", "fish", territoryName,
-		int(territory.Storage.At.Fish), int(territory.Storage.Capacity.Fish), int(transitFish), int(territoryStats.CurrentGeneration.Fish),
+		territory.Storage.At.Fish.Integer(), territory.Storage.Capacity.Fish.Integer(), transitFish.Integer(), territoryStats.CurrentGeneration.Fish.Integer(),
 		color.RGBA{0, 150, 255, 255}) // Blue for fish
 
 	resourcesMenu.ResourceStorageControl("Crop", "crops", territoryName,
-		int(territory.Storage.At.Crops), int(territory.Storage.Capacity.Crops), int(transitCrops), int(territoryStats.CurrentGeneration.Crops),
-		color.RGBA{255, 255, 0, 255}) // Yellow for crops		// Trading Routes (collapsible)
+		territory.Storage.At.Crops.Integer(), territory.Storage.Capacity.Crops.Integer(), transitCrops.Integer(), territoryStats.CurrentGeneration.Crops.Integer(),
+		color.RGBA{255, 255, 0, 255}) // Yellow for crops
+
+	// Trading Routes (collapsible)
 	routesMenu := m.edgeMenu.CollapsibleMenu("Trading Routes", DefaultCollapsibleMenuOptions())
 	if len(territory.TradingRoutes) > 0 {
 		// Get current guild information for route coloring
@@ -2806,6 +2865,18 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 		}
 	})
 
+	debugButton := DefaultButtonOptions()
+	// Pink button
+	debugButton.BackgroundColor = color.RGBA{255, 105, 180, 255} // Pink background
+	debugButton.HoverColor = color.RGBA{255, 182, 193, 255} // Lighter pink on hover
+	debugButton.PressedColor = color.RGBA{255, 20, 147, 255} // Darker pink when pressed
+	debugButtonText := "Trigger Breakpoint"
+	m.edgeMenu.Button(debugButtonText, debugButton, func() {
+		t := eruntime.GetTerritory(territoryName)
+		_ = t // For debugging
+		runtime.Breakpoint()
+	})
+
 	// Restore collapsed states to maintain user's UI preferences
 	m.edgeMenu.RestoreCollapsedStates(collapsedStates)
 }
@@ -2830,6 +2901,11 @@ func (m *MapView) IsStateManagementMenuOpen() bool {
 // ToggleStateManagementMenu toggles the state management menu visibility
 func (m *MapView) ToggleStateManagementMenu() {
 	if m.stateManagementMenu == nil {
+		return
+	}
+
+	// Don't toggle if event editor is open
+	if m.IsEventEditorVisible() {
 		return
 	}
 

@@ -1580,7 +1580,7 @@ func (tm *TerritoriesManager) Update(deltaTime float64) {
 
 // RefreshFromEruntime reloads territory data from eruntime
 func (tm *TerritoriesManager) RefreshFromEruntime() error {
-	fmt.Println("[DEBUG] TerritoriesManager.RefreshFromEruntime called")
+	// fmt.Println("[DEBUG] TerritoriesManager.RefreshFromEruntime called")
 
 	// Acquire write lock to prevent concurrent access during refresh
 	tm.territoryMutex.Lock()

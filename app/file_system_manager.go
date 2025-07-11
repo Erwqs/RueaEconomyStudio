@@ -23,7 +23,7 @@ func GetFileSystemManager() *FileSystemManager {
 
 // InitializeFileSystemManager creates and initializes the global file system manager
 func InitializeFileSystemManager(inputManager *InputManager) {
-	fmt.Println("[FILE] InitializeFileSystemManager called")
+	// fmt.Println("[FILE] InitializeFileSystemManager called")
 	globalFileSystemManager = NewFileSystemManager(inputManager)
 
 	// Set up state save/load callbacks
@@ -192,7 +192,7 @@ func (fsm *FileSystemManager) ShowOpenDialogue() {
 
 // ShowSaveDialogue displays the save file dialogue
 func (fsm *FileSystemManager) ShowSaveDialogue() {
-	fmt.Println("[FILE] ShowSaveDialogue called")
+	// fmt.Println("[FILE] ShowSaveDialogue called")
 
 	// Close existing dialogue if open
 	if fsm.saveDialogue != nil {

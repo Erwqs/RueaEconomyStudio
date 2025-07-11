@@ -20,6 +20,7 @@ type GameplayModule struct {
 	keyHoldStates      map[ebiten.Key]bool
 	mapView            *MapView              // Added map view component
 	guildManager       *EnhancedGuildManager // Added enhanced guild manager component
+	scriptManager      *ScriptManager        // Added script manager component
 }
 
 // NewGameplayModule creates a new gameplay module
@@ -33,6 +34,9 @@ func NewGameplayModule(inputManager *InputManager) *GameplayModule {
 	// Create a new EnhancedGuildManager
 	guildManager := NewEnhancedGuildManager()
 	guildManager.SetInputManager(inputManager)
+
+	// Create a new ScriptManager
+	scriptManager := NewScriptManager()
 
 	// Initialize the GuildClaimManager
 	_ = GetGuildClaimManager() // Ensure the singleton is created
@@ -48,6 +52,7 @@ func NewGameplayModule(inputManager *InputManager) *GameplayModule {
 		keyHoldStates:      make(map[ebiten.Key]bool),
 		mapView:            mapView,
 		guildManager:       guildManager,
+		scriptManager:      scriptManager,
 	}
 
 	// Set the guildManager in the territories manager
@@ -132,6 +137,12 @@ mouseEventsProcessed:
 	inputHandled := false
 	if gm.guildManager != nil {
 		inputHandled = gm.guildManager.Update()
+	}
+
+	// Update script manager and check if it handled the input
+	if !inputHandled && gm.scriptManager != nil && gm.scriptManager.IsVisible() {
+		gm.scriptManager.Update()
+		inputHandled = true
 	}
 
 	// Update loadout manager and check if it handled the input
@@ -275,8 +286,8 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 				textInputFocused = true
 			}
 
-			// Only open guild manager if no text input is focused
-			if !textInputFocused {
+			// Only open guild manager if no text input is focused and event editor is not open
+			if !textInputFocused && !gm.mapView.IsEventEditorVisible() {
 				// Open guild editor/management only if not already open
 				if gm.mapView != nil && gm.mapView.territoriesManager != nil {
 					// Check if guild manager is already visible
@@ -321,14 +332,52 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 				textInputFocused = true
 			}
 
-			// Only open loadout manager if no text input is focused
-			if !textInputFocused {
+			// Only open loadout manager if no text input is focused and event editor is not open
+			if !textInputFocused && !gm.mapView.IsEventEditorVisible() {
 				if loadoutManager != nil && !loadoutManager.IsVisible() {
 					// Hide transit resource menu when entering loadout application mode
 					if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() {
 						gm.mapView.transitResourceMenu.Hide()
 					}
 					loadoutManager.Show()
+				}
+			}
+		case ebiten.KeyS:
+			// Check if any text input is currently focused before opening script manager
+			textInputFocused := false
+
+			// Check if guild manager is open and has text input focused
+			if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+				guildManager := gm.mapView.territoriesManager.guildManager
+				if guildManager.IsVisible() {
+					if guildManager.HasTextInputFocused() {
+						textInputFocused = true
+					}
+				}
+			}
+
+			// Check if loadout manager is open and has text input focused
+			loadoutManager := GetLoadoutManager()
+			if loadoutManager != nil && loadoutManager.IsVisible() {
+				if loadoutManager.HasTextInputFocused() {
+					textInputFocused = true
+				}
+			}
+
+			// Check if transit resource menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Check if tribute menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Only open script manager if no text input is focused and event editor is not open
+			if !textInputFocused && !gm.mapView.IsEventEditorVisible() {
+				if gm.scriptManager != nil && !gm.scriptManager.IsVisible() {
+					gm.scriptManager.Show()
 				}
 			}
 		}
@@ -390,6 +439,11 @@ func (gm *GameplayModule) Draw(screen *ebiten.Image) {
 	// Draw guild manager if it exists and is visible
 	if gm.guildManager != nil && gm.guildManager.IsVisible() {
 		gm.guildManager.Draw(screen)
+	}
+
+	// Draw script manager if it exists and is visible
+	if gm.scriptManager != nil && gm.scriptManager.IsVisible() {
+		gm.scriptManager.Draw(screen)
 	}
 
 	// Draw loadout manager if it exists and is visible

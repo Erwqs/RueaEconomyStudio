@@ -3,6 +3,7 @@ package typedef
 import (
 	"crypto/sha256"
 	"errors"
+	"etools/numbers"
 	"fmt"
 	"strconv"
 	"sync"
@@ -13,11 +14,11 @@ var (
 )
 
 var BaseResourceCapacity = BasicResources{
-	Emeralds: 3000, // Base capacity for emeralds
-	Ores:     300,  // Base capacity for ores
-	Wood:     300,  // Base capacity for wood
-	Fish:     300,  // Base capacity for fish
-	Crops:    300,  // Base capacity for crops
+	Emeralds: numbers.NewFixedPoint(3000, 0),
+	Ores:     numbers.NewFixedPoint(300, 0),
+	Wood:     numbers.NewFixedPoint(300, 0),
+	Fish:     numbers.NewFixedPoint(300, 0),
+	Crops:    numbers.NewFixedPoint(300, 0),
 }
 
 type DefenceLevel uint8
@@ -138,20 +139,20 @@ type Guild struct {
 type BasicResourcesInterface interface {
 	Add(b BasicResourcesInterface) BasicResources
 	Sub(b BasicResourcesInterface, clamp ...bool) BasicResources
-	MulFloat(a float64) BasicResources
+	MulFloat(a numbers.FixedPoint128) BasicResources
 	MulResource(b BasicResourcesInterface) BasicResources
-	DivFloat(a float64) BasicResources
+	DivFloat(a numbers.FixedPoint128) BasicResources
 	PerSecond() BasicResourcesSecond
 	PerHour() BasicResources
 	IsSecond() bool
 }
 
 type BasicResourcesSecond struct {
-	Emeralds float64 `json:"EmeraldsPerSecond"`
-	Ores     float64 `json:"OresPerSecond"`
-	Wood     float64 `json:"WoodPerSecond"`
-	Fish     float64 `json:"FishPerSecond"`
-	Crops    float64 `json:"CropsPerSecond"`
+	Emeralds numbers.FixedPoint128 `json:"EmeraldsPerSecond"`
+	Ores     numbers.FixedPoint128 `json:"OresPerSecond"`
+	Wood     numbers.FixedPoint128 `json:"WoodPerSecond"`
+	Fish     numbers.FixedPoint128 `json:"FishPerSecond"`
+	Crops    numbers.FixedPoint128 `json:"CropsPerSecond"`
 }
 
 func (brs *BasicResourcesSecond) IsSecond() bool {
@@ -165,80 +166,82 @@ func (brs *BasicResourcesSecond) PerSecond() BasicResourcesSecond {
 
 func (brs *BasicResourcesSecond) PerHour() BasicResources {
 	return BasicResources{
-		Emeralds: brs.Emeralds * 3600,
-		Ores:     brs.Ores * 3600,
-		Wood:     brs.Wood * 3600,
-		Fish:     brs.Fish * 3600,
-		Crops:    brs.Crops * 3600,
+		Emeralds: brs.Emeralds.Multiply(numbers.NewFixedPoint(3600, 0)),
+		Ores:     brs.Ores.Multiply(numbers.NewFixedPoint(3600, 0)),
+		Wood:     brs.Wood.Multiply(numbers.NewFixedPoint(3600, 0)),
+		Fish:     brs.Fish.Multiply(numbers.NewFixedPoint(3600, 0)),
+		Crops:    brs.Crops.Multiply(numbers.NewFixedPoint(3600, 0)),
 	}
 }
 
 func (brs *BasicResourcesSecond) Add(b BasicResourcesInterface) BasicResourcesSecond {
+	other := b.PerSecond()
 	return BasicResourcesSecond{
-		Emeralds: brs.Emeralds + b.PerSecond().Emeralds,
-		Ores:     brs.Ores + b.PerSecond().Ores,
-		Wood:     brs.Wood + b.PerSecond().Wood,
-		Fish:     brs.Fish + b.PerSecond().Fish,
-		Crops:    brs.Crops + b.PerSecond().Crops,
+		Emeralds: brs.Emeralds.Add(other.Emeralds),
+		Ores:     brs.Ores.Add(other.Ores),
+		Wood:     brs.Wood.Add(other.Wood),
+		Fish:     brs.Fish.Add(other.Fish),
+		Crops:    brs.Crops.Add(other.Crops),
 	}
 }
 
 func (brs *BasicResourcesSecond) Sub(b BasicResourcesInterface, clamp ...bool) BasicResourcesSecond {
+	other := b.PerSecond()
 	if len(clamp) > 0 && clamp[0] {
 		return BasicResourcesSecond{
-			Emeralds: max(0, brs.Emeralds-b.PerSecond().Emeralds),
-			Ores:     max(0, brs.Ores-b.PerSecond().Ores),
-			Wood:     max(0, brs.Wood-b.PerSecond().Wood),
-			Fish:     max(0, brs.Fish-b.PerSecond().Fish),
-			Crops:    max(0, brs.Crops-b.PerSecond().Crops),
+			Emeralds: maxFP(numbers.NewFixedPoint(0, 0), brs.Emeralds.Subtract(other.Emeralds)),
+			Ores:     maxFP(numbers.NewFixedPoint(0, 0), brs.Ores.Subtract(other.Ores)),
+			Wood:     maxFP(numbers.NewFixedPoint(0, 0), brs.Wood.Subtract(other.Wood)),
+			Fish:     maxFP(numbers.NewFixedPoint(0, 0), brs.Fish.Subtract(other.Fish)),
+			Crops:    maxFP(numbers.NewFixedPoint(0, 0), brs.Crops.Subtract(other.Crops)),
 		}
 	}
-
 	return BasicResourcesSecond{
-		Emeralds: brs.Emeralds - b.PerSecond().Emeralds,
-		Ores:     brs.Ores - b.PerSecond().Ores,
-		Wood:     brs.Wood - b.PerSecond().Wood,
-		Fish:     brs.Fish - b.PerSecond().Fish,
-		Crops:    brs.Crops - b.PerSecond().Crops,
+		Emeralds: brs.Emeralds.Subtract(other.Emeralds),
+		Ores:     brs.Ores.Subtract(other.Ores),
+		Wood:     brs.Wood.Subtract(other.Wood),
+		Fish:     brs.Fish.Subtract(other.Fish),
+		Crops:    brs.Crops.Subtract(other.Crops),
 	}
 }
 
-func (brs *BasicResourcesSecond) MulFloat(a float64) BasicResourcesSecond {
+func (brs *BasicResourcesSecond) MulFloat(a numbers.FixedPoint128) BasicResourcesSecond {
 	return BasicResourcesSecond{
-		Emeralds: brs.Emeralds * a,
-		Ores:     brs.Ores * a,
-		Wood:     brs.Wood * a,
-		Fish:     brs.Fish * a,
-		Crops:    brs.Crops * a,
+		Emeralds: brs.Emeralds.Multiply(a),
+		Ores:     brs.Ores.Multiply(a),
+		Wood:     brs.Wood.Multiply(a),
+		Fish:     brs.Fish.Multiply(a),
+		Crops:    brs.Crops.Multiply(a),
 	}
 }
 
 func (brs *BasicResourcesSecond) MulResource(b BasicResourcesInterface) BasicResourcesSecond {
+	other := b.PerSecond()
 	return BasicResourcesSecond{
-		Emeralds: brs.Emeralds * b.PerSecond().Emeralds,
-		Ores:     brs.Ores * b.PerSecond().Ores,
-		Wood:     brs.Wood * b.PerSecond().Wood,
-		Fish:     brs.Fish * b.PerSecond().Fish,
-		Crops:    brs.Crops * b.PerSecond().Crops,
+		Emeralds: brs.Emeralds.Multiply(other.Emeralds),
+		Ores:     brs.Ores.Multiply(other.Ores),
+		Wood:     brs.Wood.Multiply(other.Wood),
+		Fish:     brs.Fish.Multiply(other.Fish),
+		Crops:    brs.Crops.Multiply(other.Crops),
 	}
 }
 
-func (brs *BasicResourcesSecond) DivFloat(a float64) BasicResourcesSecond {
+func (brs *BasicResourcesSecond) DivFloat(a numbers.FixedPoint128) BasicResourcesSecond {
 	return BasicResourcesSecond{
-		Emeralds: brs.Emeralds / a,
-		Ores:     brs.Ores / a,
-		Wood:     brs.Wood / a,
-		Fish:     brs.Fish / a,
-		Crops:    brs.Crops / a,
+		Emeralds: brs.Emeralds.Divide(a),
+		Ores:     brs.Ores.Divide(a),
+		Wood:     brs.Wood.Divide(a),
+		Fish:     brs.Fish.Divide(a),
+		Crops:    brs.Crops.Divide(a),
 	}
 }
 
 type BasicResources struct {
-	Emeralds float64 `etf:"tce" json:"emeralds"`
-	Ores     float64 `etf:"tco" json:"ores"`
-	Wood     float64 `etf:"tcw" json:"wood"`
-	Fish     float64 `etf:"tcf" json:"fish"`
-	Crops    float64 `etf:"tcc" json:"crops"`
+	Emeralds numbers.FixedPoint128 `etf:"tce" json:"emeralds"`
+	Ores     numbers.FixedPoint128 `etf:"tco" json:"ores"`
+	Wood     numbers.FixedPoint128 `etf:"tcw" json:"wood"`
+	Fish     numbers.FixedPoint128 `etf:"tcf" json:"fish"`
+	Crops    numbers.FixedPoint128 `etf:"tcc" json:"crops"`
 }
 
 func (br *BasicResources) IsSecond() bool {
@@ -247,11 +250,11 @@ func (br *BasicResources) IsSecond() bool {
 
 func (br *BasicResources) PerSecond() BasicResourcesSecond {
 	return BasicResourcesSecond{
-		Emeralds: br.Emeralds / 3600,
-		Ores:     br.Ores / 3600,
-		Wood:     br.Wood / 3600,
-		Fish:     br.Fish / 3600,
-		Crops:    br.Crops / 3600,
+		Emeralds: br.Emeralds.Divide(numbers.NewFixedPoint(3600, 0)),
+		Ores:     br.Ores.Divide(numbers.NewFixedPoint(3600, 0)),
+		Wood:     br.Wood.Divide(numbers.NewFixedPoint(3600, 0)),
+		Fish:     br.Fish.Divide(numbers.NewFixedPoint(3600, 0)),
+		Crops:    br.Crops.Divide(numbers.NewFixedPoint(3600, 0)),
 	}
 }
 
@@ -261,62 +264,64 @@ func (br *BasicResources) PerHour() BasicResources {
 }
 
 func (br *BasicResources) Add(b BasicResourcesInterface) BasicResources {
+	other := b.PerHour()
 	return BasicResources{
-		Emeralds: br.Emeralds + b.PerHour().Emeralds,
-		Ores:     br.Ores + b.PerHour().Ores,
-		Wood:     br.Wood + b.PerHour().Wood,
-		Fish:     br.Fish + b.PerHour().Fish,
-		Crops:    br.Crops + b.PerHour().Crops,
+		Emeralds: br.Emeralds.Add(other.Emeralds),
+		Ores:     br.Ores.Add(other.Ores),
+		Wood:     br.Wood.Add(other.Wood),
+		Fish:     br.Fish.Add(other.Fish),
+		Crops:    br.Crops.Add(other.Crops),
 	}
 }
 
 func (br *BasicResources) Sub(b BasicResourcesInterface, clamp ...bool) BasicResources {
+	other := b.PerHour()
 	if len(clamp) > 0 && clamp[0] {
 		return BasicResources{
-			Emeralds: max(0, br.Emeralds-b.PerHour().Emeralds),
-			Ores:     max(0, br.Ores-b.PerHour().Ores),
-			Wood:     max(0, br.Wood-b.PerHour().Wood),
-			Fish:     max(0, br.Fish-b.PerHour().Fish),
-			Crops:    max(0, br.Crops-b.PerHour().Crops),
+			Emeralds: maxFP(numbers.NewFixedPoint(0, 0), br.Emeralds.Subtract(other.Emeralds)),
+			Ores:     maxFP(numbers.NewFixedPoint(0, 0), br.Ores.Subtract(other.Ores)),
+			Wood:     maxFP(numbers.NewFixedPoint(0, 0), br.Wood.Subtract(other.Wood)),
+			Fish:     maxFP(numbers.NewFixedPoint(0, 0), br.Fish.Subtract(other.Fish)),
+			Crops:    maxFP(numbers.NewFixedPoint(0, 0), br.Crops.Subtract(other.Crops)),
 		}
 	}
-
 	return BasicResources{
-		Emeralds: br.Emeralds - b.PerHour().Emeralds,
-		Ores:     br.Ores - b.PerHour().Ores,
-		Wood:     br.Wood - b.PerHour().Wood,
-		Fish:     br.Fish - b.PerHour().Fish,
-		Crops:    br.Crops - b.PerHour().Crops,
+		Emeralds: br.Emeralds.Subtract(other.Emeralds),
+		Ores:     br.Ores.Subtract(other.Ores),
+		Wood:     br.Wood.Subtract(other.Wood),
+		Fish:     br.Fish.Subtract(other.Fish),
+		Crops:    br.Crops.Subtract(other.Crops),
 	}
 }
 
-func (br *BasicResources) MulFloat(a float64) BasicResources {
+func (br *BasicResources) MulFloat(a numbers.FixedPoint128) BasicResources {
 	return BasicResources{
-		Emeralds: br.Emeralds * a,
-		Ores:     br.Ores * a,
-		Wood:     br.Wood * a,
-		Fish:     br.Fish * a,
-		Crops:    br.Crops * a,
+		Emeralds: br.Emeralds.Multiply(a),
+		Ores:     br.Ores.Multiply(a),
+		Wood:     br.Wood.Multiply(a),
+		Fish:     br.Fish.Multiply(a),
+		Crops:    br.Crops.Multiply(a),
 	}
 }
 
 func (br *BasicResources) MulResource(b BasicResourcesInterface) BasicResources {
+	other := b.PerHour()
 	return BasicResources{
-		Emeralds: br.Emeralds * b.PerHour().Emeralds,
-		Ores:     br.Ores * b.PerHour().Ores,
-		Wood:     br.Wood * b.PerHour().Wood,
-		Fish:     br.Fish * b.PerHour().Fish,
-		Crops:    br.Crops * b.PerHour().Crops,
+		Emeralds: br.Emeralds.Multiply(other.Emeralds),
+		Ores:     br.Ores.Multiply(other.Ores),
+		Wood:     br.Wood.Multiply(other.Wood),
+		Fish:     br.Fish.Multiply(other.Fish),
+		Crops:    br.Crops.Multiply(other.Crops),
 	}
 }
 
-func (br *BasicResources) DivFloat(a float64) BasicResources {
+func (br *BasicResources) DivFloat(a numbers.FixedPoint128) BasicResources {
 	return BasicResources{
-		Emeralds: br.Emeralds / a,
-		Ores:     br.Ores / a,
-		Wood:     br.Wood / a,
-		Fish:     br.Fish / a,
-		Crops:    br.Crops / a,
+		Emeralds: br.Emeralds.Divide(a),
+		Ores:     br.Ores.Divide(a),
+		Wood:     br.Wood.Divide(a),
+		Fish:     br.Fish.Divide(a),
+		Crops:    br.Crops.Divide(a),
 	}
 }
 
@@ -330,17 +335,17 @@ type BasicResourcesBroken struct {
 
 func (br *BasicResourcesBroken) Cast() BasicResources {
 	emeralds, _ := strconv.ParseFloat(br.Emeralds, 64)
-	ores, _ := strconv.ParseFloat(br.Ores, 64)
+	ore, _ := strconv.ParseFloat(br.Ores, 64)
 	wood, _ := strconv.ParseFloat(br.Wood, 64)
 	fish, _ := strconv.ParseFloat(br.Fish, 64)
 	crops, _ := strconv.ParseFloat(br.Crops, 64)
 
 	return BasicResources{
-		Emeralds: emeralds,
-		Ores:     ores,
-		Wood:     wood,
-		Fish:     fish,
-		Crops:    crops,
+		Emeralds: numbers.NewFixedPointFromFloat(emeralds),
+		Ores:     numbers.NewFixedPointFromFloat(ore),
+		Wood:     numbers.NewFixedPointFromFloat(wood),
+		Fish:     numbers.NewFixedPointFromFloat(fish),
+		Crops:    numbers.NewFixedPointFromFloat(crops),
 	}
 }
 
@@ -722,4 +727,41 @@ type RuntimeOptions struct {
 	EnableShm bool `json:"EnableShm"` //
 
 	EncodeInTransitResources bool `json:"EncodeTreasury"` // If true, the treasury will be encoded in the JSON format for easier storage and retrieval
+}
+
+// maxFP returns the greater of two FixedPoint128 values
+func maxFP(a, b numbers.FixedPoint128) numbers.FixedPoint128 {
+	if a.Whole > b.Whole || (a.Whole == b.Whole && a.Fraction > b.Fraction) {
+		return a
+	}
+	return b
+}
+
+// Comparison helpers for FixedPoint128 (standalone functions)
+func FixedPointGreaterThan(a, b numbers.FixedPoint128) bool {
+	if a.Whole > b.Whole {
+		return true
+	}
+	if a.Whole == b.Whole && a.Fraction > b.Fraction {
+		return true
+	}
+	return false
+}
+
+func FixedPointLessThan(a, b numbers.FixedPoint128) bool {
+	if a.Whole < b.Whole {
+		return true
+	}
+	if a.Whole == b.Whole && a.Fraction < b.Fraction {
+		return true
+	}
+	return false
+}
+
+func FixedPointGreaterThanOrEqual(a, b numbers.FixedPoint128) bool {
+	return !FixedPointLessThan(a, b)
+}
+
+func FixedPointLessThanOrEqual(a, b numbers.FixedPoint128) bool {
+	return !FixedPointGreaterThan(a, b)
 }

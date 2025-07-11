@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"time"
 )
-var StateTick = make(chan struct{})
+var StateTick = make(chan uint64)
 
 // Start creates a timer ticker that calls update() every tick
 func (s *state) start() {
@@ -60,6 +60,7 @@ func (s *state) nexttick() {
 	// For very high tick rates, we queue the tick request instead of blocking
 	select {
 	case s.tickQueue <- struct{}{}:
+		SendStateTick()
 		// Successfully queued the tick
 	default:
 		// Queue is full, skip this tick to prevent blocking
@@ -153,13 +154,13 @@ func (s *state) setTickRate(ticksPerSecond int) {
 func SendStateTick() {
 	// Try sending without blocking
 	select {
-	case StateTick <- struct{}{}:
+	case StateTick <- uint64(st.tick):
 		// Successfully sent tick notification
 	default:
 		// Channel is full, skip sending to avoid blocking
 	}
 }
 
-func GetStateTick() <-chan struct{} {
+func GetStateTick() <-chan uint64 {
 	return StateTick
 }
