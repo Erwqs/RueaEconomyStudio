@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -2804,6 +2805,13 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 			// Refresh the menu to show updated state
 			m.populateTerritoryMenu(territoryName)
 		}
+	})
+
+	// Trigger Breakpoint
+	m.edgeMenu.Button("Trigger Breakpoint", DefaultButtonOptions(), func() {
+		t := eruntime.GetTerritory(territoryName)
+		_ = t // For debugging
+		runtime.Breakpoint()
 	})
 
 	// Restore collapsed states to maintain user's UI preferences

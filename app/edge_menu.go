@@ -1526,7 +1526,17 @@ func (uc *UpgradeControl) isAffordable() bool {
 		return true
 	}
 
-	return setLevel == atLevel
+	// If normally affordable, return true
+	if setLevel == atLevel {
+		return true
+	}
+
+	// At tick :59, check with tolerance if resources are slightly insufficient
+	if setLevel > 0 && atLevel == 0 {
+		return eruntime.CheckUpgradeAffordabilityWithTolerance(uc.territoryName, uc.upgradeType, setLevel)
+	}
+
+	return false
 }
 
 func (uc *UpgradeControl) Update(mx, my int, deltaTime float64) bool {
@@ -1891,7 +1901,17 @@ func (bc *BonusControl) isAffordable() bool {
 		return true
 	}
 
-	return setLevel == atLevel
+	// If normally affordable, return true
+	if setLevel == atLevel {
+		return true
+	}
+
+	// At tick :59, check with tolerance if resources are slightly insufficient
+	if setLevel > 0 && atLevel == 0 {
+		return eruntime.CheckBonusAffordabilityWithTolerance(bc.territoryName, bc.bonusType, setLevel)
+	}
+
+	return false
 }
 
 func (bc *BonusControl) Update(mx, my int, deltaTime float64) bool {

@@ -3,6 +3,8 @@ package eruntime
 import (
 	"etools/typedef"
 	"fmt"
+	"math"
+	"sync"
 )
 
 // Cost calculation constants for better performance
@@ -68,8 +70,8 @@ var bonusTypeMap = map[string]int{
 	"EmeraldRate":           BONUS_EMERALD_RATE,
 }
 
-// Helper function to check if a bonus level can be afforded
-func canAffordBonus(storage typedef.BasicResources, bonusType string, level int) bool {
+// Helper function to check if a bonus level can be afforded with tick-based tolerance
+func canAffordBonusWithTick(storage typedef.BasicResources, bonusType string, level int, tick uint64) bool {
 	bonusID, exists := bonusTypeMap[bonusType]
 	if !exists {
 		return false
@@ -188,24 +190,42 @@ func canAffordBonus(storage typedef.BasicResources, bonusType string, level int)
 	// Pre-compute per second cost
 	costPerSec := float64(cost) * COST_PER_HOUR_TO_PER_SECOND
 
+	// Apply 25% tolerance at tick :59 for affordability check
+	tolerance := 1.0
+	if tick%60 == 59 {
+		tolerance = 0.75 // Allow 25% tolerance (need only 75% of required resources)
+		// Debug logging for emerald rate at :59
+		if bonusType == "EmeraldRate" {
+			fmt.Printf("DEBUG canAffordBonusWithTick EmeraldRate: level=%d, cost=%d, costPerSec=%.6f, tolerance=%.2f\n", 
+				level, cost, costPerSec, tolerance)
+		}
+	}
+	adjustedCostPerSec := costPerSec * tolerance
+
 	switch resourceType {
 	case "emeralds":
-		return storage.Emeralds >= costPerSec
+		return storage.Emeralds >= adjustedCostPerSec
 	case "ores", "ore":
-		return storage.Ores >= costPerSec
+		return storage.Ores >= adjustedCostPerSec
 	case "wood":
-		return storage.Wood >= costPerSec
+		return storage.Wood >= adjustedCostPerSec
 	case "fish":
-		return storage.Fish >= costPerSec
+		return storage.Fish >= adjustedCostPerSec
 	case "crops":
-		return storage.Crops >= costPerSec
+		result := storage.Crops >= adjustedCostPerSec
+		// Debug logging for crops specifically at :59
+		if tick%60 == 59 && bonusType == "EmeraldRate" && resourceType == "crops" {
+			fmt.Printf("DEBUG crops check: storage.Crops=%.6f >= adjustedCost=%.6f = %v\n", 
+				storage.Crops, adjustedCostPerSec, result)
+		}
+		return result
 	default:
 		return false
 	}
 }
 
-// Helper function to set bonus levels based on affordability
-func setAffordableBonuses(territory *typedef.Territory, storage typedef.BasicResources) {
+// Helper function to set bonus levels based on affordability with tick-based tolerance
+func setAffordableBonusesWithTick(territory *typedef.Territory, storage typedef.BasicResources, tick uint64) {
 	bonuses := []struct {
 		name string
 		set  int
@@ -236,16 +256,25 @@ func setAffordableBonuses(territory *typedef.Territory, storage typedef.BasicRes
 	}
 
 	for _, bonus := range bonuses {
-		if bonus.set > 0 && canAffordBonus(storage, bonus.name, bonus.set) {
+		if bonus.set > 0 && canAffordBonusWithTick(storage, bonus.name, bonus.set, tick) {
 			*bonus.at = bonus.set
 		} else {
+			// Debug logging for emerald rate specifically
+			if bonus.name == "EmeraldRate" && bonus.set > 0 {
+				affordable := canAffordBonusWithTick(storage, bonus.name, bonus.set, tick)
+				if tick%60 == 59 {
+					// Log debug info for emerald rate at :59 regardless of affordability
+					fmt.Printf("DEBUG :59 EmeraldRate SETTING TO 0: set=%d, affordable=%v, crops=%.6f, tick=%d\n", 
+						bonus.set, affordable, storage.Crops, tick)
+				}
+			}
 			*bonus.at = 0
 		}
 	}
 }
 
-// Helper function to set upgrade levels based on affordability
-func setAffordableUpgrades(territory *typedef.Territory, storage typedef.BasicResources) {
+// Helper function to set upgrade levels based on affordability with tick-based tolerance
+func setAffordableUpgradesWithTick(territory *typedef.Territory, storage typedef.BasicResources, tick uint64) {
 	upgrades := []struct {
 		upgradeType string
 		set         int
@@ -258,7 +287,7 @@ func setAffordableUpgrades(territory *typedef.Territory, storage typedef.BasicRe
 	}
 
 	for _, upgrade := range upgrades {
-		if upgrade.set > 0 && canAffordUpgrade(storage, upgrade.upgradeType, upgrade.set) {
+		if upgrade.set > 0 && canAffordUpgradeWithTick(storage, upgrade.upgradeType, upgrade.set, tick) {
 			*upgrade.at = upgrade.set
 		} else {
 			*upgrade.at = 0
@@ -266,8 +295,8 @@ func setAffordableUpgrades(territory *typedef.Territory, storage typedef.BasicRe
 	}
 }
 
-// Helper function to check if an upgrade level can be afforded
-func canAffordUpgrade(storage typedef.BasicResources, upgradeType string, level int) bool {
+// Helper function to check if an upgrade level can be afforded with tick-based tolerance
+func canAffordUpgradeWithTick(storage typedef.BasicResources, upgradeType string, level int, tick uint64) bool {
 	upgradeID, exists := upgradeTypeMap[upgradeType]
 	if !exists {
 		return false
@@ -308,17 +337,24 @@ func canAffordUpgrade(storage typedef.BasicResources, upgradeType string, level 
 	// Pre-compute per second cost
 	costPerSec := float64(cost) * COST_PER_HOUR_TO_PER_SECOND
 
+	// Apply 25% tolerance at tick :59 for affordability check
+	tolerance := 1.0
+	if tick%60 == 59 {
+		tolerance = 0.75 // Allow 25% tolerance (need only 75% of required resources)
+	}
+	adjustedCostPerSec := costPerSec * tolerance
+
 	switch resourceType {
 	case "emeralds":
-		return storage.Emeralds >= costPerSec
+		return storage.Emeralds >= adjustedCostPerSec
 	case "ores", "ore":
-		return storage.Ores >= costPerSec
+		return storage.Ores >= adjustedCostPerSec
 	case "wood":
-		return storage.Wood >= costPerSec
+		return storage.Wood >= adjustedCostPerSec
 	case "fish":
-		return storage.Fish >= costPerSec
+		return storage.Fish >= adjustedCostPerSec
 	case "crops":
-		return storage.Crops >= costPerSec
+		return storage.Crops >= adjustedCostPerSec
 	default:
 		return false
 	}
@@ -340,15 +376,20 @@ func calculateGeneration(territory *typedef.Territory) (static typedef.BasicReso
 
 // Internal function that doesn't lock (used when already locked)
 func calculateGenerationInternal(territory *typedef.Territory) (static typedef.BasicResources, now typedef.BasicResourcesSecond, costPerHr typedef.BasicResources, costNow typedef.BasicResourcesSecond) {
+	return calculateGenerationInternalWithTick(territory, st.tick) // Use current tick for tolerance
+}
+
+// Internal function that doesn't lock with tick-based tolerance (used when already locked)
+func calculateGenerationInternalWithTick(territory *typedef.Territory, tick uint64) (static typedef.BasicResources, now typedef.BasicResourcesSecond, costPerHr typedef.BasicResources, costNow typedef.BasicResourcesSecond) {
 	// Calculate total costs for all upgrades and bonuses (regardless of affordability)
 	costPerHr = calculateTotalCosts(territory)
 	territory.Costs = costPerHr
 
 	// Check affordability for each individual bonus and set "At" values accordingly
-	setAffordableBonuses(territory, territory.Storage.At)
+	setAffordableBonusesWithTick(territory, territory.Storage.At, tick)
 
 	// Check affordability for each individual upgrade and set "At" values accordingly
-	setAffordableUpgrades(territory, territory.Storage.At)
+	setAffordableUpgradesWithTick(territory, territory.Storage.At, tick)
 
 	// Calculate costNow based on what can actually be afforded
 	costNow = calculateAffordableCosts(territory)
@@ -449,6 +490,7 @@ func calculateAffordableCosts(territory *typedef.Territory) typedef.BasicResourc
 	// For bonuses, use the "At" levels and pre-compute costs
 	bonuses := territory.Options.Bonus.At
 
+	// Process each bonus cost with exact per-second values
 	if bonuses.StrongerMinions < len(st.costs.Bonuses.StrongerMinions.Cost) {
 		costNow.Wood += float64(st.costs.Bonuses.StrongerMinions.Cost[bonuses.StrongerMinions]) * COST_PER_HOUR_TO_PER_SECOND
 	}
@@ -575,7 +617,7 @@ func doGenerate(territory *typedef.Territory) {
 	territory.Warning = 0
 
 	// Calculate generation and costs WITHOUT re-locking (already locked)
-	staticGen, _, _, costNow := calculateGenerationInternal(territory)
+	staticGen, _, _, costNow := calculateGenerationInternalWithTick(territory, st.tick)
 
 	// Calculate storage capacity with bonuses
 	baseCapacity := typedef.BaseResourceCapacity
@@ -606,15 +648,10 @@ func doGenerate(territory *typedef.Territory) {
 		Crops:    baseCapacity.Crops * storageMultiplier * hqMultiplier,
 	}
 
-	// STEP 1: Consume costs EVERY tick (continuous consumption)
+	// STEP 1: Consume costs every second with proper precision
 	currentStorage := territory.Storage.At
-	newStorage := typedef.BasicResources{
-		Emeralds: max(0, currentStorage.Emeralds-costNow.Emeralds),
-		Ores:     max(0, currentStorage.Ores-costNow.Ores),
-		Wood:     max(0, currentStorage.Wood-costNow.Wood),
-		Fish:     max(0, currentStorage.Fish-costNow.Fish),
-		Crops:    max(0, currentStorage.Crops-costNow.Crops),
-	}
+	newStorage := currentStorage
+	applyCostsEverySecond(territory, &newStorage, costNow, st.tick)
 
 	// STEP 3: Check if it's time to release accumulated resources based on rate intervals
 	currentTick := st.tick
@@ -633,26 +670,25 @@ func doGenerate(territory *typedef.Territory) {
 	// Only accumulate if this is NOT the first call (avoid accumulating on initialization tick)
 	if !isFirstCall {
 		// STEP 2: Accumulate generation CONTINUOUSLY (every tick)
-		// Calculate the amount that should be accumulated per tick for each interval type
 		resourcePerTickAmount := staticGen.PerSecond()
 		emeraldPerTickAmount := staticGen.Emeralds / 3600.0
 
-		// Add per-tick generation to accumulators
-		territory.ResourceGeneration.ResourceAccumulator.Ores += resourcePerTickAmount.Ores
-		territory.ResourceGeneration.ResourceAccumulator.Wood += resourcePerTickAmount.Wood
-		territory.ResourceGeneration.ResourceAccumulator.Fish += resourcePerTickAmount.Fish
-		territory.ResourceGeneration.ResourceAccumulator.Crops += resourcePerTickAmount.Crops
-		territory.ResourceGeneration.EmeraldAccumulator += emeraldPerTickAmount
+		// Add per-tick generation to accumulators (round up production)
+		territory.ResourceGeneration.ResourceAccumulator.Ores += roundUp(resourcePerTickAmount.Ores)
+		territory.ResourceGeneration.ResourceAccumulator.Wood += roundUp(resourcePerTickAmount.Wood)
+		territory.ResourceGeneration.ResourceAccumulator.Fish += roundUp(resourcePerTickAmount.Fish)
+		territory.ResourceGeneration.ResourceAccumulator.Crops += roundUp(resourcePerTickAmount.Crops)
+		territory.ResourceGeneration.EmeraldAccumulator += roundUp(emeraldPerTickAmount)
 	}
 
 	// Check resource generation interval
 	resourceInterval := uint64(territory.ResourceGeneration.ResourceDeltaTime)
 	if resourceInterval > 0 && (currentTick-territory.ResourceGeneration.LastResourceTick) >= resourceInterval {
 		// Time to release accumulated resources
-		generatedOres := territory.ResourceGeneration.ResourceAccumulator.Ores
-		generatedWood := territory.ResourceGeneration.ResourceAccumulator.Wood
-		generatedFish := territory.ResourceGeneration.ResourceAccumulator.Fish
-		generatedCrops := territory.ResourceGeneration.ResourceAccumulator.Crops
+		generatedOres := roundUp(territory.ResourceGeneration.ResourceAccumulator.Ores)
+		generatedWood := roundUp(territory.ResourceGeneration.ResourceAccumulator.Wood)
+		generatedFish := roundUp(territory.ResourceGeneration.ResourceAccumulator.Fish)
+		generatedCrops := roundUp(territory.ResourceGeneration.ResourceAccumulator.Crops)
 
 		// Calculate how much we can actually add without exceeding capacity
 		availableOresCapacity := max(0, maxStorage.Ores-newStorage.Ores)
@@ -660,11 +696,11 @@ func doGenerate(territory *typedef.Territory) {
 		availableFishCapacity := max(0, maxStorage.Fish-newStorage.Fish)
 		availableCropsCapacity := max(0, maxStorage.Crops-newStorage.Crops)
 
-		// Add generated resources, capped at available capacity
-		actualOresAdded := min(generatedOres, availableOresCapacity)
-		actualWoodAdded := min(generatedWood, availableWoodCapacity)
-		actualFishAdded := min(generatedFish, availableFishCapacity)
-		actualCropsAdded := min(generatedCrops, availableCropsCapacity)
+		// Add generated resources, capped at available capacity (production is rounded up)
+		actualOresAdded := roundUp(min(generatedOres, availableOresCapacity))
+		actualWoodAdded := roundUp(min(generatedWood, availableWoodCapacity))
+		actualFishAdded := roundUp(min(generatedFish, availableFishCapacity))
+		actualCropsAdded := roundUp(min(generatedCrops, availableCropsCapacity))
 
 		newStorage.Ores += actualOresAdded
 		newStorage.Wood += actualWoodAdded
@@ -688,14 +724,14 @@ func doGenerate(territory *typedef.Territory) {
 	// Check emerald generation interval
 	emeraldInterval := uint64(territory.ResourceGeneration.EmeraldDeltaTime)
 	if emeraldInterval > 0 && (currentTick-territory.ResourceGeneration.LastEmeraldTick) >= emeraldInterval {
-		// Time to release accumulated emeralds
-		generatedEmeralds := territory.ResourceGeneration.EmeraldAccumulator
+		// Time to release accumulated emeralds (production is rounded up)
+		generatedEmeralds := roundUp(territory.ResourceGeneration.EmeraldAccumulator)
 
 		// Calculate how much we can actually add without exceeding capacity
 		availableEmeraldCapacity := max(0, maxStorage.Emeralds-newStorage.Emeralds)
 
 		// Add generated emeralds, capped at available capacity
-		actualEmeraldsAdded := min(generatedEmeralds, availableEmeraldCapacity)
+		actualEmeraldsAdded := roundUp(min(generatedEmeralds, availableEmeraldCapacity))
 		newStorage.Emeralds += actualEmeraldsAdded
 
 		// Set overflow warning if generated emeralds were capped
@@ -709,14 +745,12 @@ func doGenerate(territory *typedef.Territory) {
 	}
 
 	// STEP 4: Set overflow warnings and handle HQ clamping
-	// For HQ territories: clamp manual edits to capacity
-	// For normal territories: allow manual edits to exceed capacity
 	if territory.HQ {
 		// HQ territories: clamp storage to capacity limits
 		if newStorage.Emeralds > maxStorage.Emeralds {
+			territory.Warning |= typedef.WarningOverflowEmerald
 			newStorage.Emeralds = maxStorage.Emeralds
 		}
-
 		if newStorage.Ores > maxStorage.Ores ||
 			newStorage.Wood > maxStorage.Wood ||
 			newStorage.Fish > maxStorage.Fish ||
@@ -732,13 +766,17 @@ func doGenerate(territory *typedef.Territory) {
 		if newStorage.Emeralds > maxStorage.Emeralds {
 			territory.Warning |= typedef.WarningOverflowEmerald
 		}
-
 		if newStorage.Ores > maxStorage.Ores ||
 			newStorage.Wood > maxStorage.Wood ||
 			newStorage.Fish > maxStorage.Fish ||
 			newStorage.Crops > maxStorage.Crops {
 			territory.Warning |= typedef.WarningOverflowResources
 		}
+	}
+
+	// Clean up small amounts every 60 ticks
+	if currentTick%60 == 0 {
+		cleanupSmallResources(&newStorage)
 	}
 
 	// STEP 5: Update territory storage and capacity
@@ -952,5 +990,401 @@ func FormatValue(value float64) string {
 			return fmt.Sprintf("%dB%d", billions, decimal/10)
 		}
 		return fmt.Sprintf("%dB%02d", billions, decimal)
+	}
+}
+
+// Resource rounding constants
+const (
+	DECIMAL_PLACES    = 4
+	CLEANUP_THRESHOLD = 0.1
+)
+
+// Helper function to round down to 4 decimal places (for consumption)
+func roundDown(value float64) float64 {
+	multiplier := math.Pow10(DECIMAL_PLACES)
+	return math.Floor(value*multiplier) / multiplier
+}
+
+// Helper function to round up to 4 decimal places (for production)
+func roundUp(value float64) float64 {
+	multiplier := math.Pow10(DECIMAL_PLACES)
+	return math.Ceil(value*multiplier) / multiplier
+}
+
+// Helper function to clean up small resource amounts
+func cleanupSmallResources(resources *typedef.BasicResources) {
+	if resources.Emeralds < CLEANUP_THRESHOLD {
+		resources.Emeralds = 0
+	}
+	if resources.Ores < CLEANUP_THRESHOLD {
+		resources.Ores = 0
+	}
+	if resources.Wood < CLEANUP_THRESHOLD {
+		resources.Wood = 0
+	}
+	if resources.Fish < CLEANUP_THRESHOLD {
+		resources.Fish = 0
+	}
+	if resources.Crops < CLEANUP_THRESHOLD {
+		resources.Crops = 0
+	}
+}
+
+// Cost accumulator to track precise fractional costs over time
+type costAccumulator struct {
+    emeraldsFractional float64
+    oresFractional     float64
+    woodFractional     float64
+    fishFractional     float64
+    cropsFractional    float64
+}
+
+// Track cost accumulators for each territory - This maintains precision between ticks
+var costAccumulators = make(map[*typedef.Territory]*costAccumulator)
+var costAccumulatorsMutex sync.RWMutex
+
+// Apply costs every second with proper precision handling
+func applyCostsEverySecond(territory *typedef.Territory, storage *typedef.BasicResources, costs typedef.BasicResourcesSecond, tick uint64) {
+    // Thread-safe access to cost accumulators map
+    costAccumulatorsMutex.Lock()
+    acc, exists := costAccumulators[territory]
+    if !exists {
+        acc = &costAccumulator{}
+        costAccumulators[territory] = acc
+    }
+    costAccumulatorsMutex.Unlock()
+
+    // Add this second's fractional costs to accumulator
+    acc.emeraldsFractional += costs.Emeralds
+    acc.oresFractional += costs.Ores
+    acc.woodFractional += costs.Wood
+    acc.fishFractional += costs.Fish
+    acc.cropsFractional += costs.Crops
+
+    // Extract whole units to consume, leaving fractional parts for next time
+    emeraldsToConsume := math.Floor(acc.emeraldsFractional)
+    oresToConsume := math.Floor(acc.oresFractional)
+    woodToConsume := math.Floor(acc.woodFractional)
+    fishToConsume := math.Floor(acc.fishFractional)
+    cropsToConsume := math.Floor(acc.cropsFractional)
+
+    // Consume the whole units (rounded down as requested)
+    if emeraldsToConsume > 0 {
+        // Apply 15% tolerance only at tick :59 to handle floating point precision errors
+        var consumedEmeralds float64
+        if tick%60 == 59 && emeraldsToConsume > storage.Emeralds {
+            // At :59, allow consuming up to 25% less if we don't have enough
+            toleranceAmount := emeraldsToConsume * 0.25
+            if (emeraldsToConsume - storage.Emeralds) <= toleranceAmount {
+                consumedEmeralds = roundDown(storage.Emeralds)
+            } else {
+                consumedEmeralds = roundDown(min(emeraldsToConsume, storage.Emeralds))
+            }
+        } else {
+            consumedEmeralds = roundDown(min(emeraldsToConsume, storage.Emeralds))
+        }
+        storage.Emeralds = roundDown(storage.Emeralds - consumedEmeralds)
+        acc.emeraldsFractional -= consumedEmeralds
+    }
+    
+    if oresToConsume > 0 {
+        var consumedOres float64
+        if tick%60 == 59 && oresToConsume > storage.Ores {
+            toleranceAmount := oresToConsume * 0.25
+            if (oresToConsume - storage.Ores) <= toleranceAmount {
+                consumedOres = roundDown(storage.Ores)
+            } else {
+                consumedOres = roundDown(min(oresToConsume, storage.Ores))
+            }
+        } else {
+            consumedOres = roundDown(min(oresToConsume, storage.Ores))
+        }
+        storage.Ores = roundDown(storage.Ores - consumedOres)
+        acc.oresFractional -= consumedOres
+    }
+    
+    if woodToConsume > 0 {
+        var consumedWood float64
+        if tick%60 == 59 && woodToConsume > storage.Wood {
+            toleranceAmount := woodToConsume * 0.25
+            if (woodToConsume - storage.Wood) <= toleranceAmount {
+                consumedWood = roundDown(storage.Wood)
+            } else {
+                consumedWood = roundDown(min(woodToConsume, storage.Wood))
+            }
+        } else {
+            consumedWood = roundDown(min(woodToConsume, storage.Wood))
+        }
+        storage.Wood = roundDown(storage.Wood - consumedWood)
+        acc.woodFractional -= consumedWood
+    }
+    
+    if fishToConsume > 0 {
+        var consumedFish float64
+        if tick%60 == 59 && fishToConsume > storage.Fish {
+            toleranceAmount := fishToConsume * 0.25
+            if (fishToConsume - storage.Fish) <= toleranceAmount {
+                consumedFish = roundDown(storage.Fish)
+            } else {
+                consumedFish = roundDown(min(fishToConsume, storage.Fish))
+            }
+        } else {
+            consumedFish = roundDown(min(fishToConsume, storage.Fish))
+        }
+        storage.Fish = roundDown(storage.Fish - consumedFish)
+        acc.fishFractional -= consumedFish
+    }
+    
+    if cropsToConsume > 0 {
+        var consumedCrops float64
+        if tick%60 == 59 && cropsToConsume > storage.Crops {
+            toleranceAmount := cropsToConsume * 0.25
+            if (cropsToConsume - storage.Crops) <= toleranceAmount {
+                consumedCrops = roundDown(storage.Crops)
+            } else {
+                consumedCrops = roundDown(min(cropsToConsume, storage.Crops))
+            }
+        } else {
+            consumedCrops = roundDown(min(cropsToConsume, storage.Crops))
+        }
+        storage.Crops = roundDown(storage.Crops - consumedCrops)
+        acc.cropsFractional -= consumedCrops
+    }
+}
+
+// CheckUpgradeAffordabilityWithTolerance checks if an upgrade is affordable considering :59 tolerance
+func CheckUpgradeAffordabilityWithTolerance(territoryName, upgradeType string, level int) bool {
+	territory := GetTerritory(territoryName)
+	if territory == nil {
+		return true
+	}
+
+	// Apply same tolerance logic as the calculation functions
+	currentTick := st.tick
+	tolerance := 1.0
+	if currentTick%60 == 59 {
+		tolerance = 0.75 // Allow 25% tolerance (need only 75% of required resources)
+	}
+
+	var cost int
+	var resourceType string
+
+	switch upgradeType {
+	case "damage":
+		if level >= len(st.costs.UpgradesCost.Damage.Value) {
+			return false
+		}
+		cost = st.costs.UpgradesCost.Damage.Value[level]
+		resourceType = st.costs.UpgradesCost.Damage.ResourceType
+	case "attack":
+		if level >= len(st.costs.UpgradesCost.Attack.Value) {
+			return false
+		}
+		cost = st.costs.UpgradesCost.Attack.Value[level]
+		resourceType = st.costs.UpgradesCost.Attack.ResourceType
+	case "health":
+		if level >= len(st.costs.UpgradesCost.Health.Value) {
+			return false
+		}
+		cost = st.costs.UpgradesCost.Health.Value[level]
+		resourceType = st.costs.UpgradesCost.Health.ResourceType
+	case "defence":
+		if level >= len(st.costs.UpgradesCost.Defence.Value) {
+			return false
+		}
+		cost = st.costs.UpgradesCost.Defence.Value[level]
+		resourceType = st.costs.UpgradesCost.Defence.ResourceType
+	default:
+		return false
+	}
+
+	costPerSec := float64(cost) * COST_PER_HOUR_TO_PER_SECOND
+	adjustedCostPerSec := costPerSec * tolerance
+	storage := territory.Storage.At
+
+	switch resourceType {
+	case "emeralds":
+		return storage.Emeralds >= adjustedCostPerSec
+	case "ores", "ore":
+		return storage.Ores >= adjustedCostPerSec
+	case "wood":
+		return storage.Wood >= adjustedCostPerSec
+	case "fish":
+		return storage.Fish >= adjustedCostPerSec
+	case "crops":
+		return storage.Crops >= adjustedCostPerSec
+	default:
+		return false
+	}
+}
+
+// CheckBonusAffordabilityWithTolerance checks if a bonus is affordable considering :59 tolerance
+func CheckBonusAffordabilityWithTolerance(territoryName, bonusType string, level int) bool {
+	territory := GetTerritory(territoryName)
+	if territory == nil {
+		return true
+	}
+
+	// Apply same tolerance logic as the calculation functions
+	currentTick := st.tick
+	tolerance := 1.0
+	if currentTick%60 == 59 {
+		tolerance = 0.75 // Allow 25% tolerance (need only 75% of required resources)
+	}
+
+	// Map GUI bonus type strings to internal constants
+	bonusTypeMapping := map[string]string{
+		"strongerMinions":       "StrongerMinions",
+		"towerMultiAttack":      "TowerMultiAttack",
+		"towerAura":             "TowerAura",
+		"towerVolley":           "TowerVolley",
+		"largerResourceStorage": "LargerResourceStorage",
+		"largerEmeraldStorage":  "LargerEmeraldStorage",
+		"efficientResource":     "EfficientResource",
+		"efficientEmerald":      "EfficientEmerald",
+		"resourceRate":          "ResourceRate",
+		"emeraldRate":           "EmeraldRate",
+		"xpSeeking":             "XPSeeking",
+		"tomeSeeking":           "TomeSeeking",
+		"emeraldSeeking":        "EmeraldSeeking",
+	}
+
+	mappedBonusType, exists := bonusTypeMapping[bonusType]
+	if !exists {
+		return false
+	}
+
+	bonusID, exists := bonusTypeMap[mappedBonusType]
+	if !exists {
+		return false
+	}
+
+	var cost int
+	var resourceType string
+
+	switch bonusID {
+	case BONUS_STRONGER_MINIONS:
+		if level >= len(st.costs.Bonuses.StrongerMinions.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.StrongerMinions.Cost[level]
+		resourceType = st.costs.Bonuses.StrongerMinions.ResourceType
+	case BONUS_TOWER_MULTI_ATTACK:
+		if level >= len(st.costs.Bonuses.TowerMultiAttack.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.TowerMultiAttack.Cost[level]
+		resourceType = st.costs.Bonuses.TowerMultiAttack.ResourceType
+	case BONUS_TOWER_AURA:
+		if level >= len(st.costs.Bonuses.TowerAura.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.TowerAura.Cost[level]
+		resourceType = st.costs.Bonuses.TowerAura.ResourceType
+	case BONUS_TOWER_VOLLEY:
+		if level >= len(st.costs.Bonuses.TowerVolley.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.TowerVolley.Cost[level]
+		resourceType = st.costs.Bonuses.TowerVolley.ResourceType
+	case BONUS_GATHERING_EXPERIENCE:
+		if level >= len(st.costs.Bonuses.GatheringExperience.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.GatheringExperience.Cost[level]
+		resourceType = st.costs.Bonuses.GatheringExperience.ResourceType
+	case BONUS_MOB_EXPERIENCE:
+		if level >= len(st.costs.Bonuses.MobExperience.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.MobExperience.Cost[level]
+		resourceType = st.costs.Bonuses.MobExperience.ResourceType
+	case BONUS_MOB_DAMAGE:
+		if level >= len(st.costs.Bonuses.MobDamage.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.MobDamage.Cost[level]
+		resourceType = st.costs.Bonuses.MobDamage.ResourceType
+	case BONUS_PVP_DAMAGE:
+		if level >= len(st.costs.Bonuses.PvPDamage.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.PvPDamage.Cost[level]
+		resourceType = st.costs.Bonuses.PvPDamage.ResourceType
+	case BONUS_XP_SEEKING:
+		if level >= len(st.costs.Bonuses.XPSeeking.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.XPSeeking.Cost[level]
+		resourceType = st.costs.Bonuses.XPSeeking.ResourceType
+	case BONUS_TOME_SEEKING:
+		if level >= len(st.costs.Bonuses.TomeSeeking.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.TomeSeeking.Cost[level]
+		resourceType = st.costs.Bonuses.TomeSeeking.ResourceType
+	case BONUS_EMERALD_SEEKING:
+		if level >= len(st.costs.Bonuses.EmeraldsSeeking.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.EmeraldsSeeking.Cost[level]
+		resourceType = st.costs.Bonuses.EmeraldsSeeking.ResourceType
+	case BONUS_LARGER_RESOURCE_STORAGE:
+		if level >= len(st.costs.Bonuses.LargerResourceStorage.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.LargerResourceStorage.Cost[level]
+		resourceType = st.costs.Bonuses.LargerResourceStorage.ResourceType
+	case BONUS_LARGER_EMERALD_STORAGE:
+		if level >= len(st.costs.Bonuses.LargerEmeraldsStorage.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.LargerEmeraldsStorage.Cost[level]
+		resourceType = st.costs.Bonuses.LargerEmeraldsStorage.ResourceType
+	case BONUS_EFFICIENT_RESOURCE:
+		if level >= len(st.costs.Bonuses.EfficientResource.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.EfficientResource.Cost[level]
+		resourceType = st.costs.Bonuses.EfficientResource.ResourceType
+	case BONUS_EFFICIENT_EMERALD:
+		if level >= len(st.costs.Bonuses.EfficientEmeralds.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.EfficientEmeralds.Cost[level]
+		resourceType = st.costs.Bonuses.EfficientEmeralds.ResourceType
+	case BONUS_RESOURCE_RATE:
+		if level >= len(st.costs.Bonuses.ResourceRate.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.ResourceRate.Cost[level]
+		resourceType = st.costs.Bonuses.ResourceRate.ResourceType
+	case BONUS_EMERALD_RATE:
+		if level >= len(st.costs.Bonuses.EmeraldsRate.Cost) {
+			return false
+		}
+		cost = st.costs.Bonuses.EmeraldsRate.Cost[level]
+		resourceType = st.costs.Bonuses.EmeraldsRate.ResourceType
+	default:
+		return false
+	}
+
+	costPerSec := float64(cost) * COST_PER_HOUR_TO_PER_SECOND
+	adjustedCostPerSec := costPerSec * tolerance
+	storage := territory.Storage.At
+
+	switch resourceType {
+	case "emeralds":
+		return storage.Emeralds >= adjustedCostPerSec
+	case "ores", "ore":
+		return storage.Ores >= adjustedCostPerSec
+	case "wood":
+		return storage.Wood >= adjustedCostPerSec
+	case "fish":
+		return storage.Fish >= adjustedCostPerSec
+	case "crops":
+		return storage.Crops >= adjustedCostPerSec
+	default:
+		return false
 	}
 }

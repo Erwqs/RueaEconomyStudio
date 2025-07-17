@@ -236,10 +236,6 @@ func (tm *TerritoryModal) drawResourceTable(screen *ebiten.Image, x, y, width, h
 	// Get guild directly from guild manager to ensure we have the latest tribute data
 	guild := eruntime.GetGuildByName(guildName)
 	if guild != nil {
-		// Debug: Print tribute values to see what we're getting
-		fmt.Printf("DEBUG: Guild %s TributeIn: %+v\n", guildName, guild.TributeIn)
-		fmt.Printf("DEBUG: Guild %s TributeOut: %+v\n", guildName, guild.TributeOut)
-
 		totalProd.Emerald += guild.TributeIn.Emeralds * 60
 		totalProd.Ore += guild.TributeIn.Ores * 60
 		totalProd.Crop += guild.TributeIn.Crops * 60

@@ -460,26 +460,62 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 	// fmt.Printf("[DEBUG] Found route from %s to %s\n", bestHQ.Name, territory.Name)
 
 	// Calculate how much is needed at destination (deficit)
-	// Net is in resources per hour, but territories consume continuously every tick
-	// Since we only deliver every 60 ticks (1 minute), we need to send enough for 1 minute
-	// PLUS 1 second extra to prevent territories from going negative between deliveries
-	// So we need: deficit_for_61_seconds = deficit_per_hour * (61 seconds / 3600 seconds_per_hour)
+	// The territory should have approximately 1 second worth of consumption left at :59
+	// Transit delivery happens at :00, and next delivery is at next :00
+	// So territory needs to survive for 59 seconds (from :01 to :59)
+	// Formula: target_amount = net_consumption_per_hour * (59/3600)
+	//          needed = target_amount - current_storage
+	// Only send if needed > 0 (current storage is insufficient)
+
+	// Get current storage to factor into calculation
+	territory.Mu.RLock()
+	currentStorage := territory.Storage.At
+	territory.Mu.RUnlock()
+
 	deficit := typedef.BasicResources{}
 
 	if territory.Net.Emeralds < 0 {
-		deficit.Emeralds = -territory.Net.Emeralds / 59.0 // Convert per-hour to per-61-seconds
+		// Use NET consumption rate (deficit per hour)
+		netDeficitPerHour := -territory.Net.Emeralds
+		// Target: have enough for 59 seconds of NET consumption
+		targetAmount := netDeficitPerHour * (61.0 / 3600.0)
+		// Send the deficit: target amount minus what's already in storage
+		needed := targetAmount - currentStorage.Emeralds
+		if needed > 0 {
+			deficit.Emeralds = needed
+		}
 	}
 	if territory.Net.Ores < 0 {
-		deficit.Ores = -territory.Net.Ores / 59.0
+		netDeficitPerHour := -territory.Net.Ores
+		targetAmount := netDeficitPerHour * (61.0 / 3600.0)
+		needed := targetAmount - currentStorage.Ores
+		if needed > 0 {
+			deficit.Ores = needed
+		}
 	}
 	if territory.Net.Wood < 0 {
-		deficit.Wood = -territory.Net.Wood / 59.0
+		netDeficitPerHour := -territory.Net.Wood
+		targetAmount := netDeficitPerHour * (61.0 / 3600.0)
+		needed := targetAmount - currentStorage.Wood
+		if needed > 0 {
+			deficit.Wood = needed
+		}
 	}
 	if territory.Net.Fish < 0 {
-		deficit.Fish = -territory.Net.Fish / 59.0
+		netDeficitPerHour := -territory.Net.Fish
+		targetAmount := netDeficitPerHour * (61.0 / 3600.0)
+		needed := targetAmount - currentStorage.Fish
+		if needed > 0 {
+			deficit.Fish = needed
+		}
 	}
 	if territory.Net.Crops < 0 {
-		deficit.Crops = -territory.Net.Crops / 59.0
+		netDeficitPerHour := -territory.Net.Crops
+		targetAmount := netDeficitPerHour * (61.0 / 3600.0)
+		needed := targetAmount - currentStorage.Crops
+		if needed > 0 {
+			deficit.Crops = needed
+		}
 	}
 
 	// fmt.Printf("[DEBUG] Calculated deficit (per minute): E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",

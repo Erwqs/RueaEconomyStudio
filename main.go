@@ -32,6 +32,30 @@ func main() {
 	flag.BoolVar(&headless, "h", false, "Run in headless mode without GUI (shorthand)")
 	flag.Parse()
 
+	// Check for session lock, if exists, exit
+	if _, err := os.Stat(".rueaes.lock"); err == nil {
+		fmt.Println("Another instance of Ruea Economy Studio is already running.")
+		fmt.Println("If none is running, remove .rueaes.lock file to continue.")
+		fmt.Println("Exiting...")
+		os.Exit(1)
+	}
+
+	// Create lock file
+	lockFile, err := os.Create(".rueaes.lock")
+	if err != nil {
+		fmt.Printf("Failed to create lock file: %v\n", err)
+		os.Exit(1)
+	}
+
+	defer func() {
+		if err := lockFile.Close(); err != nil {
+			fmt.Printf("Failed to close lock file: %v\n", err)
+		}
+		if err := os.Remove(".rueaes.lock"); err != nil {
+			fmt.Printf("Failed to remove lock file: %v\n", err)
+		}
+	}()
+
 	if headless {
 		// Run in headless mode with shared memory server
 		runHeadless()
@@ -55,9 +79,8 @@ func runHeadless() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for shutdown signal
 	<-sigChan
-	fmt.Println("\nShutting down...")
+	fmt.Println("Received shutdown signal. Cleaning up...")
 
 	// Clean up shared memory
 	// if api, err := eruntime.GetSharedMemoryAPI(); err == nil {
@@ -81,6 +104,25 @@ func runWithGUI() {
 		}
 	}
 
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-signalChan
+		fmt.Println("Received shutdown signal. Cleaning up...")
+		// Delete lock file if exists
+		if _, err := os.Stat(".rueaes.lock"); err == nil {
+			if err := os.Remove(".rueaes.lock"); err != nil {
+				fmt.Printf("Failed to remove lock file: %v\n", err)
+			} else {
+				fmt.Println("Lock file removed successfully.")
+			}
+		} else {
+			fmt.Println("No lock file found, nothing to remove.")
+		}
+		os.Exit(0)
+	}()
+
 	// Initialize panic notification system
 	app.InitPanicNotifier()
 	app.InitToastManager()
@@ -89,6 +131,10 @@ func runWithGUI() {
 	ebiten.SetTPS(ebiten.SyncWithFPS) // Restore normal TPS since the issue is graphics, not game logic
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetWindowDecorated(true)
+
+	ebiten.SetWindowSize(1600, 900)
+
+	ebiten.SetWindowPosition(0, 0)
 
 	game := app.New()
 	app.SetCurrentApp(game)

@@ -338,6 +338,8 @@ func LoadStateFromFile(filepath string) error {
 		RestorePointersFromIDs(st.territories)
 	}
 
+	loadCosts(&st)
+
 	fmt.Printf("[STATE] Successfully loaded state from %s (Territories: %d, Guilds: %d, Tick: %d)\n",
 		filepath, len(st.territories), len(st.guilds), st.tick)
 

@@ -247,11 +247,11 @@ func (br *BasicResources) IsSecond() bool {
 
 func (br *BasicResources) PerSecond() BasicResourcesSecond {
 	return BasicResourcesSecond{
-		Emeralds: br.Emeralds / 3600,
-		Ores:     br.Ores / 3600,
-		Wood:     br.Wood / 3600,
-		Fish:     br.Fish / 3600,
-		Crops:    br.Crops / 3600,
+		Emeralds: _round_down4(br.Emeralds / 3600),
+		Ores:     _round_down4(br.Ores / 3600),
+		Wood:     _round_down4(br.Wood / 3600),
+		Fish:     _round_down4(br.Fish / 3600),
+		Crops:    _round_down4(br.Crops / 3600),
 	}
 }
 
@@ -723,3 +723,19 @@ type RuntimeOptions struct {
 
 	EncodeInTransitResources bool `json:"EncodeTreasury"` // If true, the treasury will be encoded in the JSON format for easier storage and retrieval
 }
+
+func _round_down4(x float64) float64 {
+	// Round down to 4th decimal place
+	return float64(int(x*10000)) / 10000.0
+}
+
+func _round_down2(x float64) float64 {
+	// Round down to 2nd decimal place
+	return float64(int(x*100)) / 100.0
+}
+
+func _round_down_nearest(x float64) float64 {
+	return float64(int(x))
+}
+
+
