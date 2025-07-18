@@ -175,11 +175,11 @@ func (brs *BasicResourcesSecond) PerHour() BasicResources {
 
 func (brs *BasicResourcesSecond) Add(b BasicResourcesInterface) BasicResourcesSecond {
 	return BasicResourcesSecond{
-		Emeralds: brs.Emeralds + b.PerSecond().Emeralds,
-		Ores:     brs.Ores + b.PerSecond().Ores,
-		Wood:     brs.Wood + b.PerSecond().Wood,
-		Fish:     brs.Fish + b.PerSecond().Fish,
-		Crops:    brs.Crops + b.PerSecond().Crops,
+		Emeralds: brs.Emeralds + _round_down4(b.PerSecond().Emeralds),
+		Ores:     brs.Ores + _round_down4(b.PerSecond().Ores),
+		Wood:     brs.Wood + _round_down4(b.PerSecond().Wood),
+		Fish:     brs.Fish + _round_down4(b.PerSecond().Fish),
+		Crops:    brs.Crops + _round_down4(b.PerSecond().Crops),
 	}
 }
 

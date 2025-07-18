@@ -32,6 +32,26 @@ func logToLinearRate(rate int) float64 {
 	return 100.0 * math.Log(float64(rate)/1.0) / math.Log(7200.0/1.0)
 }
 
+func advanceTickFunc(smm *StateManagementMenu) {
+	// Limit the number of ticks to advance at once to prevent excessive processing
+	maxTicks := smm.addTickValue
+	if maxTicks > 12000 {
+		maxTicks = 12000 // Cap at 12000 ticks maximum (about 3.3 hours of simulation)
+	}
+
+	// Always run tick advancement in a separate goroutine to prevent UI blocking
+	// and ensure ticks are processed sequentially to avoid mutex deadlocks
+	go func() {
+		for i := 0; i < maxTicks; i++ {
+			eruntime.NextTick()
+			// Add a small delay every 60 ticks to prevent overwhelming the system
+			if i%60 == 0 {
+				time.Sleep(1 * time.Millisecond)
+			}
+		}
+	}()
+}
+
 type StateManagementMenu struct {
 	menu         *EdgeMenu
 	rateValue    int // Changed to int for whole number ticks
@@ -187,23 +207,7 @@ func (smm *StateManagementMenu) Show() {
 	advanceButtonOpts.BorderColor = color.RGBA{140, 140, 140, 255}
 
 	tickSection.Button(advanceLabel, advanceButtonOpts, func() {
-		// Limit the number of ticks to advance at once to prevent excessive processing
-		maxTicks := smm.addTickValue
-		if maxTicks > 12000 {
-			maxTicks = 12000 // Cap at 12000 ticks maximum (about 3.3 hours of simulation)
-		}
-
-		// Always run tick advancement in a separate goroutine to prevent UI blocking
-		// and ensure ticks are processed sequentially to avoid mutex deadlocks
-		go func() {
-			for i := 0; i < maxTicks; i++ {
-				eruntime.NextTick()
-				// Add a small delay every 60 ticks to prevent overwhelming the system
-				if i%60 == 0 {
-					time.Sleep(1 * time.Millisecond)
-				}
-			}
-		}()
+		advanceTickFunc(smm)
 	})
 
 	tickSection.Spacer(DefaultSpacerOptions())

@@ -23,6 +23,7 @@ const (
 	ViewTreasury
 	ViewTreasuryOverrides
 	ViewWarning
+	ViewTax
 )
 
 // TerritoryViewInfo holds information about each view type
@@ -61,6 +62,7 @@ func NewTerritoryViewSwitcher() *TerritoryViewSwitcher {
 			{Name: "Treasury", Description: "Treasury level view", HiddenGuild: "__VIEW_TREASURY__"},
 			{Name: "Treasury Overrides", Description: "Treasury override view", HiddenGuild: "__VIEW_TREASURY_OVERRIDES__"},
 			{Name: "Warning", Description: "Warning status view", HiddenGuild: "__VIEW_WARNING__"},
+			{Name: "Tax", Description: "Territory taxation level", HiddenGuild: "__VIEW_TAX__"},
 		},
 		hiddenGuilds: make(map[string]color.RGBA),
 	}
@@ -105,6 +107,16 @@ func (tvs *TerritoryViewSwitcher) initializeHiddenGuilds() {
 	// Warning colors
 	tvs.hiddenGuilds["__WARNING_ACTIVE__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255} // Yellow for warnings
 	tvs.hiddenGuilds["__WARNING_NONE__"] = color.RGBA{R: 128, G: 128, B: 128, A: 255} // Gray for no warnings
+
+	// Tax level colors - based on taxation burden from other guilds
+	tvs.hiddenGuilds["__TAX_NONE__"] = color.RGBA{R: 144, G: 238, B: 144, A: 255}    // Light green for no tax
+	tvs.hiddenGuilds["__TAX_VERY_LOW__"] = color.RGBA{R: 173, G: 255, B: 47, A: 255} // Green-yellow for <10% tax
+	tvs.hiddenGuilds["__TAX_LOW__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255}       // Yellow for moderate tax
+	tvs.hiddenGuilds["__TAX_MEDIUM__"] = color.RGBA{R: 255, G: 215, B: 0, A: 255}    // Gold for higher tax
+	tvs.hiddenGuilds["__TAX_HIGH__"] = color.RGBA{R: 255, G: 165, B: 0, A: 255}      // Orange for high tax
+	tvs.hiddenGuilds["__TAX_VERY_HIGH__"] = color.RGBA{R: 255, G: 69, B: 0, A: 255}  // Orange-red for very high tax
+	tvs.hiddenGuilds["__TAX_EXTREME__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255}     // Red for extreme tax
+	tvs.hiddenGuilds["__TAX_CUT_OFF__"] = color.RGBA{R: 128, G: 128, B: 128, A: 255} // Gray for cut off territories
 }
 
 // Update handles input and modal visibility logic
@@ -199,6 +211,9 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorForCurrentView(territoryName 
 	case ViewWarning:
 		return tvs.getWarningColor(territory.Warning), true
 
+	case ViewTax:
+		return tvs.getTaxColor(territory), true
+
 	default:
 		return color.RGBA{}, false
 	}
@@ -250,6 +265,9 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorsForCurrentView(territoryName
 			hasColor = true
 		case ViewWarning:
 			territoryColor = tvs.getWarningColor(territory.Warning)
+			hasColor = true
+		case ViewTax:
+			territoryColor = tvs.getTaxColor(territory)
 			hasColor = true
 		}
 
@@ -378,6 +396,76 @@ func (tvs *TerritoryViewSwitcher) getWarningColor(warning typedef.Warning) color
 	return tvs.hiddenGuilds["__WARNING_NONE__"]
 }
 
+// getTaxColor returns color based on estimated tax burden on this territory
+func (tvs *TerritoryViewSwitcher) getTaxColor(territory *typedef.Territory) color.RGBA {
+	taxLevel := tvs.calculateTaxLevel(territory)
+	return tvs.hiddenGuilds[tvs.getTaxHiddenGuildFromLevel(taxLevel)]
+}
+
+// getTaxHiddenGuild returns the hidden guild name for tax view
+func (tvs *TerritoryViewSwitcher) getTaxHiddenGuild(territory *typedef.Territory) string {
+	taxLevel := tvs.calculateTaxLevel(territory)
+	return tvs.getTaxHiddenGuildFromLevel(taxLevel)
+}
+
+// getTaxHiddenGuildFromLevel converts tax level to hidden guild name
+func (tvs *TerritoryViewSwitcher) getTaxHiddenGuildFromLevel(level int) string {
+	switch level {
+	case 0:
+		return "__TAX_NONE__"
+	case 1:
+		return "__TAX_VERY_LOW__"
+	case 2:
+		return "__TAX_LOW__"
+	case 3:
+		return "__TAX_MEDIUM__"
+	case 4:
+		return "__TAX_HIGH__"
+	case 5:
+		return "__TAX_VERY_HIGH__"
+	case 6:
+		return "__TAX_EXTREME__"
+	case -1:
+		return "__TAX_CUT_OFF__"
+	default:
+		return "__TAX_NONE__"
+	}
+}
+
+// calculateTaxLevel estimates the tax burden on a territory based on multiple factors
+// Returns: -1 for cut off (no route to HQ), 0 for none, 1-6 for increasing tax levels
+func (tvs *TerritoryViewSwitcher) calculateTaxLevel(territory *typedef.Territory) int {
+	// Check if territory has no trading routes (cut off from HQ)
+	if len(territory.TradingRoutes) == 0 || territory.RouteTax < 0 {
+		return -1 // Cut off - gray
+	}
+
+	// If it's an HQ territory, it doesn't get taxed by others
+	if territory.HQ {
+		return 0 // No tax
+	}
+
+	// Calculate tax based on route tax percentage
+	routeTax := territory.RouteTax * 100 // Convert to percentage
+
+	// Determine tax level based on route tax
+	if routeTax <= 0 {
+		return 0 // No tax - light green
+	} else if routeTax < 15 {
+		return 1 // Very low tax (<5%) - lime-yellow
+	} else if routeTax < 35 {
+		return 2 // Low tax (5-15%) - yellow
+	} else if routeTax < 55 {
+		return 3 // Medium tax (15-30%) - gold
+	} else if routeTax < 75 {
+		return 4 // High tax (30-50%) - orange
+	} else if routeTax < 95 {
+		return 5 // Very high tax (50-70%) - orange-red
+	} else {
+		return 6 // Extreme tax (70%+) - red
+	}
+}
+
 // Draw renders the modal switcher UI
 func (tvs *TerritoryViewSwitcher) Draw(screen *ebiten.Image) {
 	if !tvs.modalVisible {
@@ -472,6 +560,8 @@ func (tvs *TerritoryViewSwitcher) GetHiddenGuildNameForTerritory(territoryName s
 		return tvs.getTreasuryOverrideHiddenGuild(territory.TreasuryOverride)
 	case ViewWarning:
 		return tvs.getWarningHiddenGuild(territory.Warning)
+	case ViewTax:
+		return tvs.getTaxHiddenGuild(territory)
 	default:
 		return ""
 	}

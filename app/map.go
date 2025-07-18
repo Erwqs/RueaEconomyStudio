@@ -131,6 +131,9 @@ type MapView struct {
 	areaSelectDragging      bool            // Whether user is currently dragging for area selection
 	areaSelectTempHighlight map[string]bool // Temporarily highlighted territories during area selection
 	areaSelectIsDeselecting bool            // Whether we're in deselection mode (right-click)
+
+	// Event Editor GUI
+	eventEditor *EventEditorGUI // Event editor interface
 }
 
 // NewMapView creates a new map view component
@@ -199,11 +202,17 @@ func NewMapView() *MapView {
 		// Initialize tribute menu
 		tributeMenu: NewTributeMenu(),
 
+		// Initialize event editor (will be set after mapView is created)
+		eventEditor: nil,
+
 		// Initialize transit resource cache
 		cachedTransitResources: make(map[string][]typedef.InTransitResources),
 		cachedTransitTick:      0,
 		transitCacheValid:      false,
 	}
+
+	// Initialize event editor after mapView is created
+	mapView.eventEditor = NewEventEditorGUI(mapView)
 
 	// EdgeMenu already handles its own refresh mechanism via refreshMenuData()
 	// No need to set a refresh callback that would rebuild the entire menu
@@ -402,6 +411,19 @@ func (m *MapView) Update(screenW, screenH int) {
 		m.territoryViewSwitcher.Update()
 	}
 
+	// Handle event editor input first (E key to open)
+	if !tributeMenuHandledInput && m.HandleEventEditorInput() {
+		return // Don't process other input this frame
+	}
+
+	// Update event editor if visible (handles ESC and mouse back button to close)
+	if m.IsEventEditorVisible() {
+		eventEditorHandledInput := m.UpdateEventEditor(screenW, screenH)
+		if eventEditorHandledInput {
+			return // Event editor handled input, don't process map input
+		}
+	}
+
 	// Handle P key and MouseButton4 BEFORE checking if input was handled
 	// Toggle state management menu with P key
 	if !tributeMenuHandledInput && inpututil.IsKeyJustPressed(ebiten.KeyP) {
@@ -427,8 +449,8 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Only toggle state management menu if no text input is focused
-		if !textInputFocused {
+		// Only toggle state management menu if no text input is focused and event editor is not visible
+		if !textInputFocused && !m.IsEventEditorVisible() {
 			m.ToggleStateManagementMenu()
 			return // Don't process other input this frame
 		}
@@ -458,8 +480,8 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Only toggle state management menu if no text input is focused
-		if !textInputFocused {
+		// Only toggle state management menu if no text input is focused and event editor is not visible
+		if !textInputFocused && !m.IsEventEditorVisible() {
 			m.ToggleStateManagementMenu()
 			return // Don't process other input this frame
 		}
@@ -470,10 +492,15 @@ func (m *MapView) Update(screenW, screenH int) {
 		return
 	}
 
-	// Process user input first - always accept wheel input
+	// Process user input first - always accept wheel input (unless event editor is maximized)
 	_, wheelY := ebiten.Wheel()
 	if wheelY != 0 {
 		mx, my := ebiten.CursorPosition()
+
+		// Block map zoom if event editor is visible but not in minimal mode OR if territory picker is active
+		if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
+			return
+		}
 
 		// Check if EdgeMenu is consuming wheel input first
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
@@ -496,12 +523,14 @@ func (m *MapView) Update(screenW, screenH int) {
 		m.handleSmoothZoom(wheelY, mx, my)
 	}
 
-	// Handle keyboard zoom with +/- keys (using smooth zoom)
-	if !tributeMenuHandledInput && (inpututil.IsKeyJustPressed(ebiten.KeyEqual) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadAdd)) {
-		m.handleSmoothZoom(3.0, screenW/2, screenH/2)
-	}
-	if !tributeMenuHandledInput && (inpututil.IsKeyJustPressed(ebiten.KeyMinus) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadSubtract)) {
-		m.handleSmoothZoom(-3.0, screenW/2, screenH/2)
+	// Handle keyboard zoom with +/- keys (using smooth zoom) - block if event editor is maximized or territory picker is active
+	if !tributeMenuHandledInput && (!m.IsEventEditorVisible() || (m.IsEventEditorVisible() && m.IsEventEditorInMinimalMode())) && !m.IsTerritoryPickerActive() {
+		if inpututil.IsKeyJustPressed(ebiten.KeyEqual) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadAdd) {
+			m.handleSmoothZoom(3.0, screenW/2, screenH/2)
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyMinus) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadSubtract) {
+			m.handleSmoothZoom(-3.0, screenW/2, screenH/2)
+		}
 	}
 
 	// Toggle territory display with T key
@@ -558,8 +587,8 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Only toggle transit resource menu if no text input is focused
-		if !textInputFocused && m.transitResourceMenu != nil {
+		// Only toggle transit resource menu if no text input is focused and event editor is not open
+		if !textInputFocused && !m.IsEventEditorVisible() && m.transitResourceMenu != nil {
 			if m.transitResourceMenu.IsVisible() {
 				m.transitResourceMenu.Hide()
 			} else {
@@ -593,8 +622,8 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Only toggle tribute menu if no text input is focused
-		if !textInputFocused && m.tributeMenu != nil {
+		// Only toggle tribute menu if no text input is focused and event editor is not open
+		if !textInputFocused && !m.IsEventEditorVisible() && m.tributeMenu != nil {
 			if m.tributeMenu.IsVisible() {
 				m.tributeMenu.Hide()
 			} else {
@@ -810,6 +839,13 @@ func (m *MapView) Update(screenW, screenH int) {
 		m.lastMouseX = mx
 		m.lastMouseY = my
 
+		// Block most map interactions if event editor is maximized OR if territory picker is active
+		if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
+			// Still allow map dragging but block other functionality
+			m.dragging = true
+			return
+		}
+
 		// Check if EdgeMenu is visible and mouse is inside EdgeMenu area
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
 			// Only block input if mouse is actually inside the EdgeMenu bounds
@@ -843,6 +879,13 @@ func (m *MapView) Update(screenW, screenH int) {
 
 	} else if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
+
+		// If event editor is maximized or territory picker is active, only allow dragging to end but block other interactions
+		if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
+			// Reset dragging state and return early
+			m.dragging = false
+			return
+		}
 
 		// Check if EdgeMenu is visible and mouse is inside EdgeMenu area
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
@@ -905,6 +948,14 @@ func (m *MapView) Update(screenW, screenH int) {
 
 			// Check for double-click (time threshold: 500ms)
 			isDoubleClick := timeSinceLastClick < 500*time.Millisecond
+
+			// Block double-click functionality if event editor is maximized
+			if isDoubleClick && m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode() {
+				// Update last click time but don't process double-click logic
+				m.lastClickTime = currentTime
+				m.dragging = false
+				return
+			}
 
 			// Handle claim editing UI button clicks FIRST (before territory selection)
 			if m.isEditingClaims {
@@ -998,7 +1049,8 @@ func (m *MapView) Update(screenW, screenH int) {
 
 					// If territory was clicked and it's a double-click, select and center it
 					// Don't do this in claim editing mode - we only want single-click territory toggling
-					if isDoubleClick && territoryClicked != "" && !m.isEditingClaims {
+					// Also don't show EdgeMenu if event editor is visible
+					if isDoubleClick && territoryClicked != "" && !m.isEditingClaims && !m.IsEventEditorVisible() {
 						// Center the territory first
 						m.CenterTerritory(territoryClicked)
 
@@ -1211,6 +1263,9 @@ func (m *MapView) drawOverlayElements(screen *ebiten.Image) {
 	if m.isAreaSelecting {
 		m.drawAreaSelection(screen)
 	}
+
+	// Draw event editor GUI if visible (should be on top of most elements)
+	m.DrawEventEditor(screen)
 
 	// Draw territory view switcher modal (should be on top of everything)
 	if m.territoryViewSwitcher != nil {
@@ -1962,19 +2017,19 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 	} else {
 		// Context menu for empty map area
 		m.contextMenu.
-			Option("Open Guild Manager", "G", true, func() {
+			Option("Open Guild Manager", "G", !m.IsEventEditorVisible(), func() {
 				m.territoriesManager.guildManager.Show()
 			}).
-			Option("Open State Management", "P", true, func() {
+			Option("Open State Management", "P", !m.IsEventEditorVisible(), func() {
 				m.stateManagementMenu.Show()
 			}).
-			Option("Open Resource Inspector", "I", true, func() {
+			Option("Open Resource Inspector", "I", !m.IsEventEditorVisible(), func() {
 				m.transitResourceMenu.Show()
 			}).
-			Option("Open Tribute Menu", "B", true, func() {
+			Option("Open Tribute Menu", "B", !m.IsEventEditorVisible(), func() {
 				m.tributeMenu.Show()
 			}).
-			Option("Open Loadout Manager", "L", true, func() {
+			Option("Open Loadout Manager", "L", !m.IsEventEditorVisible(), func() {
 				GetLoadoutManager().Show()
 			})
 
@@ -2316,22 +2371,22 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	emeraldCostOptions := DefaultTextOptions()
 	emeraldCostOptions.Color = color.RGBA{0, 255, 0, 255} // Green for emeralds
 
-	costsMenu.Text(fmt.Sprintf("%d Emerald per Hour", int(territory.Costs.Emeralds)), emeraldCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Emerald per Hour", territory.Costs.Emeralds), emeraldCostOptions)
 	oreCostOptions := DefaultTextOptions()
 	oreCostOptions.Color = color.RGBA{180, 180, 180, 255} // Light grey for ores
-	costsMenu.Text(fmt.Sprintf("%d Ore per Hour", int(territory.Costs.Ores)), oreCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Ore per Hour", territory.Costs.Ores), oreCostOptions)
 
 	woodCostOptions := DefaultTextOptions()
 	woodCostOptions.Color = color.RGBA{139, 69, 19, 255} // Brown for wood
-	costsMenu.Text(fmt.Sprintf("%d Wood per Hour", int(territory.Costs.Wood)), woodCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Wood per Hour", territory.Costs.Wood), woodCostOptions)
 
 	fishCostOptions := DefaultTextOptions()
 	fishCostOptions.Color = color.RGBA{0, 150, 255, 255} // Blue for fish
-	costsMenu.Text(fmt.Sprintf("%d Fish per Hour", int(territory.Costs.Fish)), fishCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Fish per Hour", territory.Costs.Fish), fishCostOptions)
 
 	cropCostOptions := DefaultTextOptions()
 	cropCostOptions.Color = color.RGBA{255, 255, 0, 255} // Yellow for crops
-	costsMenu.Text(fmt.Sprintf("%d Crop per Hour", int(territory.Costs.Crops)), cropCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Crop per Hour", territory.Costs.Crops), cropCostOptions)
 
 	// Resources (collapsible)
 	resourcesMenu := m.edgeMenu.CollapsibleMenu("Resources", DefaultCollapsibleMenuOptions())
@@ -2387,7 +2442,9 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 
 	resourcesMenu.ResourceStorageControl("Crop", "crops", territoryName,
 		int(territory.Storage.At.Crops), int(territory.Storage.Capacity.Crops), int(transitCrops), int(territoryStats.CurrentGeneration.Crops),
-		color.RGBA{255, 255, 0, 255}) // Yellow for crops		// Trading Routes (collapsible)
+		color.RGBA{255, 255, 0, 255}) // Yellow for crops
+
+	// Trading Routes (collapsible)
 	routesMenu := m.edgeMenu.CollapsibleMenu("Trading Routes", DefaultCollapsibleMenuOptions())
 	if len(territory.TradingRoutes) > 0 {
 		// Get current guild information for route coloring
@@ -2807,8 +2864,13 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 		}
 	})
 
-	// Trigger Breakpoint
-	m.edgeMenu.Button("Trigger Breakpoint", DefaultButtonOptions(), func() {
+	debugButton := DefaultButtonOptions()
+	// Pink button
+	debugButton.BackgroundColor = color.RGBA{255, 105, 180, 255} // Pink background
+	debugButton.HoverColor = color.RGBA{255, 182, 193, 255} // Lighter pink on hover
+	debugButton.PressedColor = color.RGBA{255, 20, 147, 255} // Darker pink when pressed
+	debugButtonText := "Trigger Breakpoint"
+	m.edgeMenu.Button(debugButtonText, debugButton, func() {
 		t := eruntime.GetTerritory(territoryName)
 		_ = t // For debugging
 		runtime.Breakpoint()
@@ -2838,6 +2900,11 @@ func (m *MapView) IsStateManagementMenuOpen() bool {
 // ToggleStateManagementMenu toggles the state management menu visibility
 func (m *MapView) ToggleStateManagementMenu() {
 	if m.stateManagementMenu == nil {
+		return
+	}
+
+	// Don't toggle if event editor is open
+	if m.IsEventEditorVisible() {
 		return
 	}
 

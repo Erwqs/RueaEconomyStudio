@@ -82,6 +82,10 @@ type TerritoryStats struct {
 	// Treasury and warnings
 	GenerationBonus float64         `json:"generationBonus"`
 	Warning         typedef.Warning `json:"warning"`
+
+	// Tax and net calculation data
+	RouteTax  float64                `json:"routeTax"`  // Tax rate for this territory's route to HQ
+	NetAmount typedef.BasicResources `json:"netAmount"` // Net resources after tax (generation - costs)
 }
 
 func GetAllies() map[*typedef.Guild][]*typedef.Guild {
@@ -97,7 +101,7 @@ func GetTerritoryStats(territoryName string) *TerritoryStats {
 		return nil
 	}
 
-	// Calculate current generation
+	// Calculate current generation with tax adjustments
 	static, perSecond, totalCosts, affordableCosts := CalculateGeneration(territory)
 
 	territory.Mu.RLock()
@@ -135,6 +139,10 @@ func GetTerritoryStats(territoryName string) *TerritoryStats {
 
 		GenerationBonus: territory.GenerationBonus,
 		Warning:         territory.Warning,
+
+		// Add route tax information so the UI can display tax effects
+		RouteTax:  territory.RouteTax,
+		NetAmount: territory.Net,
 	}
 }
 
@@ -255,6 +263,53 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 	return updatedTerritory
 }
 
+func SetGuildT(territory *typedef.Territory, guild typedef.Guild) *typedef.Territory {
+	// Protect the entire operation with write lock to prevent concurrent access
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	// Don't allow modifications during state loading
+	if st.stateLoading {
+		fmt.Printf("[ERUNTIME] SetGuildT blocked during state loading for territory: %s\n", territory.Name)
+		return nil
+	}
+
+	territory.Mu.Lock()
+
+	// Check if guild ownership is actually changing
+	oldGuildName := territory.Guild.Name
+	oldGuildTag := territory.Guild.Tag
+
+	territory.Guild = guild
+
+	// If territory changes ownership, set captured time and reset treasury
+	if oldGuildName != guild.Name || oldGuildTag != guild.Tag {
+		territory.CapturedAt = st.tick
+		territory.Treasury = typedef.TreasuryLevelVeryLow
+
+		// If territory changes ownership, it should no longer be an HQ
+		// The new guild must explicitly set a new HQ
+		fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuildT from %s[%s] to %s[%s]\n",
+			territory.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
+
+		// Remove from old guild's HQ map entry if it was an HQ
+		if territory.HQ {
+			setHQInMap(territory, false)
+		}
+		territory.HQ = false
+	}
+
+	territory.Mu.Unlock()
+
+	// Update routes since territory ownership changed - safe since we have write lock
+	st.updateRoute()
+
+	// Trigger auto-save after user action
+	TriggerAutoSave()
+
+	return territory
+}
+
 func SetGuildBatch(opts map[string]*typedef.Guild) []*typedef.Territory {
 	// Protect the entire batch operation with write lock
 	st.mu.Lock()
@@ -311,6 +366,57 @@ func SetGuildBatch(opts map[string]*typedef.Guild) []*typedef.Territory {
 	TriggerAutoSave()
 
 	return updatedTerritories
+}
+
+func SetT(territory *typedef.Territory, opts typedef.TerritoryOptions) *typedef.Territory {
+	// Always use write lock for Set operations to avoid lock upgrade issues
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	// Don't allow modifications during state loading
+	if st.stateLoading {
+		fmt.Printf("[ERUNTIME] SetT blocked during state loading for territory: %s\n", territory.Name)
+		return nil
+	}
+
+	territory.Mu.Lock()
+	territory.Options.Upgrade.Set = opts.Upgrades
+	territory.Options.Bonus.Set = opts.Bonuses
+
+	needsRouteUpdate := false
+
+	if opts.Border != territory.Border ||
+		opts.RoutingMode != territory.RoutingMode ||
+		opts.Tax.Tax != territory.Tax.Tax ||
+		opts.Tax.Ally != territory.Tax.Ally {
+		// Recalculate routes for ALL territories
+		needsRouteUpdate = true
+	}
+
+	territory.Tax = opts.Tax
+	territory.RoutingMode = opts.RoutingMode
+	territory.Border = opts.Border
+
+	// Store HQ setting value before unlocking
+	shouldSetHQ := opts.HQ && !territory.HQ
+	territory.Mu.Unlock() // Unlock territory before route updates
+
+	// Handle route updates and HQ setting atomically under the global write lock
+	if needsRouteUpdate {
+		st.updateRoute() // Safe to call since we have write lock
+	}
+
+	if shouldSetHQ {
+		sethqUnsafe(territory) // Call unsafe version since we already have the write lock
+	}
+
+	// Recalculate the generation potential for this territory
+	_, _, _, _ = calculateGeneration(territory)
+
+	// Trigger auto-save after user action
+	TriggerAutoSave()
+
+	return territory
 }
 
 func Set(territory string, opts typedef.TerritoryOptions) *typedef.Territory {
@@ -376,6 +482,13 @@ func ModifyStorageState(territory string, newState typedef.BasicResourcesInterfa
 	t.Storage.At = newState.PerHour()
 	t.Mu.Unlock()
 	return t
+}
+
+func ModifyStorageStateT(territory *typedef.Territory, newState typedef.BasicResourcesInterface) *typedef.Territory {
+	territory.Mu.Lock()
+	territory.Storage.At = newState.PerHour()
+	territory.Mu.Unlock()
+	return territory
 }
 
 func Halt() {

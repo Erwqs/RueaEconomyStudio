@@ -570,7 +570,7 @@ func (s *State) handleKeyEvent(event KeyEvent) {
 		case ebiten.KeyP:
 			// CTRL + ALT + P - Trigger panic for demonstration
 			if ebiten.IsKeyPressed(ebiten.KeyControl) && ebiten.IsKeyPressed(ebiten.KeyAlt) {
-				fmt.Println("[PANIC_DEMO] User triggered panic via CTRL+ALT+P")
+				// fmt.Println("[PANIC_DEMO] User triggered panic via CTRL+ALT+P")
 				panic("User-triggered panic for demonstration (CTRL+ALT+P)")
 			}
 		}

@@ -651,7 +651,9 @@ func doGenerate(territory *typedef.Territory) {
 	// STEP 1: Consume costs every second with proper precision
 	currentStorage := territory.Storage.At
 	newStorage := currentStorage
+  
 	applyCostsEverySecond(territory, &newStorage, costNow, st.tick)
+
 
 	// STEP 3: Check if it's time to release accumulated resources based on rate intervals
 	currentTick := st.tick

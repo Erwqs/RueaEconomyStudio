@@ -19,10 +19,11 @@ func (s *state) update() {
 
 // updateParallel processes territories in parallel for better performance
 func (s *state) updateParallel() {
-	numWorkers := runtime.NumCPU() // Use all available CPU cores
-	if numWorkers > 8 {
-		numWorkers = 8 // Cap at 8 to avoid too much overhead
-	}
+	numWorkers := min(
+		// Use all available CPU cores
+		runtime.NumCPU(),
+		// Cap at 8 to avoid too much overhead
+		8)
 
 	territoryCount := len(s.territories)
 	if territoryCount == 0 {
@@ -38,7 +39,7 @@ func (s *state) updateParallel() {
 	var wg sync.WaitGroup
 
 	// Process territories in parallel chunks
-	for i := 0; i < numWorkers; i++ {
+	for i := range numWorkers {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()

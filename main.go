@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
@@ -12,18 +11,18 @@ import (
 	"etools/app"
 	_ "etools/eruntime"
 
-	_ "net/http/pprof"
+	// _ "net/http/pprof"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"golang.design/x/clipboard"
 )
 
-func init() {
-	go func() {
-		fmt.Println("pprof listening on :6060")
-		http.ListenAndServe(":6060", nil)
-	}()
-}
+// func init() {
+// 	go func() {
+// 		fmt.Println("pprof listening on :6060")
+// 		http.ListenAndServe(":6060", nil)
+// 	}()
+// }
 
 func main() {
 	// Parse command line flags
@@ -131,6 +130,7 @@ func runWithGUI() {
 	ebiten.SetTPS(ebiten.SyncWithFPS) // Restore normal TPS since the issue is graphics, not game logic
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetWindowDecorated(true)
+	ebiten.SetWindowSize(1600, 900)
 
 	ebiten.SetWindowSize(1600, 900)
 
@@ -150,6 +150,3 @@ func initClipboard() error {
 	return clipboard.Init()
 }
 
-func clipboardSupported() bool {
-	return true
-}
