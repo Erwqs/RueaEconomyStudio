@@ -876,9 +876,6 @@ func DiagnoseTributeSystem() string {
 			guild.TributeIn.Wood > 0 || guild.TributeOut.Wood > 0 ||
 			guild.TributeIn.Fish > 0 || guild.TributeOut.Fish > 0 ||
 			guild.TributeIn.Crops > 0 || guild.TributeOut.Crops > 0) {
-			result = append(result, fmt.Sprintf("Guild: %s [%s]", guild.Name, guild.Tag))
-			result = append(result, fmt.Sprintf("  TributeIn: %+v", guild.TributeIn))
-			result = append(result, fmt.Sprintf("  TributeOut: %+v", guild.TributeOut))
 		}
 	}
 
