@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"etools/eruntime"
-	"etools/numbers"
 	"etools/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -2227,27 +2226,27 @@ func (m *EdgeMenu) UpdateTotalCosts(territoryName string) {
 				// Re-add updated cost text elements
 				emeraldCostOptions := DefaultTextOptions()
 				emeraldCostOptions.Color = color.RGBA{0, 255, 0, 255} // Green for emeralds
-				emeraldText := NewMenuText(fmt.Sprintf("%d Emerald per Hour", territory.Costs.Emeralds.Integer64()), emeraldCostOptions)
+				emeraldText := NewMenuText(fmt.Sprintf("%d Emerald per Hour", int(territory.Costs.Emeralds)), emeraldCostOptions)
 				collapsible.elements = append(collapsible.elements, emeraldText)
 
 				oreCostOptions := DefaultTextOptions()
 				oreCostOptions.Color = color.RGBA{180, 180, 180, 255} // Light grey for ores
-				oreText := NewMenuText(fmt.Sprintf("%d Ore per Hour", territory.Costs.Ores.Integer64()), oreCostOptions)
+				oreText := NewMenuText(fmt.Sprintf("%d Ore per Hour", int(territory.Costs.Ores)), oreCostOptions)
 				collapsible.elements = append(collapsible.elements, oreText)
 
 				woodCostOptions := DefaultTextOptions()
 				woodCostOptions.Color = color.RGBA{139, 69, 19, 255} // Brown for wood
-				woodText := NewMenuText(fmt.Sprintf("%d Wood per Hour", territory.Costs.Wood.Integer64()), woodCostOptions)
+				woodText := NewMenuText(fmt.Sprintf("%d Wood per Hour", int(territory.Costs.Wood)), woodCostOptions)
 				collapsible.elements = append(collapsible.elements, woodText)
 
 				fishCostOptions := DefaultTextOptions()
 				fishCostOptions.Color = color.RGBA{0, 150, 255, 255} // Blue for fish
-				fishText := NewMenuText(fmt.Sprintf("%d Fish per Hour", territory.Costs.Fish.Integer64()), fishCostOptions)
+				fishText := NewMenuText(fmt.Sprintf("%d Fish per Hour", int(territory.Costs.Fish)), fishCostOptions)
 				collapsible.elements = append(collapsible.elements, fishText)
 
 				cropCostOptions := DefaultTextOptions()
 				cropCostOptions.Color = color.RGBA{255, 255, 0, 255} // Yellow for crops
-				cropText := NewMenuText(fmt.Sprintf("%d Crop per Hour", territory.Costs.Crops.Integer64()), cropCostOptions)
+				cropText := NewMenuText(fmt.Sprintf("%d Crop per Hour", int(territory.Costs.Crops)), cropCostOptions)
 				collapsible.elements = append(collapsible.elements, cropText)
 
 				return // Found and updated, exit
@@ -2666,15 +2665,15 @@ func (rsc *ResourceStorageControl) cancelEditing() {
 	if territory != nil {
 		switch rsc.resourceType {
 		case "emeralds":
-			rsc.currentValue = int(territory.Storage.At.Emeralds.Integer64())
+			rsc.currentValue = int(territory.Storage.At.Emeralds)
 		case "ores":
-			rsc.currentValue = int(territory.Storage.At.Ores.Integer64())
+			rsc.currentValue = int(territory.Storage.At.Ores)
 		case "wood":
-			rsc.currentValue = int(territory.Storage.At.Wood.Integer64())
+			rsc.currentValue = int(territory.Storage.At.Wood)
 		case "fish":
-			rsc.currentValue = int(territory.Storage.At.Fish.Integer64())
+			rsc.currentValue = int(territory.Storage.At.Fish)
 		case "crops":
-			rsc.currentValue = int(territory.Storage.At.Crops.Integer64())
+			rsc.currentValue = int(territory.Storage.At.Crops)
 		}
 	}
 
@@ -2698,15 +2697,15 @@ func (rsc *ResourceStorageControl) updateStorage(newValue int) {
 	// Update the specific resource type
 	switch rsc.resourceType {
 	case "emeralds":
-		newStorage.Emeralds = numbers.NewFixedPointFromInt(newValue)
+		newStorage.Emeralds = float64(newValue)
 	case "ores":
-		newStorage.Ores = numbers.NewFixedPointFromInt(newValue)
+		newStorage.Ores = float64(newValue)
 	case "wood":
-		newStorage.Wood = numbers.NewFixedPointFromInt(newValue)
+		newStorage.Wood = float64(newValue)
 	case "fish":
-		newStorage.Fish = numbers.NewFixedPointFromInt(newValue)
+		newStorage.Fish = float64(newValue)
 	case "crops":
-		newStorage.Crops = numbers.NewFixedPointFromInt(newValue)
+		newStorage.Crops = float64(newValue)
 	}
 
 	// Update storage using the ModifyStorageState function
@@ -2843,25 +2842,25 @@ func (rsc *ResourceStorageControl) refreshData() {
 	// Update current and max values and generation
 	switch rsc.resourceType {
 	case "emeralds":
-		rsc.currentValue = territory.Storage.At.Emeralds.Integer()
-		rsc.maxValue = territory.Storage.Capacity.Emeralds.Integer()
-		rsc.generationPerHour = territoryStats.CurrentGeneration.Emeralds.Integer()
+		rsc.currentValue = int(territory.Storage.At.Emeralds)
+		rsc.maxValue = int(territory.Storage.Capacity.Emeralds)
+		rsc.generationPerHour = int(territoryStats.CurrentGeneration.Emeralds)
 	case "ores":
-		rsc.currentValue = territory.Storage.At.Ores.Integer()
-		rsc.maxValue = territory.Storage.Capacity.Ores.Integer()
-		rsc.generationPerHour = territoryStats.CurrentGeneration.Ores.Integer()
+		rsc.currentValue = int(territory.Storage.At.Ores)
+		rsc.maxValue = int(territory.Storage.Capacity.Ores)
+		rsc.generationPerHour = int(territoryStats.CurrentGeneration.Ores)
 	case "wood":
-		rsc.currentValue = territory.Storage.At.Wood.Integer()
-		rsc.maxValue = territory.Storage.Capacity.Wood.Integer()
-		rsc.generationPerHour = territoryStats.CurrentGeneration.Wood.Integer()
+		rsc.currentValue = int(territory.Storage.At.Wood)
+		rsc.maxValue = int(territory.Storage.Capacity.Wood)
+		rsc.generationPerHour = int(territoryStats.CurrentGeneration.Wood)
 	case "fish":
-		rsc.currentValue = territory.Storage.At.Fish.Integer()
-		rsc.maxValue = territory.Storage.Capacity.Fish.Integer()
-		rsc.generationPerHour = territoryStats.CurrentGeneration.Fish.Integer()
+		rsc.currentValue = int(territory.Storage.At.Fish)
+		rsc.maxValue = int(territory.Storage.Capacity.Fish)
+		rsc.generationPerHour = int(territoryStats.CurrentGeneration.Fish)
 	case "crops":
-		rsc.currentValue = territory.Storage.At.Crops.Integer()
-		rsc.maxValue = territory.Storage.Capacity.Crops.Integer()
-		rsc.generationPerHour = territoryStats.CurrentGeneration.Crops.Integer()
+		rsc.currentValue = int(territory.Storage.At.Crops)
+		rsc.maxValue = int(territory.Storage.Capacity.Crops)
+		rsc.generationPerHour = int(territoryStats.CurrentGeneration.Crops)
 	}
 
 	// Update transit value using the new decoupled transit system
@@ -2870,15 +2869,15 @@ func (rsc *ResourceStorageControl) refreshData() {
 	for _, transit := range transitResources {
 		switch rsc.resourceType {
 		case "emeralds":
-			rsc.transitValue += transit.Emeralds.Integer()
+			rsc.transitValue += int(transit.Emeralds)
 		case "ores":
-			rsc.transitValue += transit.Ores.Integer()
+			rsc.transitValue += int(transit.Ores)
 		case "wood":
-			rsc.transitValue += transit.Wood.Integer()
+			rsc.transitValue += int(transit.Wood)
 		case "fish":
-			rsc.transitValue += transit.Fish.Integer()
+			rsc.transitValue += int(transit.Fish)
 		case "crops":
-			rsc.transitValue += transit.Crops.Integer()
+			rsc.transitValue += int(transit.Crops)
 		}
 	}
 }

@@ -2,7 +2,6 @@ package app
 
 import (
 	"etools/eruntime"
-	"etools/numbers"
 	"etools/typedef"
 	"fmt"
 	"image"
@@ -79,11 +78,11 @@ type GuildOption struct {
 
 // ResourceAmounts holds the resource amounts for tribute creation/editing
 type ResourceAmounts struct {
-	Emeralds numbers.FixedPoint128
-	Ores     numbers.FixedPoint128
-	Wood     numbers.FixedPoint128
-	Fish     numbers.FixedPoint128
-	Crops    numbers.FixedPoint128
+	Emeralds float64
+	Ores     float64
+	Wood     float64
+	Fish     float64
+	Crops    float64
 }
 
 // NewTributeMenu creates a new tribute menu
@@ -428,35 +427,35 @@ func (tm *TributeMenu) saveTribute() {
 	}
 
 	// Get resource amounts from text inputs
-	emeraldAmount := numbers.FixedPoint128{Whole: 0, Fraction: 0}
-	oreAmount := numbers.FixedPoint128{Whole: 0, Fraction: 0}
-	woodAmount := numbers.FixedPoint128{Whole: 0, Fraction: 0}
-	fishAmount := numbers.FixedPoint128{Whole: 0, Fraction: 0}
-	cropAmount := numbers.FixedPoint128{Whole: 0, Fraction: 0}
+	emeraldAmount := 0.0
+	oreAmount := 0.0
+	woodAmount := 0.0
+	fishAmount := 0.0
+	cropAmount := 0.0
 
 	if tm.emeraldInput != nil {
 		if val, err := strconv.ParseFloat(tm.emeraldInput.Value, 64); err == nil {
-			emeraldAmount = numbers.NewFixedPointFromFloat(val)
+			emeraldAmount = val
 		}
 	}
 	if tm.oreInput != nil {
 		if val, err := strconv.ParseFloat(tm.oreInput.Value, 64); err == nil {
-			oreAmount = numbers.NewFixedPointFromFloat(val)
+			oreAmount = val
 		}
 	}
 	if tm.woodInput != nil {
 		if val, err := strconv.ParseFloat(tm.woodInput.Value, 64); err == nil {
-			woodAmount = numbers.NewFixedPointFromFloat(val)
+			woodAmount = val
 		}
 	}
 	if tm.fishInput != nil {
 		if val, err := strconv.ParseFloat(tm.fishInput.Value, 64); err == nil {
-			fishAmount = numbers.NewFixedPointFromFloat(val)
+			fishAmount = val
 		}
 	}
 	if tm.cropInput != nil {
 		if val, err := strconv.ParseFloat(tm.cropInput.Value, 64); err == nil {
-			cropAmount = numbers.NewFixedPointFromFloat(val)
+			cropAmount = val
 		}
 	}
 

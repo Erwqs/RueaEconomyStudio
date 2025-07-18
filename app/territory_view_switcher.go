@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"etools/eruntime"
-	"etools/numbers"
 	"etools/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -290,23 +289,23 @@ func (tvs *TerritoryViewSwitcher) getResourceColor(territory *typedef.Territory)
 	resourceCount := 0
 	dominantResource := ""
 
-	if resources.Wood.GreaterThan(numbers.FixedPoint128{}) {
+	if resources.Wood > 0 {
 		resourceCount++
 		dominantResource = "wood"
 	}
-	if resources.Crops.GreaterThan(numbers.FixedPoint128{}) {
+	if resources.Crops > 0 {
 		resourceCount++
 		if dominantResource == "" {
 			dominantResource = "crops"
 		}
 	}
-	if resources.Fish.GreaterThan(numbers.FixedPoint128{}) {
+	if resources.Fish > 0 {
 		resourceCount++
 		if dominantResource == "" {
 			dominantResource = "fish"
 		}
 	}
-	if resources.Ores.GreaterThan(numbers.FixedPoint128{}) {
+	if resources.Ores > 0 {
 		resourceCount++
 		if dominantResource == "" {
 			dominantResource = "ore"
@@ -576,23 +575,23 @@ func (tvs *TerritoryViewSwitcher) getResourceHiddenGuild(territory *typedef.Terr
 	resourceCount := 0
 	dominantResource := ""
 
-	if resources.Wood.GreaterThan(numbers.FixedPoint128{}) {
+	if resources.Wood > 0 {
 		resourceCount++
 		dominantResource = "wood"
 	}
-	if resources.Crops.GreaterThan(numbers.FixedPoint128{}) {
+	if resources.Crops > 0 {
 		resourceCount++
 		if dominantResource == "" {
 			dominantResource = "crops"
 		}
 	}
-	if resources.Fish.GreaterThan(numbers.FixedPoint128{}) {
+	if resources.Fish > 0 {
 		resourceCount++
 		if dominantResource == "" {
 			dominantResource = "fish"
 		}
 	}
-	if resources.Ores.GreaterThan(numbers.FixedPoint128{}) {
+	if resources.Ores > 0 {
 		resourceCount++
 		if dominantResource == "" {
 			dominantResource = "ore"

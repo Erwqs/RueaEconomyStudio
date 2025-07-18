@@ -5,7 +5,6 @@ import (
 	"image/color"
 
 	"etools/eruntime"
-	"etools/numbers"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text"
@@ -201,7 +200,7 @@ func (tm *TerritoryModal) drawResourceTable(screen *ebiten.Image, x, y, width, h
 
 	// Calculate totals for each resource (guild-wide)
 	var totalProd, totalUsage struct {
-		Emerald, Ore, Crop, Wood, Fish numbers.FixedPoint128
+		Emerald, Ore, Crop, Wood, Fish float64
 	}
 
 	for _, territory := range territories {
@@ -216,18 +215,18 @@ func (tm *TerritoryModal) drawResourceTable(screen *ebiten.Image, x, y, width, h
 		}
 
 		// Add production
-		totalProd.Emerald = totalProd.Emerald.Add(stats.CurrentGeneration.Emeralds)
-		totalProd.Ore = totalProd.Ore.Add(stats.CurrentGeneration.Ores)
-		totalProd.Crop = totalProd.Crop.Add(stats.CurrentGeneration.Crops)
-		totalProd.Wood = totalProd.Wood.Add(stats.CurrentGeneration.Wood)
-		totalProd.Fish = totalProd.Fish.Add(stats.CurrentGeneration.Fish)
+		totalProd.Emerald += stats.CurrentGeneration.Emeralds
+		totalProd.Ore += stats.CurrentGeneration.Ores
+		totalProd.Crop += stats.CurrentGeneration.Crops
+		totalProd.Wood += stats.CurrentGeneration.Wood
+		totalProd.Fish += stats.CurrentGeneration.Fish
 
 		// Add usage (costs)
-		totalUsage.Emerald = totalUsage.Emerald.Add(stats.TotalCosts.Emeralds)
-		totalUsage.Ore = totalUsage.Ore.Add(stats.TotalCosts.Ores)
-		totalUsage.Crop = totalUsage.Crop.Add(stats.TotalCosts.Crops)
-		totalUsage.Wood = totalUsage.Wood.Add(stats.TotalCosts.Wood)
-		totalUsage.Fish = totalUsage.Fish.Add(stats.TotalCosts.Fish)
+		totalUsage.Emerald += stats.TotalCosts.Emeralds
+		totalUsage.Ore += stats.TotalCosts.Ores
+		totalUsage.Crop += stats.TotalCosts.Crops
+		totalUsage.Wood += stats.TotalCosts.Wood
+		totalUsage.Fish += stats.TotalCosts.Fish
 	}
 
 	// Add tribute data from guild totals
@@ -237,23 +236,19 @@ func (tm *TerritoryModal) drawResourceTable(screen *ebiten.Image, x, y, width, h
 	// Get guild directly from guild manager to ensure we have the latest tribute data
 	guild := eruntime.GetGuildByName(guildName)
 	if guild != nil {
-		// Debug: Print tribute values to see what we're getting
-		// fmt.Printf("DEBUG: Guild %s TributeIn: %+v\n", guildName, guild.TributeIn)
-		// fmt.Printf("DEBUG: Guild %s TributeOut: %+v\n", guildName, guild.TributeOut)
+		totalProd.Emerald += guild.TributeIn.Emeralds * 60
+		totalProd.Ore += guild.TributeIn.Ores * 60
+		totalProd.Crop += guild.TributeIn.Crops * 60
+		totalProd.Wood += guild.TributeIn.Wood * 60
+		totalProd.Fish += guild.TributeIn.Fish * 60
 
-		totalProd.Emerald = totalProd.Emerald.Add(guild.TributeIn.Emeralds.Multiply(numbers.FixedPoint128{Whole: 60, Fraction: 0}))
-		totalProd.Ore = totalProd.Ore.Add(guild.TributeIn.Ores.Multiply(numbers.FixedPoint128{Whole: 60, Fraction: 0}))
-		totalProd.Crop = totalProd.Crop.Add(guild.TributeIn.Crops.Multiply(numbers.FixedPoint128{Whole: 60, Fraction: 0}))
-		totalProd.Wood = totalProd.Wood.Add(guild.TributeIn.Wood.Multiply(numbers.FixedPoint128{Whole: 60, Fraction: 0}))
-		totalProd.Fish = totalProd.Fish.Add(guild.TributeIn.Fish.Multiply(numbers.FixedPoint128{Whole: 60, Fraction: 0}))
-
-		totalUsage.Emerald = totalUsage.Emerald.Add(guild.TributeOut.Emeralds.Multiply(numbers.FixedPoint128{Whole: 60, Fraction: 0}))
-		totalUsage.Ore = totalUsage.Ore.Add(guild.TributeOut.Ores.Multiply(numbers.FixedPoint128{Whole: 60, Fraction: 0}))
-		totalUsage.Crop = totalUsage.Crop.Add(guild.TributeOut.Crops.Multiply(numbers.FixedPoint128{Whole: 60, Fraction: 0}))
-		totalUsage.Wood = totalUsage.Wood.Add(guild.TributeOut.Wood.Multiply(numbers.FixedPoint128{Whole: 60, Fraction: 0}))
-		totalUsage.Fish = totalUsage.Fish.Add(guild.TributeOut.Fish.Multiply(numbers.FixedPoint128{Whole: 60, Fraction: 0}))
+		totalUsage.Emerald += guild.TributeOut.Emeralds * 60
+		totalUsage.Ore += guild.TributeOut.Ores * 60
+		totalUsage.Crop += guild.TributeOut.Crops * 60
+		totalUsage.Wood += guild.TributeOut.Wood * 60
+		totalUsage.Fish += guild.TributeOut.Fish * 60
 	} else {
-		// fmt.Printf("DEBUG: Guild %s not found in guild manager\n", guildName)
+		fmt.Printf("DEBUG: Guild %s not found in guild manager\n", guildName)
 	}
 
 	// Load font
@@ -302,8 +297,8 @@ func (tm *TerritoryModal) drawResourceTable(screen *ebiten.Image, x, y, width, h
 	// Resource data
 	resources := []struct {
 		name  string
-		prod  numbers.FixedPoint128
-		usage numbers.FixedPoint128
+		prod  float64
+		usage float64
 		color color.RGBA
 	}{
 		{"Emerald", totalProd.Emerald, totalUsage.Emerald, color.RGBA{144, 238, 144, uint8(255.0 * textAlpha)}},
@@ -315,10 +310,10 @@ func (tm *TerritoryModal) drawResourceTable(screen *ebiten.Image, x, y, width, h
 
 	// Draw each resource row
 	for _, resource := range resources {
-		net := resource.prod.Subtract(resource.usage)
+		net := resource.prod - resource.usage
 		var percentage float64
-		if resource.prod.GreaterThan(numbers.FixedPoint128{}) {
-			percentage = (resource.usage.Divide(resource.prod)).Multiply(numbers.FixedPoint128{Whole: 100, Fraction: 0}).Float64()
+		if resource.prod > 0 {
+			percentage = (resource.usage / resource.prod) * 100
 		}
 
 		// Format numbers
@@ -336,9 +331,9 @@ func (tm *TerritoryModal) drawResourceTable(screen *ebiten.Image, x, y, width, h
 
 		// Color code net: green if positive, red if negative
 		netColor := textColor
-		if net.GreaterThan(numbers.FixedPoint128{}) {
+		if net > 0 {
 			netColor = color.RGBA{0, 255, 0, uint8(255.0 * textAlpha)} // Green
-		} else if net.LessThan(numbers.FixedPoint128{}) {
+		} else if net < 0 {
 			netColor = color.RGBA{255, 0, 0, uint8(255.0 * textAlpha)} // Red
 		}
 		text.Draw(screen, netStr, font, netCol, currentY, netColor)

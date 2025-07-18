@@ -352,19 +352,19 @@ func matchesTransitFilter(transit *typedef.InTransitResources, territory *typede
 	// Check resource amount filters
 	resources := transit.BasicResources
 
-	if criteria.Emeralds != nil && !matchesResourceAmount(resources.Emeralds.Float64(), criteria.Emeralds) {
+	if criteria.Emeralds != nil && !matchesResourceAmount(resources.Emeralds, criteria.Emeralds) {
 		return false
 	}
-	if criteria.Ores != nil && !matchesResourceAmount(resources.Ores.Float64(), criteria.Ores) {
+	if criteria.Ores != nil && !matchesResourceAmount(resources.Ores, criteria.Ores) {
 		return false
 	}
-	if criteria.Wood != nil && !matchesResourceAmount(resources.Wood.Float64(), criteria.Wood) {
+	if criteria.Wood != nil && !matchesResourceAmount(resources.Wood, criteria.Wood) {
 		return false
 	}
-	if criteria.Fish != nil && !matchesResourceAmount(resources.Fish.Float64(), criteria.Fish) {
+	if criteria.Fish != nil && !matchesResourceAmount(resources.Fish, criteria.Fish) {
 		return false
 	}
-	if criteria.Crops != nil && !matchesResourceAmount(resources.Crops.Float64(), criteria.Crops) {
+	if criteria.Crops != nil && !matchesResourceAmount(resources.Crops, criteria.Crops) {
 		return false
 	}
 

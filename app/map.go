@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"etools/eruntime" // Add eruntime import
-	"etools/numbers"
 	"etools/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -1384,37 +1383,37 @@ func (m *MapView) drawTerritoryHover(screen *ebiten.Image) {
 	resources := []ResourceInfo{
 		{
 			Name:       "Emerald",
-			Generation: territoryStats.CurrentGeneration.Emeralds.Float64(),
-			Stored:     territoryStats.StoredResources.Emeralds.Float64(),
-			Capacity:   territoryStats.StorageCapacity.Emeralds.Float64(),
+			Generation: territoryStats.CurrentGeneration.Emeralds,
+			Stored:     territoryStats.StoredResources.Emeralds,
+			Capacity:   territoryStats.StorageCapacity.Emeralds,
 			Color:      color.RGBA{144, 238, 144, 255}, // Light green
 		},
 		{
 			Name:       "Ore",
-			Generation: territoryStats.CurrentGeneration.Ores.Float64(),
-			Stored:     territoryStats.StoredResources.Ores.Float64(),
-			Capacity:   territoryStats.StorageCapacity.Ores.Float64(),
+			Generation: territoryStats.CurrentGeneration.Ores,
+			Stored:     territoryStats.StoredResources.Ores,
+			Capacity:   territoryStats.StorageCapacity.Ores,
 			Color:      color.RGBA{220, 220, 220, 255}, // White
 		},
 		{
 			Name:       "Crop",
-			Generation: territoryStats.CurrentGeneration.Crops.Float64(),
-			Stored:     territoryStats.StoredResources.Crops.Float64(),
-			Capacity:   territoryStats.StorageCapacity.Crops.Float64(),
+			Generation: territoryStats.CurrentGeneration.Crops,
+			Stored:     territoryStats.StoredResources.Crops,
+			Capacity:   territoryStats.StorageCapacity.Crops,
 			Color:      color.RGBA{255, 255, 0, 255}, // Yellow
 		},
 		{
 			Name:       "Wood",
-			Generation: territoryStats.CurrentGeneration.Wood.Float64(),
-			Stored:     territoryStats.StoredResources.Wood.Float64(),
-			Capacity:   territoryStats.StorageCapacity.Wood.Float64(),
+			Generation: territoryStats.CurrentGeneration.Wood,
+			Stored:     territoryStats.StoredResources.Wood,
+			Capacity:   territoryStats.StorageCapacity.Wood,
 			Color:      color.RGBA{34, 139, 34, 255}, // Forest green (darker than emerald)
 		},
 		{
 			Name:       "Fish",
-			Generation: territoryStats.CurrentGeneration.Fish.Float64(),
-			Stored:     territoryStats.StoredResources.Fish.Float64(),
-			Capacity:   territoryStats.StorageCapacity.Fish.Float64(),
+			Generation: territoryStats.CurrentGeneration.Fish,
+			Stored:     territoryStats.StoredResources.Fish,
+			Capacity:   territoryStats.StorageCapacity.Fish,
 			Color:      color.RGBA{127, 216, 230, 255}, // Light blue
 		},
 	}
@@ -2109,46 +2108,46 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	// Create text elements for all resources, but set visibility based on production
 	emeraldProdOptions := DefaultTextOptions()
 	emeraldProdOptions.Color = color.RGBA{0, 255, 0, 255} // Green for emeralds
-	emeraldProdText = NewMenuText(fmt.Sprintf("%d Emerald per Hour", territoryStats.CurrentGeneration.Emeralds.Integer()), emeraldProdOptions)
-	emeraldProdText.SetVisible(territoryStats.CurrentGeneration.Emeralds.Integer() > 0)
+	emeraldProdText = NewMenuText(fmt.Sprintf("%d Emerald per Hour", int(territoryStats.CurrentGeneration.Emeralds)), emeraldProdOptions)
+	emeraldProdText.SetVisible(territoryStats.CurrentGeneration.Emeralds > 0)
 	productionMenu.AddElement(emeraldProdText)
-	if territoryStats.CurrentGeneration.Emeralds.Integer() > 0 {
+	if territoryStats.CurrentGeneration.Emeralds > 0 {
 		hasProduction = true
 	}
 
 	oreProdOptions := DefaultTextOptions()
 	oreProdOptions.Color = color.RGBA{180, 180, 180, 255} // Light grey for ores
-	oreProdText = NewMenuText(fmt.Sprintf("%d Ore per Hour", territoryStats.CurrentGeneration.Ores.Integer()), oreProdOptions)
-	oreProdText.SetVisible(territoryStats.CurrentGeneration.Ores.Integer() > 0)
+	oreProdText = NewMenuText(fmt.Sprintf("%d Ore per Hour", int(territoryStats.CurrentGeneration.Ores)), oreProdOptions)
+	oreProdText.SetVisible(territoryStats.CurrentGeneration.Ores > 0)
 	productionMenu.AddElement(oreProdText)
-	if territoryStats.CurrentGeneration.Ores.Integer() > 0 {
+	if territoryStats.CurrentGeneration.Ores > 0 {
 		hasProduction = true
 	}
 
 	woodProdOptions := DefaultTextOptions()
 	woodProdOptions.Color = color.RGBA{139, 69, 19, 255} // Brown for wood
-	woodProdText = NewMenuText(fmt.Sprintf("%d Wood per Hour", territoryStats.CurrentGeneration.Wood.Integer()), woodProdOptions)
-	woodProdText.SetVisible(territoryStats.CurrentGeneration.Wood.Integer() > 0)
+	woodProdText = NewMenuText(fmt.Sprintf("%d Wood per Hour", int(territoryStats.CurrentGeneration.Wood)), woodProdOptions)
+	woodProdText.SetVisible(territoryStats.CurrentGeneration.Wood > 0)
 	productionMenu.AddElement(woodProdText)
-	if territoryStats.CurrentGeneration.Wood.Integer() > 0 {
+	if territoryStats.CurrentGeneration.Wood > 0 {
 		hasProduction = true
 	}
 
 	fishProdOptions := DefaultTextOptions()
 	fishProdOptions.Color = color.RGBA{0, 150, 255, 255} // Blue for fish
-	fishProdText = NewMenuText(fmt.Sprintf("%d Fish per Hour", territoryStats.CurrentGeneration.Fish.Integer()), fishProdOptions)
-	fishProdText.SetVisible(territoryStats.CurrentGeneration.Fish.Integer() > 0)
+	fishProdText = NewMenuText(fmt.Sprintf("%d Fish per Hour", int(territoryStats.CurrentGeneration.Fish)), fishProdOptions)
+	fishProdText.SetVisible(territoryStats.CurrentGeneration.Fish > 0)
 	productionMenu.AddElement(fishProdText)
-	if territoryStats.CurrentGeneration.Fish.Integer() > 0 {
+	if territoryStats.CurrentGeneration.Fish > 0 {
 		hasProduction = true
 	}
 
 	cropProdOptions := DefaultTextOptions()
 	cropProdOptions.Color = color.RGBA{255, 255, 0, 255} // Yellow for crops
-	cropProdText = NewMenuText(fmt.Sprintf("%d Crop per Hour", territoryStats.CurrentGeneration.Crops.Integer()), cropProdOptions)
-	cropProdText.SetVisible(territoryStats.CurrentGeneration.Crops.Integer() > 0)
+	cropProdText = NewMenuText(fmt.Sprintf("%d Crop per Hour", int(territoryStats.CurrentGeneration.Crops)), cropProdOptions)
+	cropProdText.SetVisible(territoryStats.CurrentGeneration.Crops > 0)
 	productionMenu.AddElement(cropProdText)
-	if territoryStats.CurrentGeneration.Crops.Integer() > 0 {
+	if territoryStats.CurrentGeneration.Crops > 0 {
 		hasProduction = true
 	}
 
@@ -2167,31 +2166,31 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 		updatedStats := eruntime.GetTerritoryStats(territory.Name)
 
 		// Update emerald production
-		emeraldProdText.SetText(fmt.Sprintf("%d Emerald per Hour", updatedStats.CurrentGeneration.Emeralds.Integer()))
-		emeraldProdText.SetVisible(updatedStats.CurrentGeneration.Emeralds.Integer() > 0)
+		emeraldProdText.SetText(fmt.Sprintf("%d Emerald per Hour", int(updatedStats.CurrentGeneration.Emeralds)))
+		emeraldProdText.SetVisible(updatedStats.CurrentGeneration.Emeralds > 0)
 
 		// Update ore production
-		oreProdText.SetText(fmt.Sprintf("%d Ore per Hour", updatedStats.CurrentGeneration.Ores.Integer()))
-		oreProdText.SetVisible(updatedStats.CurrentGeneration.Ores.Integer() > 0)
+		oreProdText.SetText(fmt.Sprintf("%d Ore per Hour", int(updatedStats.CurrentGeneration.Ores)))
+		oreProdText.SetVisible(updatedStats.CurrentGeneration.Ores > 0)
 
 		// Update wood production
-		woodProdText.SetText(fmt.Sprintf("%d Wood per Hour", updatedStats.CurrentGeneration.Wood.Integer()))
-		woodProdText.SetVisible(updatedStats.CurrentGeneration.Wood.Integer() > 0)
+		woodProdText.SetText(fmt.Sprintf("%d Wood per Hour", int(updatedStats.CurrentGeneration.Wood)))
+		woodProdText.SetVisible(updatedStats.CurrentGeneration.Wood > 0)
 
 		// Update fish production
-		fishProdText.SetText(fmt.Sprintf("%d Fish per Hour", updatedStats.CurrentGeneration.Fish.Integer()))
-		fishProdText.SetVisible(updatedStats.CurrentGeneration.Fish.Integer() > 0)
+		fishProdText.SetText(fmt.Sprintf("%d Fish per Hour", int(updatedStats.CurrentGeneration.Fish)))
+		fishProdText.SetVisible(updatedStats.CurrentGeneration.Fish > 0)
 
 		// Update crop production
-		cropProdText.SetText(fmt.Sprintf("%d Crop per Hour", updatedStats.CurrentGeneration.Crops.Integer()))
-		cropProdText.SetVisible(updatedStats.CurrentGeneration.Crops.Integer() > 0)
+		cropProdText.SetText(fmt.Sprintf("%d Crop per Hour", int(updatedStats.CurrentGeneration.Crops)))
+		cropProdText.SetVisible(updatedStats.CurrentGeneration.Crops > 0)
 
 		// Check if any production exists
-		newHasProduction := updatedStats.CurrentGeneration.Emeralds.Integer() > 0 ||
-			updatedStats.CurrentGeneration.Ores.Integer() > 0 ||
-			updatedStats.CurrentGeneration.Wood.Integer() > 0 ||
-			updatedStats.CurrentGeneration.Fish.Integer() > 0 ||
-			updatedStats.CurrentGeneration.Crops.Integer() > 0
+		newHasProduction := updatedStats.CurrentGeneration.Emeralds > 0 ||
+			updatedStats.CurrentGeneration.Ores > 0 ||
+			updatedStats.CurrentGeneration.Wood > 0 ||
+			updatedStats.CurrentGeneration.Fish > 0 ||
+			updatedStats.CurrentGeneration.Crops > 0
 
 		// Update "No production" text visibility
 		noProdText.SetVisible(!newHasProduction)
@@ -2372,32 +2371,32 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	emeraldCostOptions := DefaultTextOptions()
 	emeraldCostOptions.Color = color.RGBA{0, 255, 0, 255} // Green for emeralds
 
-	costsMenu.Text(fmt.Sprintf("%d Emerald per Hour", territory.Costs.Emeralds.Integer()), emeraldCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Emerald per Hour", territory.Costs.Emeralds), emeraldCostOptions)
 	oreCostOptions := DefaultTextOptions()
 	oreCostOptions.Color = color.RGBA{180, 180, 180, 255} // Light grey for ores
-	costsMenu.Text(fmt.Sprintf("%d Ore per Hour", territory.Costs.Ores.Integer()), oreCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Ore per Hour", territory.Costs.Ores), oreCostOptions)
 
 	woodCostOptions := DefaultTextOptions()
 	woodCostOptions.Color = color.RGBA{139, 69, 19, 255} // Brown for wood
-	costsMenu.Text(fmt.Sprintf("%d Wood per Hour", territory.Costs.Wood.Integer()), woodCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Wood per Hour", territory.Costs.Wood), woodCostOptions)
 
 	fishCostOptions := DefaultTextOptions()
 	fishCostOptions.Color = color.RGBA{0, 150, 255, 255} // Blue for fish
-	costsMenu.Text(fmt.Sprintf("%d Fish per Hour", territory.Costs.Fish.Integer()), fishCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Fish per Hour", territory.Costs.Fish), fishCostOptions)
 
 	cropCostOptions := DefaultTextOptions()
 	cropCostOptions.Color = color.RGBA{255, 255, 0, 255} // Yellow for crops
-	costsMenu.Text(fmt.Sprintf("%d Crop per Hour", territory.Costs.Crops.Integer()), cropCostOptions)
+	costsMenu.Text(fmt.Sprintf("%d Crop per Hour", territory.Costs.Crops), cropCostOptions)
 
 	// Resources (collapsible)
 	resourcesMenu := m.edgeMenu.CollapsibleMenu("Resources", DefaultCollapsibleMenuOptions())
 
 	// Calculate transit resources using the new decoupled transit system, with caching
-	transitEmeralds := numbers.NewFixedPoint(0, 0)
-	transitOres := numbers.NewFixedPoint(0, 0)
-	transitWood := numbers.NewFixedPoint(0, 0)
-	transitFish := numbers.NewFixedPoint(0, 0)
-	transitCrops := numbers.NewFixedPoint(0, 0)
+	transitEmeralds := 0.0
+	transitOres := 0.0
+	transitWood := 0.0
+	transitFish := 0.0
+	transitCrops := 0.0
 
 	// Use tick as cache key (assume eruntime.Tick() returns current tick)
 	currentTick := eruntime.Tick()
@@ -2417,32 +2416,32 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 		m.transitCacheValid = true
 	}
 	for _, transit := range transitResources {
-		transitEmeralds = transitEmeralds.Add(transit.Emeralds)
-		transitOres = transitOres.Add(transit.Ores)
-		transitWood = transitWood.Add(transit.Wood)
-		transitFish = transitFish.Add(transit.Fish)
-		transitCrops = transitCrops.Add(transit.Crops)
+		transitEmeralds += transit.Emeralds
+		transitOres += transit.Ores
+		transitWood += transit.Wood
+		transitFish += transit.Fish
+		transitCrops += transit.Crops
 	}
 
 	// Create interactive resource storage controls
 	resourcesMenu.ResourceStorageControl("Emerald", "emeralds", territoryName,
-		territory.Storage.At.Emeralds.Integer(), territory.Storage.Capacity.Emeralds.Integer(), transitEmeralds.Integer(), territoryStats.CurrentGeneration.Emeralds.Integer(),
+		int(territory.Storage.At.Emeralds), int(territory.Storage.Capacity.Emeralds), int(transitEmeralds), int(territoryStats.CurrentGeneration.Emeralds),
 		color.RGBA{0, 255, 0, 255}) // Green for emeralds
 
 	resourcesMenu.ResourceStorageControl("Ore", "ores", territoryName,
-		territory.Storage.At.Ores.Integer(), territory.Storage.Capacity.Ores.Integer(), transitOres.Integer(), territoryStats.CurrentGeneration.Ores.Integer(),
+		int(territory.Storage.At.Ores), int(territory.Storage.Capacity.Ores), int(transitOres), int(territoryStats.CurrentGeneration.Ores),
 		color.RGBA{180, 180, 180, 255}) // Light grey for ores
 
 	resourcesMenu.ResourceStorageControl("Wood", "wood", territoryName,
-		territory.Storage.At.Wood.Integer(), territory.Storage.Capacity.Wood.Integer(), transitWood.Integer(), territoryStats.CurrentGeneration.Wood.Integer(),
+		int(territory.Storage.At.Wood), int(territory.Storage.Capacity.Wood), int(transitWood), int(territoryStats.CurrentGeneration.Wood),
 		color.RGBA{139, 69, 19, 255}) // Brown for wood
 
 	resourcesMenu.ResourceStorageControl("Fish", "fish", territoryName,
-		territory.Storage.At.Fish.Integer(), territory.Storage.Capacity.Fish.Integer(), transitFish.Integer(), territoryStats.CurrentGeneration.Fish.Integer(),
+		int(territory.Storage.At.Fish), int(territory.Storage.Capacity.Fish), int(transitFish), int(territoryStats.CurrentGeneration.Fish),
 		color.RGBA{0, 150, 255, 255}) // Blue for fish
 
 	resourcesMenu.ResourceStorageControl("Crop", "crops", territoryName,
-		territory.Storage.At.Crops.Integer(), territory.Storage.Capacity.Crops.Integer(), transitCrops.Integer(), territoryStats.CurrentGeneration.Crops.Integer(),
+		int(territory.Storage.At.Crops), int(territory.Storage.Capacity.Crops), int(transitCrops), int(territoryStats.CurrentGeneration.Crops),
 		color.RGBA{255, 255, 0, 255}) // Yellow for crops
 
 	// Trading Routes (collapsible)
