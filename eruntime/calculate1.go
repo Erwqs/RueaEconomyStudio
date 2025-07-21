@@ -196,7 +196,7 @@ func canAffordBonusWithTick(storage typedef.BasicResources, bonusType string, le
 		tolerance = 0.75 // Allow 25% tolerance (need only 75% of required resources)
 		// Debug logging for emerald rate at :59
 		if bonusType == "EmeraldRate" {
-			fmt.Printf("DEBUG canAffordBonusWithTick EmeraldRate: level=%d, cost=%d, costPerSec=%.6f, tolerance=%.2f\n", 
+			fmt.Printf("DEBUG canAffordBonusWithTick EmeraldRate: level=%d, cost=%d, costPerSec=%.6f, tolerance=%.2f\n",
 				level, cost, costPerSec, tolerance)
 		}
 	}
@@ -215,7 +215,7 @@ func canAffordBonusWithTick(storage typedef.BasicResources, bonusType string, le
 		result := storage.Crops >= adjustedCostPerSec
 		// Debug logging for crops specifically at :59
 		if tick%60 == 59 && bonusType == "EmeraldRate" && resourceType == "crops" {
-			fmt.Printf("DEBUG crops check: storage.Crops=%.6f >= adjustedCost=%.6f = %v\n", 
+			fmt.Printf("DEBUG crops check: storage.Crops=%.6f >= adjustedCost=%.6f = %v\n",
 				storage.Crops, adjustedCostPerSec, result)
 		}
 		return result
@@ -264,7 +264,7 @@ func setAffordableBonusesWithTick(territory *typedef.Territory, storage typedef.
 				affordable := canAffordBonusWithTick(storage, bonus.name, bonus.set, tick)
 				if tick%60 == 59 {
 					// Log debug info for emerald rate at :59 regardless of affordability
-					fmt.Printf("DEBUG :59 EmeraldRate SETTING TO 0: set=%d, affordable=%v, crops=%.6f, tick=%d\n", 
+					fmt.Printf("DEBUG :59 EmeraldRate SETTING TO 0: set=%d, affordable=%v, crops=%.6f, tick=%d\n",
 						bonus.set, affordable, storage.Crops, tick)
 				}
 			}
@@ -651,9 +651,8 @@ func doGenerate(territory *typedef.Territory) {
 	// STEP 1: Consume costs every second with proper precision
 	currentStorage := territory.Storage.At
 	newStorage := currentStorage
-  
-	applyCostsEverySecond(territory, &newStorage, costNow, st.tick)
 
+	applyCostsEverySecond(territory, &newStorage, costNow, st.tick)
 
 	// STEP 3: Check if it's time to release accumulated resources based on rate intervals
 	currentTick := st.tick
@@ -1034,11 +1033,11 @@ func cleanupSmallResources(resources *typedef.BasicResources) {
 
 // Cost accumulator to track precise fractional costs over time
 type costAccumulator struct {
-    emeraldsFractional float64
-    oresFractional     float64
-    woodFractional     float64
-    fishFractional     float64
-    cropsFractional    float64
+	emeraldsFractional float64
+	oresFractional     float64
+	woodFractional     float64
+	fishFractional     float64
+	cropsFractional    float64
 }
 
 // Track cost accumulators for each territory - This maintains precision between ticks
@@ -1047,111 +1046,111 @@ var costAccumulatorsMutex sync.RWMutex
 
 // Apply costs every second with proper precision handling
 func applyCostsEverySecond(territory *typedef.Territory, storage *typedef.BasicResources, costs typedef.BasicResourcesSecond, tick uint64) {
-    // Thread-safe access to cost accumulators map
-    costAccumulatorsMutex.Lock()
-    acc, exists := costAccumulators[territory]
-    if !exists {
-        acc = &costAccumulator{}
-        costAccumulators[territory] = acc
-    }
-    costAccumulatorsMutex.Unlock()
+	// Thread-safe access to cost accumulators map
+	costAccumulatorsMutex.Lock()
+	acc, exists := costAccumulators[territory]
+	if !exists {
+		acc = &costAccumulator{}
+		costAccumulators[territory] = acc
+	}
+	costAccumulatorsMutex.Unlock()
 
-    // Add this second's fractional costs to accumulator
-    acc.emeraldsFractional += costs.Emeralds
-    acc.oresFractional += costs.Ores
-    acc.woodFractional += costs.Wood
-    acc.fishFractional += costs.Fish
-    acc.cropsFractional += costs.Crops
+	// Add this second's fractional costs to accumulator
+	acc.emeraldsFractional += costs.Emeralds
+	acc.oresFractional += costs.Ores
+	acc.woodFractional += costs.Wood
+	acc.fishFractional += costs.Fish
+	acc.cropsFractional += costs.Crops
 
-    // Extract whole units to consume, leaving fractional parts for next time
-    emeraldsToConsume := math.Floor(acc.emeraldsFractional)
-    oresToConsume := math.Floor(acc.oresFractional)
-    woodToConsume := math.Floor(acc.woodFractional)
-    fishToConsume := math.Floor(acc.fishFractional)
-    cropsToConsume := math.Floor(acc.cropsFractional)
+	// Extract whole units to consume, leaving fractional parts for next time
+	emeraldsToConsume := math.Floor(acc.emeraldsFractional)
+	oresToConsume := math.Floor(acc.oresFractional)
+	woodToConsume := math.Floor(acc.woodFractional)
+	fishToConsume := math.Floor(acc.fishFractional)
+	cropsToConsume := math.Floor(acc.cropsFractional)
 
-    // Consume the whole units (rounded down as requested)
-    if emeraldsToConsume > 0 {
-        // Apply 15% tolerance only at tick :59 to handle floating point precision errors
-        var consumedEmeralds float64
-        if tick%60 == 59 && emeraldsToConsume > storage.Emeralds {
-            // At :59, allow consuming up to 25% less if we don't have enough
-            toleranceAmount := emeraldsToConsume * 0.25
-            if (emeraldsToConsume - storage.Emeralds) <= toleranceAmount {
-                consumedEmeralds = roundDown(storage.Emeralds)
-            } else {
-                consumedEmeralds = roundDown(min(emeraldsToConsume, storage.Emeralds))
-            }
-        } else {
-            consumedEmeralds = roundDown(min(emeraldsToConsume, storage.Emeralds))
-        }
-        storage.Emeralds = roundDown(storage.Emeralds - consumedEmeralds)
-        acc.emeraldsFractional -= consumedEmeralds
-    }
-    
-    if oresToConsume > 0 {
-        var consumedOres float64
-        if tick%60 == 59 && oresToConsume > storage.Ores {
-            toleranceAmount := oresToConsume * 0.25
-            if (oresToConsume - storage.Ores) <= toleranceAmount {
-                consumedOres = roundDown(storage.Ores)
-            } else {
-                consumedOres = roundDown(min(oresToConsume, storage.Ores))
-            }
-        } else {
-            consumedOres = roundDown(min(oresToConsume, storage.Ores))
-        }
-        storage.Ores = roundDown(storage.Ores - consumedOres)
-        acc.oresFractional -= consumedOres
-    }
-    
-    if woodToConsume > 0 {
-        var consumedWood float64
-        if tick%60 == 59 && woodToConsume > storage.Wood {
-            toleranceAmount := woodToConsume * 0.25
-            if (woodToConsume - storage.Wood) <= toleranceAmount {
-                consumedWood = roundDown(storage.Wood)
-            } else {
-                consumedWood = roundDown(min(woodToConsume, storage.Wood))
-            }
-        } else {
-            consumedWood = roundDown(min(woodToConsume, storage.Wood))
-        }
-        storage.Wood = roundDown(storage.Wood - consumedWood)
-        acc.woodFractional -= consumedWood
-    }
-    
-    if fishToConsume > 0 {
-        var consumedFish float64
-        if tick%60 == 59 && fishToConsume > storage.Fish {
-            toleranceAmount := fishToConsume * 0.25
-            if (fishToConsume - storage.Fish) <= toleranceAmount {
-                consumedFish = roundDown(storage.Fish)
-            } else {
-                consumedFish = roundDown(min(fishToConsume, storage.Fish))
-            }
-        } else {
-            consumedFish = roundDown(min(fishToConsume, storage.Fish))
-        }
-        storage.Fish = roundDown(storage.Fish - consumedFish)
-        acc.fishFractional -= consumedFish
-    }
-    
-    if cropsToConsume > 0 {
-        var consumedCrops float64
-        if tick%60 == 59 && cropsToConsume > storage.Crops {
-            toleranceAmount := cropsToConsume * 0.25
-            if (cropsToConsume - storage.Crops) <= toleranceAmount {
-                consumedCrops = roundDown(storage.Crops)
-            } else {
-                consumedCrops = roundDown(min(cropsToConsume, storage.Crops))
-            }
-        } else {
-            consumedCrops = roundDown(min(cropsToConsume, storage.Crops))
-        }
-        storage.Crops = roundDown(storage.Crops - consumedCrops)
-        acc.cropsFractional -= consumedCrops
-    }
+	// Consume the whole units (rounded down as requested)
+	if emeraldsToConsume > 0 {
+		// Apply 15% tolerance only at tick :59 to handle floating point precision errors
+		var consumedEmeralds float64
+		if tick%60 == 59 && emeraldsToConsume > storage.Emeralds {
+			// At :59, allow consuming up to 25% less if we don't have enough
+			toleranceAmount := emeraldsToConsume * 0.25
+			if (emeraldsToConsume - storage.Emeralds) <= toleranceAmount {
+				consumedEmeralds = roundDown(storage.Emeralds)
+			} else {
+				consumedEmeralds = roundDown(min(emeraldsToConsume, storage.Emeralds))
+			}
+		} else {
+			consumedEmeralds = roundDown(min(emeraldsToConsume, storage.Emeralds))
+		}
+		storage.Emeralds = roundDown(storage.Emeralds - consumedEmeralds)
+		acc.emeraldsFractional -= consumedEmeralds
+	}
+
+	if oresToConsume > 0 {
+		var consumedOres float64
+		if tick%60 == 59 && oresToConsume > storage.Ores {
+			toleranceAmount := oresToConsume * 0.25
+			if (oresToConsume - storage.Ores) <= toleranceAmount {
+				consumedOres = roundDown(storage.Ores)
+			} else {
+				consumedOres = roundDown(min(oresToConsume, storage.Ores))
+			}
+		} else {
+			consumedOres = roundDown(min(oresToConsume, storage.Ores))
+		}
+		storage.Ores = roundDown(storage.Ores - consumedOres)
+		acc.oresFractional -= consumedOres
+	}
+
+	if woodToConsume > 0 {
+		var consumedWood float64
+		if tick%60 == 59 && woodToConsume > storage.Wood {
+			toleranceAmount := woodToConsume * 0.25
+			if (woodToConsume - storage.Wood) <= toleranceAmount {
+				consumedWood = roundDown(storage.Wood)
+			} else {
+				consumedWood = roundDown(min(woodToConsume, storage.Wood))
+			}
+		} else {
+			consumedWood = roundDown(min(woodToConsume, storage.Wood))
+		}
+		storage.Wood = roundDown(storage.Wood - consumedWood)
+		acc.woodFractional -= consumedWood
+	}
+
+	if fishToConsume > 0 {
+		var consumedFish float64
+		if tick%60 == 59 && fishToConsume > storage.Fish {
+			toleranceAmount := fishToConsume * 0.25
+			if (fishToConsume - storage.Fish) <= toleranceAmount {
+				consumedFish = roundDown(storage.Fish)
+			} else {
+				consumedFish = roundDown(min(fishToConsume, storage.Fish))
+			}
+		} else {
+			consumedFish = roundDown(min(fishToConsume, storage.Fish))
+		}
+		storage.Fish = roundDown(storage.Fish - consumedFish)
+		acc.fishFractional -= consumedFish
+	}
+
+	if cropsToConsume > 0 {
+		var consumedCrops float64
+		if tick%60 == 59 && cropsToConsume > storage.Crops {
+			toleranceAmount := cropsToConsume * 0.25
+			if (cropsToConsume - storage.Crops) <= toleranceAmount {
+				consumedCrops = roundDown(storage.Crops)
+			} else {
+				consumedCrops = roundDown(min(cropsToConsume, storage.Crops))
+			}
+		} else {
+			consumedCrops = roundDown(min(cropsToConsume, storage.Crops))
+		}
+		storage.Crops = roundDown(storage.Crops - consumedCrops)
+		acc.cropsFractional -= consumedCrops
+	}
 }
 
 // CheckUpgradeAffordabilityWithTolerance checks if an upgrade is affordable considering :59 tolerance

@@ -65,6 +65,13 @@ func InitPanicNotifier() {
 	globalPanicNotifier = pn
 }
 
+func DeregisterPanicNotifier() {
+	if globalPanicNotifier != nil {
+		globalPanicNotifier.Hide() // Hide the modal if it's visible
+		globalPanicNotifier = nil
+	}
+}
+
 // GetPanicNotifier returns the global panic notifier instance
 func GetPanicNotifier() *PanicNotifier {
 	if globalPanicNotifier == nil {
@@ -102,7 +109,13 @@ func (pn *PanicNotifier) setupButtons() {
 
 	// Terminate button
 	pn.terminateButton = NewEnhancedButton("Terminate", 0, 0, buttonWidth, buttonHeight, func() {
-		os.Exit(1)
+		// Deregister panic handler and rethrow panic
+		if pn.panicInfo != nil {
+			DeregisterPanicNotifier()
+			fmt.Printf("Panic occurred: %v\n", pn.panicInfo.Error)
+			os.Remove(".rueaes.lock")
+			os.Exit(1)
+		}
 	})
 
 	// Continue button

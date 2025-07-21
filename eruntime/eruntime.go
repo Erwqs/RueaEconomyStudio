@@ -69,7 +69,7 @@ var st state
 
 // Initialise all territories and spin up resource tick timer
 func init() {
-	// Read from territories.json
+	// st cannot and never will be nil
 	st = state{
 		territories:    make([]*typedef.Territory, 0, 600),
 		guilds:         make([]*typedef.Guild, 0, 100),        // Reduced from 5000 to 100
@@ -82,7 +82,7 @@ func init() {
 		transitManager:        NewTransitManager(),
 		hqMap:                 make(map[string]*typedef.Territory),
 		territoryMap:          make(map[string]*typedef.Territory),
-		tickQueue:             make(chan struct{}, 50000), // Large buffer for very high-rate tick processing
+		tickQueue:             make(chan struct{}, 50000),
 		useParallelProcessing: true,                       // Enable parallel processing by default for better performance
 	}
 

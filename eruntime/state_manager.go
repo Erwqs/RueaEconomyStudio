@@ -14,7 +14,7 @@ import (
 	"github.com/pierrec/lz4"
 )
 
-var supportedStateVersion = []string{"1.0", "1.1"}
+var supportedStateVersion = []string{"1.0", "1.1", "1.2"}
 
 // StateData represents the complete state that can be saved/loaded
 type StateData struct {
@@ -46,7 +46,7 @@ func SaveStateToFile(filepath string) error {
 
 	// Quick copy of basic state data (no deep copying yet)
 	stateData.Type = "state_save"
-	stateData.Version = "1.1"
+	stateData.Version = "1.2"
 	stateData.Timestamp = time.Now()
 	stateData.Tick = st.tick
 	stateData.RuntimeOptions = st.runtimeOptions

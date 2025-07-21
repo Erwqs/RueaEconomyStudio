@@ -494,6 +494,19 @@ func (gcm *GuildClaimManager) HasClaim(territoryName string) bool {
 	return exists
 }
 
+// GetClaimsForGuild returns a map of territory names that are claimed by the specified guild
+func (gcm *GuildClaimManager) GetClaimsForGuild(guildName, guildTag string) map[string]bool {
+	guildClaims := make(map[string]bool)
+
+	for territoryName, claim := range gcm.Claims {
+		if claim.GuildName == guildName && claim.GuildTag == guildTag {
+			guildClaims[territoryName] = true
+		}
+	}
+
+	return guildClaims
+}
+
 // SaveClaimsToFile saves the claims to a JSON file
 func (gcm *GuildClaimManager) SaveClaimsToFile() error {
 	// Convert map to slice for better JSON formatting

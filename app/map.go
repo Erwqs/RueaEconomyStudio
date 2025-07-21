@@ -2867,8 +2867,8 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	debugButton := DefaultButtonOptions()
 	// Pink button
 	debugButton.BackgroundColor = color.RGBA{255, 105, 180, 255} // Pink background
-	debugButton.HoverColor = color.RGBA{255, 182, 193, 255} // Lighter pink on hover
-	debugButton.PressedColor = color.RGBA{255, 20, 147, 255} // Darker pink when pressed
+	debugButton.HoverColor = color.RGBA{255, 182, 193, 255}      // Lighter pink on hover
+	debugButton.PressedColor = color.RGBA{255, 20, 147, 255}     // Darker pink when pressed
 	debugButtonText := "Trigger Breakpoint"
 	m.edgeMenu.Button(debugButtonText, debugButton, func() {
 		t := eruntime.GetTerritory(territoryName)
@@ -2937,9 +2937,16 @@ func (m *MapView) StartClaimEditing(guildName, guildTag string) {
 	m.editingGuildTag = guildTag
 	m.editingUIVisible = true
 
-	// Initialize claims map - for now, start with no claims
-	// In a real implementation, you'd load existing claims from storage
-	m.guildClaims = make(map[string]bool)
+	// Load existing claims for this guild from storage
+	claimManager := GetGuildClaimManager()
+	if claimManager != nil {
+		m.guildClaims = claimManager.GetClaimsForGuild(guildName, guildTag)
+		fmt.Printf("[MAP] Loaded %d existing claims for guild %s [%s]\n", len(m.guildClaims), guildName, guildTag)
+	} else {
+		// Fallback to empty map if claim manager is not available
+		m.guildClaims = make(map[string]bool)
+		fmt.Printf("[MAP] Warning: Could not load existing claims, starting with empty claims\n")
+	}
 
 	// Close any open territory side menu
 	if m.territoriesManager != nil && m.territoriesManager.IsSideMenuOpen() {
@@ -2993,8 +3000,15 @@ func (m *MapView) StopClaimEditing() {
 					GuildTag:      m.editingGuildTag,
 				})
 			} else {
-				if claimManager.HasClaim(territory) {
-					claimManager.RemoveClaim(territory)
+				// Only remove claims if this territory was originally claimed by the current guild
+				if existingClaim, exists := claimManager.Claims[territory]; exists {
+					if existingClaim.GuildName == m.editingGuildName && existingClaim.GuildTag == m.editingGuildTag {
+						fmt.Printf("  - Removing claim for territory: %s (was claimed by current guild)\n", territory)
+						claimManager.RemoveClaim(territory)
+					} else {
+						fmt.Printf("  - Skipping removal for territory: %s (belongs to different guild: %s [%s])\n",
+							territory, existingClaim.GuildName, existingClaim.GuildTag)
+					}
 				}
 			}
 		}
@@ -3143,7 +3157,7 @@ func (m *MapView) ToggleTerritoryClaim(territoryName string) {
 		m.guildClaims = make(map[string]bool)
 	}
 
-	// Toggle the claim status
+	// Always allow toggling - the logic in StopClaimEditing will handle what gets persisted
 	claimed := m.guildClaims[territoryName]
 	m.guildClaims[territoryName] = !claimed
 

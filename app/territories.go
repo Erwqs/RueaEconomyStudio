@@ -1156,10 +1156,20 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 		// Get actual guild ownership from territory claims
 		actualGuildName, actualGuildTag := tm.getActualGuildForTerritory(name)
 
-		// Check if this territory is claimed by the currently editing guild (override persistent claims)
-		if tm.territoryRenderer != nil && tm.territoryRenderer.editingGuildName != "" && tm.territoryRenderer.IsTerritoryClaimed(name) {
-			actualGuildName = tm.territoryRenderer.editingGuildName
-			actualGuildTag = tm.territoryRenderer.editingGuildTag
+		// Check if this territory is being edited - override persistent claims
+		if tm.territoryRenderer != nil && tm.territoryRenderer.editingGuildName != "" && tm.territoryRenderer.editingClaims != nil {
+			// Check if the territory is in the editing claims map
+			if claimedValue, exists := tm.territoryRenderer.editingClaims[name]; exists {
+				if claimedValue {
+					// Territory is claimed by the editing guild
+					actualGuildName = tm.territoryRenderer.editingGuildName
+					actualGuildTag = tm.territoryRenderer.editingGuildTag
+				} else {
+					// Territory is explicitly unclaimed (set to false) - show as no guild
+					actualGuildName = ""
+					actualGuildTag = ""
+				}
+			}
 		}
 
 		// Try to get color from enhanced guild manager first (if available)

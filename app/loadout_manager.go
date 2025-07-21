@@ -1380,23 +1380,23 @@ func (lm *LoadoutManager) drawLoadoutItem(screen *ebiten.Image, x, y, width int,
 
 	// Merge button
 	mergeButtonX := x + width - 120
-	mergeButtonColor := color.RGBA{70, 120, 200, 255} // Blue for merge
+	mergeButtonColor := color.RGBA{200, 120, 70, 255} // Orange for merge
 	if lm.mergeButtonHovered[index] {
-		mergeButtonColor = color.RGBA{90, 150, 255, 255}
+		mergeButtonColor = color.RGBA{255, 150, 90, 255}
 	}
 	vector.DrawFilledRect(screen, float32(mergeButtonX), float32(y+10), 50, 30, mergeButtonColor, false)
 	vector.StrokeRect(screen, float32(mergeButtonX), float32(y+10), 50, 30, 2, color.RGBA{100, 100, 120, 255}, false)
 	text.Draw(screen, "Merge", smallFont, mergeButtonX+8, y+25, color.RGBA{255, 255, 255, 255})
 
-	// Replace button
+	// Replace button (Apply) - make it green
 	replaceButtonX := x + width - 65
-	replaceButtonColor := color.RGBA{200, 120, 70, 255} // Orange for replace
+	replaceButtonColor := color.RGBA{50, 150, 50, 255} // Green for apply
 	if lm.replaceButtonHovered[index] {
-		replaceButtonColor = color.RGBA{255, 150, 90, 255}
+		replaceButtonColor = color.RGBA{70, 200, 70, 255}
 	}
 	vector.DrawFilledRect(screen, float32(replaceButtonX), float32(y+10), 50, 30, replaceButtonColor, false)
 	vector.StrokeRect(screen, float32(replaceButtonX), float32(y+10), 50, 30, 2, color.RGBA{100, 100, 120, 255}, false)
-	text.Draw(screen, "Apply", smallFont, replaceButtonX+3, y+25, color.RGBA{255, 255, 255, 255})
+	text.Draw(screen, "Apply", smallFont, replaceButtonX+8, y+25, color.RGBA{255, 255, 255, 255})
 }
 
 // Helper functions for displaying loadout information

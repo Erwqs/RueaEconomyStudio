@@ -130,6 +130,7 @@ type Guild struct {
 	// TODO: Define guild structure with allies
 	Name       string         `json:"Name"`       // Guild name
 	Tag        string         `json:"Tag"`        // Guild tag
+	// Color      uint           `json:"Color"`      // Guild color
 	Allies     []*Guild       `json:"Allies"`     // List of allied guilds
 	TributeIn  BasicResources `json:"TributeIn"`  // Resources received from tributes (per hour)
 	TributeOut BasicResources `json:"TributeOut"` // Resources sent as tributes (per hour)
@@ -737,5 +738,3 @@ func _round_down2(x float64) float64 {
 func _round_down_nearest(x float64) float64 {
 	return float64(int(x))
 }
-
-

@@ -824,6 +824,13 @@ type EdgeMenu struct {
 	lastUpdateTime   float64
 	currentTerritory string
 	refreshCallback  func(string)
+
+	// Scrollbar interaction state
+	scrollbarRect     image.Rectangle // The entire scrollbar track
+	scrollbarHandle   image.Rectangle // The draggable handle
+	scrollbarDragging bool            // Whether the handle is being dragged
+	dragStartY        int             // Y position where drag started
+	dragStartOffset   int             // Scroll offset when drag started
 }
 
 // NewEdgeMenu creates a new edge menu with the specified title and options
@@ -1123,7 +1130,87 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 		}
 	}
 
-	// Only handle EdgeMenu-level scrolling if no child element handled the input
+	// Handle scrollbar interactions first (before wheel scrolling)
+	if !handled && m.options.Scrollable && m.maxScroll > 0 {
+		// Handle scrollbar dragging
+		if m.scrollbarDragging {
+			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+				// Continue dragging
+				if m.options.HorizontalScroll {
+					// Horizontal scrollbar dragging
+					deltaX := mx - m.dragStartY // Using dragStartY for X in horizontal mode
+					trackWidth := m.scrollbarRect.Dx() - m.scrollbarHandle.Dx()
+					if trackWidth > 0 {
+						scrollDelta := float64(deltaX) * float64(m.maxScroll) / float64(trackWidth)
+						newOffset := float64(m.dragStartOffset) + scrollDelta
+						m.scrollTarget = math.Max(0, math.Min(float64(m.maxScroll), newOffset))
+						m.scrollOffset = int(m.scrollTarget) // Immediate response while dragging
+					}
+				} else {
+					// Vertical scrollbar dragging
+					deltaY := my - m.dragStartY
+					trackHeight := m.scrollbarRect.Dy() - m.scrollbarHandle.Dy()
+					if trackHeight > 0 {
+						scrollDelta := float64(deltaY) * float64(m.maxScroll) / float64(trackHeight)
+						newOffset := float64(m.dragStartOffset) + scrollDelta
+						m.scrollTarget = math.Max(0, math.Min(float64(m.maxScroll), newOffset))
+						m.scrollOffset = int(m.scrollTarget) // Immediate response while dragging
+					}
+				}
+				handled = true
+			} else {
+				// Stop dragging
+				m.scrollbarDragging = false
+			}
+		} else {
+			// Check for scrollbar interactions when not already dragging
+			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+				// Check if clicking on scrollbar handle to start dragging
+				if mx >= m.scrollbarHandle.Min.X && mx < m.scrollbarHandle.Max.X &&
+					my >= m.scrollbarHandle.Min.Y && my < m.scrollbarHandle.Max.Y {
+					m.scrollbarDragging = true
+					if m.options.HorizontalScroll {
+						m.dragStartY = mx // Store X position for horizontal scrolling
+					} else {
+						m.dragStartY = my
+					}
+					m.dragStartOffset = m.scrollOffset
+					handled = true
+				} else if mx >= m.scrollbarRect.Min.X && mx < m.scrollbarRect.Max.X &&
+					my >= m.scrollbarRect.Min.Y && my < m.scrollbarRect.Max.Y {
+					// Clicking on scrollbar track (not handle) - jump to position
+					if m.options.HorizontalScroll {
+						// Horizontal scrollbar track click
+						trackWidth := m.scrollbarRect.Dx() - m.scrollbarHandle.Dx()
+						if trackWidth > 0 {
+							relativeX := mx - m.scrollbarRect.Min.X - m.scrollbarHandle.Dx()/2
+							scrollRatio := float64(relativeX) / float64(trackWidth)
+							scrollRatio = math.Max(0, math.Min(1, scrollRatio))
+							m.scrollTarget = scrollRatio * float64(m.maxScroll)
+						}
+					} else {
+						// Vertical scrollbar track click
+						trackHeight := m.scrollbarRect.Dy() - m.scrollbarHandle.Dy()
+						if trackHeight > 0 {
+							relativeY := my - m.scrollbarRect.Min.Y - m.scrollbarHandle.Dy()/2
+							scrollRatio := float64(relativeY) / float64(trackHeight)
+							scrollRatio = math.Max(0, math.Min(1, scrollRatio))
+							m.scrollTarget = scrollRatio * float64(m.maxScroll)
+						}
+					}
+					m.lastScrollTime = 0.0
+					handled = true
+				}
+			}
+		}
+	}
+
+	// Stop scrollbar dragging if mouse button is released anywhere
+	if m.scrollbarDragging && inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+		m.scrollbarDragging = false
+	}
+
+	// Only handle wheel scrolling if no child element or scrollbar handled the input
 	if !handled && m.options.Scrollable && mx >= m.bounds.Min.X && mx < m.bounds.Max.X && my >= m.bounds.Min.Y && my < m.bounds.Max.Y {
 		scrollX, scrollY := ebiten.Wheel()
 
@@ -1147,8 +1234,8 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 			return true
 		}
 	}
-	// Update smooth scrolling animation
-	if math.Abs(float64(m.scrollOffset)-m.scrollTarget) > 0.1 {
+	// Update smooth scrolling animation (but not while dragging scrollbar)
+	if !m.scrollbarDragging && math.Abs(float64(m.scrollOffset)-m.scrollTarget) > 0.1 {
 		// Simple smooth interpolation without physics - like browser scrolling
 		diff := m.scrollTarget - float64(m.scrollOffset)
 
@@ -1366,26 +1453,43 @@ func (m *EdgeMenu) drawScrollbar(screen *ebiten.Image, contentY, contentHeight i
 		scrollbarY := m.bounds.Max.Y - scrollbarHeight - 5
 		scrollbarWidth := m.bounds.Dx() - 40
 
+		// Store scrollbar rect for interaction
+		m.scrollbarRect = image.Rect(m.bounds.Min.X+20, scrollbarY, m.bounds.Min.X+20+scrollbarWidth, scrollbarY+scrollbarHeight)
+
 		// Background
 		bgColor := color.RGBA{60, 60, 60, uint8(float32(100) * float32(m.animProgress))}
-		vector.DrawFilledRect(screen, float32(m.bounds.Min.X+20), float32(scrollbarY), float32(scrollbarWidth), float32(scrollbarHeight), bgColor, false)
+		vector.DrawFilledRect(screen, float32(m.scrollbarRect.Min.X), float32(m.scrollbarRect.Min.Y), float32(scrollbarWidth), float32(scrollbarHeight), bgColor, false)
 
 		// Handle
 		scrollRatio := float64(m.scrollOffset) / float64(m.maxScroll)
 		handleWidth := int(float64(scrollbarWidth) * float64(m.bounds.Dx()) / float64(m.contentHeight))
 		handleWidth = int(math.Max(20, float64(handleWidth))) // Minimum handle size
 
-		handleX := m.bounds.Min.X + 20 + int(scrollRatio*float64(scrollbarWidth-handleWidth))
+		handleX := m.scrollbarRect.Min.X + int(scrollRatio*float64(scrollbarWidth-handleWidth))
+
+		// Store handle rect for interaction
+		m.scrollbarHandle = image.Rect(handleX, scrollbarY+2, handleX+handleWidth, scrollbarY+scrollbarHeight-2)
+
+		// Draw handle with hover effect
 		handleColor := color.RGBA{150, 150, 150, uint8(float32(200) * float32(m.animProgress))}
-		vector.DrawFilledRect(screen, float32(handleX), float32(scrollbarY+2), float32(handleWidth), float32(scrollbarHeight-4), handleColor, false)
+		mx, my := ebiten.CursorPosition()
+		if (mx >= m.scrollbarHandle.Min.X && mx < m.scrollbarHandle.Max.X &&
+			my >= m.scrollbarHandle.Min.Y && my < m.scrollbarHandle.Max.Y) || m.scrollbarDragging {
+			handleColor = color.RGBA{180, 180, 180, uint8(float32(230) * float32(m.animProgress))}
+		}
+		vector.DrawFilledRect(screen, float32(m.scrollbarHandle.Min.X), float32(m.scrollbarHandle.Min.Y),
+			float32(m.scrollbarHandle.Dx()), float32(m.scrollbarHandle.Dy()), handleColor, false)
 	} else {
 		// Vertical scrollbar
 		scrollbarWidth := 12
 		scrollbarX := m.bounds.Max.X - scrollbarWidth - 5
 
+		// Store scrollbar rect for interaction
+		m.scrollbarRect = image.Rect(scrollbarX, contentY, scrollbarX+scrollbarWidth, contentY+contentHeight)
+
 		// Background
 		bgColor := color.RGBA{60, 60, 60, uint8(float32(100) * float32(m.animProgress))}
-		vector.DrawFilledRect(screen, float32(scrollbarX), float32(contentY), float32(scrollbarWidth), float32(contentHeight), bgColor, false)
+		vector.DrawFilledRect(screen, float32(m.scrollbarRect.Min.X), float32(m.scrollbarRect.Min.Y), float32(scrollbarWidth), float32(contentHeight), bgColor, false)
 
 		// Handle
 		scrollRatio := float64(m.scrollOffset) / float64(m.maxScroll)
@@ -1393,8 +1497,19 @@ func (m *EdgeMenu) drawScrollbar(screen *ebiten.Image, contentY, contentHeight i
 		handleHeight = int(math.Max(20, float64(handleHeight))) // Minimum handle size
 
 		handleY := contentY + int(scrollRatio*float64(contentHeight-handleHeight))
+
+		// Store handle rect for interaction
+		m.scrollbarHandle = image.Rect(scrollbarX+2, handleY, scrollbarX+scrollbarWidth-2, handleY+handleHeight)
+
+		// Draw handle with hover effect
 		handleColor := color.RGBA{150, 150, 150, uint8(float32(200) * float32(m.animProgress))}
-		vector.DrawFilledRect(screen, float32(scrollbarX+2), float32(handleY), float32(scrollbarWidth-4), float32(handleHeight), handleColor, false)
+		mx, my := ebiten.CursorPosition()
+		if (mx >= m.scrollbarHandle.Min.X && mx < m.scrollbarHandle.Max.X &&
+			my >= m.scrollbarHandle.Min.Y && my < m.scrollbarHandle.Max.Y) || m.scrollbarDragging {
+			handleColor = color.RGBA{180, 180, 180, uint8(float32(230) * float32(m.animProgress))}
+		}
+		vector.DrawFilledRect(screen, float32(m.scrollbarHandle.Min.X), float32(m.scrollbarHandle.Min.Y),
+			float32(m.scrollbarHandle.Dx()), float32(m.scrollbarHandle.Dy()), handleColor, false)
 	}
 }
 
