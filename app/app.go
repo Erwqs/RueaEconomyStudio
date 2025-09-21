@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"etools/assets"
+	"etools/eruntime"
 	"etools/fonts"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -667,6 +668,22 @@ func New() *Game {
 	game.state.settingsScreen.backToMenuCallback = func() {
 		// Commented out to disable main menu return
 		// game.state.gameState = StateMenu
+	}
+
+	// Check if autosave was loaded on startup - if not, show welcome screen
+	if !eruntime.WasAutoSaveLoadedOnStartup() {
+		// No autosave file was found/loaded, show welcome screen
+		welcomeScreen := GetWelcomeScreen()
+		
+		// Set up callback to access guild manager
+		welcomeScreen.SetImportGuildsCallback(func() {
+			if game.state.gameplayModule != nil && game.state.gameplayModule.guildManager != nil {
+				game.state.gameplayModule.guildManager.Show()
+			}
+		})
+		
+		welcomeScreen.Show()
+		fmt.Println("[APP] No autosave loaded on startup, showing welcome screen")
 	}
 
 	return game

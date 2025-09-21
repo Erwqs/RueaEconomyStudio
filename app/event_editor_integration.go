@@ -5,16 +5,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
-// HandleEventEditorInput handles input events for the event editor
+// HandleEventEditorInput handles event editor input
 func (m *MapView) HandleEventEditorInput() bool {
 	return false // this shit doesnt work
 
-	// Check if E key is pressed to open event editor
 	if inpututil.IsKeyJustPressed(ebiten.KeyE) {
-		// Don't open event editor if any text input is currently focused
 		textInputFocused := false
 
-		// Check if guild manager is open and has text input focused
 		if m.territoriesManager != nil {
 			guildManager := m.territoriesManager.guildManager
 			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
@@ -22,23 +19,19 @@ func (m *MapView) HandleEventEditorInput() bool {
 			}
 		}
 
-		// Check if loadout manager is open and has text input focused
 		loadoutManager := GetLoadoutManager()
 		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
 			textInputFocused = true
 		}
 
-		// Check if transit resource menu is open and has text input focused
 		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
 			textInputFocused = true
 		}
 
-		// Check if event editor has text input focused
 		if m.eventEditor != nil && m.eventEditor.IsVisible() && m.eventEditor.IsTextInputFocused() {
 			textInputFocused = true
 		}
 
-		// Only open event editor if no text input is focused
 		if !textInputFocused {
 			m.OpenEventEditor()
 			return true // Input was handled

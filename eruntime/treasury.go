@@ -9,7 +9,7 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 	}
 
 	// Calculate distance from HQ based on trading routes
-	if len(territory.TradingRoutes) == 0 || (len(territory.TradingRoutes) == 0 && !territory.HQ){
+	if len(territory.TradingRoutes) == 0 || (len(territory.TradingRoutes) == 0 && !territory.HQ) {
 		return bonusMultiplier // No trading routes means no treasury bonus
 	}
 
@@ -20,8 +20,8 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 	}
 
 	// Clamp distance
-	if distance > 6 {
-		distance = 6 // Maximum distance
+	if distance > 7 {
+		distance = 7 // Maximum distance
 	}
 
 	// Get the territory's displayed level
@@ -37,6 +37,20 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 	var treasuryBonus float64
 
 	switch distance {
+	case 1, 2:
+		// For HQ + 1 & 2 distance
+		switch level {
+		case typedef.TreasuryLevelVeryLow:
+			treasuryBonus = 0.0 // 0%
+		case typedef.TreasuryLevelLow:
+			treasuryBonus = 0.10 // 10%
+		case typedef.TreasuryLevelMedium:
+			treasuryBonus = 0.20 // 20%
+		case typedef.TreasuryLevelHigh:
+			treasuryBonus = 0.25 // 25%
+		case typedef.TreasuryLevelVeryHigh:
+			treasuryBonus = 0.30 // 30%
+		}
 	case 4:
 		switch level {
 		case typedef.TreasuryLevelVeryLow:
@@ -76,7 +90,7 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 		case typedef.TreasuryLevelVeryHigh:
 			treasuryBonus = 0.165 // 16.5%
 		}
-	case 7:
+	default:
 		switch level {
 		case typedef.TreasuryLevelVeryLow:
 			treasuryBonus = 0.0 // 0%
@@ -89,20 +103,6 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 		case typedef.TreasuryLevelVeryHigh:
 			treasuryBonus = 0.12 // 12%
 		}
-	default:
-		// For HQ + 1 & 2 distance
-		switch level {
-		case typedef.TreasuryLevelVeryLow:
-			treasuryBonus = 0.0 // 0%
-		case typedef.TreasuryLevelLow:
-			treasuryBonus = 0.10 // 10%
-		case typedef.TreasuryLevelMedium:
-			treasuryBonus = 0.20 // 20%
-		case typedef.TreasuryLevelHigh:
-			treasuryBonus = 0.25 // 25%
-		case typedef.TreasuryLevelVeryHigh:
-			treasuryBonus = 0.30 // 30%
-		}
 	}
 
 	return 1.0 + treasuryBonus
@@ -110,10 +110,8 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 
 // calculateTreasuryLevel calculates the treasury level based on time since captured
 func calculateTreasuryLevel(capturedAt uint64) typedef.TreasuryLevel {
-	// Calculate time difference in ticks
 	timeSinceCaptured := st.tick - capturedAt
 
-	// Convert ticks to seconds (assuming st.tick is incremented every second)
 	secondsSinceCaptured := timeSinceCaptured
 
 	// Calculate time thresholds:
@@ -164,6 +162,5 @@ func updateTreasuryLevel(territory *typedef.Territory) {
 // updateGenerationBonus calculates and updates the territory's GenerationBonus based on treasury
 func updateGenerationBonus(territory *typedef.Territory) {
 	treasuryMultiplier := calculateTreasury(territory)
-	// Convert from multiplier (1.0 + bonus) to percentage bonus
 	territory.GenerationBonus = (treasuryMultiplier - 1.0) * 100.0
 }

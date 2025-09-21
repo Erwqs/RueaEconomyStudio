@@ -314,33 +314,6 @@ func (smm *StateManagementMenu) Show() {
 	optionsSection.Text("may increase impact load time.", DefaultTextOptions())
 	optionsSection.ToggleSwitch("Encode In-Transit Resources", 0, encodeTreasuryToggleOpts, encodeTreasuryToggleCBFunc)
 
-	optionsSection.Spacer(DefaultSpacerOptions())
-	optionsSection.Text("Shared memory access allows external", DefaultTextOptions())
-	optionsSection.Text("applications to read and write state.", DefaultTextOptions())
-	optionsSection.Spacer(smallSpacerOpts)
-	optionsSection.Text("This may cause undefined behavior.", DefaultTextOptions())
-	optionsSection.Spacer(smallSpacerOpts)
-
-	Options = []string{"Enabled", "Disabled"}
-	sharedMemoryToggleOpts := DefaultToggleSwitchOptions()
-	sharedMemoryToggleOpts.Options = Options
-	sharedMemoryToggleCBFunc := func(index int, value string) {
-		if value == "Enabled" {
-			currOpts := eruntime.GetRuntimeOptions()
-			currOpts.EnableShm = true
-			eruntime.SetRuntimeOptions(currOpts)
-			fmt.Println("[STATE_MGMT] Shared memory access enabled")
-		} else {
-			currOpts := eruntime.GetRuntimeOptions()
-			currOpts.EnableShm = false
-			eruntime.SetRuntimeOptions(currOpts)
-			fmt.Println("[STATE_MGMT] Shared memory access disabled")
-		}
-	}
-
-	toggleSw := optionsSection.ToggleSwitch("Shared Memory Access", 0, sharedMemoryToggleOpts, sharedMemoryToggleCBFunc)
-	toggleSw.SetDefaultValue("Disabled") // Set default to "Disabled" using the new convenience method
-
 	// --- Credits ---
 	creditsSection := smm.menu.CollapsibleMenu("Credits", DefaultCollapsibleMenuOptions())
 	creditsSection.Text("Ruea Economy Studio", DefaultTextOptions())

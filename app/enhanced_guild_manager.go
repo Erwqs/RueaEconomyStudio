@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -439,6 +440,28 @@ type EnhancedGuildManager struct {
 	scrollbarDragging bool
 	dragStartY        int
 	dragStartOffset   int
+
+	// Double-click tracking for guild items
+	lastClickTime  time.Time
+	lastClickIndex int
+
+	// Territory listing modal
+	territoryModalVisible      bool
+	territoryModalGuild        *EnhancedGuildData
+	territoryList              []string
+	territoryScrollOffset      int
+	territoryHoveredIndex      int
+	territorySelectedIndex     int
+	territoryModalX            int
+	territoryModalY            int
+	territoryModalWidth        int
+	territoryModalHeight       int
+	territoryScrollbarDragging bool
+	territoryDragStartY        int
+	territoryDragStartOffset   int
+	territoryLastClickTime     time.Time
+	territoryLastClickIndex    int
+
 	// Performance optimization: guild lookup caches
 	guildByNameTag map[string]*EnhancedGuildData // name+tag -> guild
 	guildByName    map[string]*EnhancedGuildData // name -> guild
@@ -480,6 +503,23 @@ func NewEnhancedGuildManager() *EnhancedGuildManager {
 		statusMessageManager: StatusMessageManager{
 			Messages: []StatusMessage{},
 		},
+		// Initialize double-click tracking
+		lastClickTime:  time.Time{},
+		lastClickIndex: -1,
+		// Initialize territory modal
+		territoryModalVisible:      false,
+		territoryModalGuild:        nil,
+		territoryList:              []string{},
+		territoryScrollOffset:      0,
+		territoryHoveredIndex:      -1,
+		territorySelectedIndex:     -1,
+		territoryModalWidth:        500,
+		territoryModalHeight:       400,
+		territoryScrollbarDragging: false,
+		territoryDragStartY:        0,
+		territoryDragStartOffset:   0,
+		territoryLastClickTime:     time.Time{},
+		territoryLastClickIndex:    -1,
 		// Initialize performance caches
 		guildByNameTag: make(map[string]*EnhancedGuildData),
 		guildByName:    make(map[string]*EnhancedGuildData),
@@ -489,6 +529,10 @@ func NewEnhancedGuildManager() *EnhancedGuildManager {
 		// Initialize API import state
 		apiImportInProgress: false,
 	}
+
+	// Initialize territory modal positioning
+	gm.territoryModalX = (screenW - gm.territoryModalWidth) / 2
+	gm.territoryModalY = (screenH - gm.territoryModalHeight) / 2
 
 	// Initialize color picker
 	colorPickerWidth := 400
@@ -590,6 +634,11 @@ func (gm *EnhancedGuildManager) Update() bool {
 
 	// Update status messages
 	gm.statusMessageManager.Update()
+
+	// Update territory modal first (highest priority after color picker)
+	if gm.territoryModalVisible {
+		return gm.updateTerritoryModal()
+	}
 
 	// Update color picker first (highest priority)
 	if gm.colorPicker.IsVisible() {
@@ -735,12 +784,16 @@ func (gm *EnhancedGuildManager) Update() bool {
 			select {
 			case event := <-gm.keyEventCh:
 				if event.Pressed && event.Key == ebiten.KeyEscape {
-					// Only allow ESC to close if we've waited enough frames
-					if gm.framesToIgnoreESC <= 0 {
-						gm.Hide()
-						return true
+					// Don't handle ESC here if territory modal is visible - it's already handled in updateTerritoryModal
+					if !gm.territoryModalVisible {
+						// Only allow ESC to close if we've waited enough frames
+						if gm.framesToIgnoreESC <= 0 {
+							gm.Hide()
+							return true
+						}
+						// Otherwise ignore the ESC key
 					}
-					// Otherwise ignore the ESC key
+					// If territory modal is visible, just consume the event without action
 				}
 			default:
 				// No more events to process
@@ -932,9 +985,21 @@ keyEventsProcessed:
 					my >= itemRect.Y && my < itemRect.Y+itemRect.Height {
 					gm.hoveredIndex = itemIndex
 
-					// Handle click on item
+					// Handle click on item with double-click detection
 					if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-						gm.selectedIndex = itemIndex
+						currentTime := time.Now()
+
+						// Check for double-click (within 500ms and same item)
+						if itemIndex == gm.lastClickIndex && currentTime.Sub(gm.lastClickTime) < 500*time.Millisecond {
+							// Double-click: show territory modal
+							gm.showTerritoryModal(&gm.filteredGuilds[itemIndex])
+						} else {
+							// Single click: just select
+							gm.selectedIndex = itemIndex
+						}
+
+						gm.lastClickIndex = itemIndex
+						gm.lastClickTime = currentTime
 						return true
 					}
 				}
@@ -1320,6 +1385,9 @@ func (gm *EnhancedGuildManager) Draw(screen *ebiten.Image) {
 
 	// Draw status messages
 	gm.statusMessageManager.Draw(screen, gm.modalX+30, gm.modalY+150, contentFont, EnhancedUIColors.Text)
+
+	// Draw territory modal if visible (should be drawn last to be on top)
+	gm.drawTerritoryModal(screen)
 }
 
 // StatusMessage represents a temporary status message
@@ -1598,6 +1666,274 @@ func (gm *EnhancedGuildManager) openColorPickerForGuild(guildIndex int) {
 
 	// Show the color picker
 	gm.colorPicker.Show(guildIndex, guild.Color)
+}
+
+// showTerritoryModal opens the territory listing modal for a specific guild
+func (gm *EnhancedGuildManager) showTerritoryModal(guild *EnhancedGuildData) {
+	gm.territoryModalVisible = true
+	gm.territoryModalGuild = guild
+	gm.territoryScrollOffset = 0
+	gm.territoryHoveredIndex = -1
+	gm.territorySelectedIndex = -1
+
+	// Get territory claims for this guild
+	claimManager := GetGuildClaimManager()
+	if claimManager != nil {
+		claims := claimManager.GetClaimsForGuild(guild.Name, guild.Tag)
+		gm.territoryList = make([]string, 0, len(claims))
+		for territoryName := range claims {
+			gm.territoryList = append(gm.territoryList, territoryName)
+		}
+	} else {
+		gm.territoryList = []string{}
+	}
+
+	// Sort the territory list for consistent display
+	sort.Strings(gm.territoryList)
+
+	// Center the modal on screen
+	screenW, screenH := ebiten.WindowSize()
+	gm.territoryModalX = (screenW - gm.territoryModalWidth) / 2
+	gm.territoryModalY = (screenH - gm.territoryModalHeight) / 2
+}
+
+// hideTerritoryModal closes the territory listing modal
+func (gm *EnhancedGuildManager) hideTerritoryModal() {
+	gm.territoryModalVisible = false
+	gm.territoryModalGuild = nil
+	gm.territoryList = []string{}
+	gm.territoryScrollOffset = 0
+	gm.territoryHoveredIndex = -1
+	gm.territorySelectedIndex = -1
+}
+
+// updateTerritoryModal handles input and updates for the territory modal
+func (gm *EnhancedGuildManager) updateTerritoryModal() bool {
+	// Handle ESC key to close territory modal - also drain key event channel to prevent double handling
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		// Drain any ESC events from the key event channel to prevent main guild manager from also processing
+		if gm.keyEventCh != nil {
+			for {
+				select {
+				case event := <-gm.keyEventCh:
+					// Consume ESC events without processing them
+					if event.Pressed && event.Key == ebiten.KeyEscape {
+						// Just consume, don't process
+					}
+				default:
+					// No more events to drain
+					goto drained
+				}
+			}
+		}
+	drained:
+		gm.hideTerritoryModal()
+		return true
+	}
+
+	mx, my := ebiten.CursorPosition()
+
+	// Check if mouse is in territory modal area
+	inTerritoryModal := mx >= gm.territoryModalX && mx <= gm.territoryModalX+gm.territoryModalWidth &&
+		my >= gm.territoryModalY && my <= gm.territoryModalY+gm.territoryModalHeight
+
+	// Handle mouse wheel scrolling
+	_, wheelY := ebiten.Wheel()
+	if wheelY != 0 && inTerritoryModal {
+		maxVisibleItems := (gm.territoryModalHeight - 120) / 30
+		if len(gm.territoryList) > maxVisibleItems {
+			gm.territoryScrollOffset -= int(wheelY * 3)
+			if gm.territoryScrollOffset < 0 {
+				gm.territoryScrollOffset = 0
+			}
+			maxOffset := len(gm.territoryList) - maxVisibleItems
+			if maxOffset < 0 {
+				maxOffset = 0
+			}
+			if gm.territoryScrollOffset > maxOffset {
+				gm.territoryScrollOffset = maxOffset
+			}
+		}
+	}
+
+	// Handle scrollbar dragging for territory modal
+	if gm.territoryScrollbarDragging && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		maxVisibleItems := (gm.territoryModalHeight - 120) / 30
+		if len(gm.territoryList) > maxVisibleItems {
+			scrollbarHeight := gm.territoryModalHeight - 120 // Match with drawing coordinates
+			deltaY := my - gm.territoryDragStartY
+
+			if scrollbarHeight > 0 {
+				maxOffset := len(gm.territoryList) - maxVisibleItems
+
+				// Calculate thumb constraints
+				thumbHeight := (maxVisibleItems * scrollbarHeight) / len(gm.territoryList)
+				if thumbHeight < 20 {
+					thumbHeight = 20
+				}
+				maxThumbY := scrollbarHeight - thumbHeight
+
+				scrollDelta := int(float64(deltaY) / float64(maxThumbY) * float64(maxOffset))
+				newScrollOffset := gm.territoryDragStartOffset + scrollDelta
+
+				if newScrollOffset < 0 {
+					newScrollOffset = 0
+				} else if newScrollOffset > maxOffset {
+					newScrollOffset = maxOffset
+				}
+				gm.territoryScrollOffset = newScrollOffset
+			}
+		}
+		return true
+	}
+
+	// Stop dragging when mouse is released
+	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+		gm.territoryScrollbarDragging = false
+	}
+
+	// Handle mouse clicks
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		if !inTerritoryModal {
+			// Clicked outside territory modal, close it
+			gm.hideTerritoryModal()
+			return true
+		}
+
+		// Check for close button click
+		closeButtonSize := 24
+		closeButtonX := gm.territoryModalX + gm.territoryModalWidth - closeButtonSize - 15
+		closeButtonY := gm.territoryModalY + 15
+
+		if mx >= closeButtonX && mx < closeButtonX+closeButtonSize &&
+			my >= closeButtonY && my < closeButtonY+closeButtonSize {
+			gm.hideTerritoryModal()
+			return true
+		}
+
+		// Handle scrollbar clicks
+		maxVisibleItems := (gm.territoryModalHeight - 120) / 30
+		if len(gm.territoryList) > maxVisibleItems {
+			// Match coordinates with drawing code: listX+listWidth-20
+			listX := gm.territoryModalX + 20
+			listWidth := gm.territoryModalWidth - 40
+			scrollbarX := listX + listWidth - 20
+			scrollbarWidth := 16
+			scrollbarY := gm.territoryModalY + 80
+			scrollbarHeight := gm.territoryModalHeight - 120
+
+			if mx >= scrollbarX && mx <= scrollbarX+scrollbarWidth &&
+				my >= scrollbarY && my <= scrollbarY+scrollbarHeight {
+
+				// Calculate thumb position and size
+				thumbHeight := (maxVisibleItems * scrollbarHeight) / len(gm.territoryList)
+				if thumbHeight < 20 {
+					thumbHeight = 20
+				}
+
+				maxOffset := len(gm.territoryList) - maxVisibleItems
+				maxThumbY := scrollbarHeight - thumbHeight
+				thumbY := scrollbarY + (gm.territoryScrollOffset*maxThumbY)/(maxOffset)
+
+				// Check if click is on thumb
+				if my >= thumbY && my <= thumbY+thumbHeight {
+					// Start dragging thumb
+					gm.territoryScrollbarDragging = true
+					gm.territoryDragStartY = my
+					gm.territoryDragStartOffset = gm.territoryScrollOffset
+				} else {
+					// Click on track - jump to position
+					relativeY := my - scrollbarY
+					newScrollOffset := int(float64(relativeY) / float64(scrollbarHeight) * float64(maxOffset))
+					if newScrollOffset < 0 {
+						newScrollOffset = 0
+					} else if newScrollOffset > maxOffset {
+						newScrollOffset = maxOffset
+					}
+					gm.territoryScrollOffset = newScrollOffset
+				}
+				return true
+			}
+		}
+
+		// Handle territory item clicks
+		gm.territoryHoveredIndex = -1
+		if len(gm.territoryList) > 0 {
+			itemHeight := 30
+			listStartY := gm.territoryModalY + 80
+
+			maxVisibleItems := (gm.territoryModalHeight - 120) / itemHeight
+			for i := 0; i < len(gm.territoryList) && i < maxVisibleItems; i++ {
+				itemIndex := i + gm.territoryScrollOffset
+				if itemIndex >= len(gm.territoryList) {
+					break
+				}
+
+				itemY := listStartY + (i * itemHeight)
+
+				// Territory item area
+				itemRect := Rect{
+					X:      gm.territoryModalX + 20,
+					Y:      itemY,
+					Width:  gm.territoryModalWidth - 60,
+					Height: itemHeight,
+				}
+
+				if mx >= itemRect.X && mx < itemRect.X+itemRect.Width &&
+					my >= itemRect.Y && my < itemRect.Y+itemRect.Height {
+
+					currentTime := time.Now()
+
+					// Check for double-click (within 500ms and same item)
+					if itemIndex == gm.territoryLastClickIndex && currentTime.Sub(gm.territoryLastClickTime) < 500*time.Millisecond {
+						// Double-click: show EdgeMenu for territory
+						gm.showEdgeMenuForTerritory(gm.territoryList[itemIndex])
+					} else {
+						// Single click: just select
+						gm.territorySelectedIndex = itemIndex
+					}
+
+					gm.territoryLastClickIndex = itemIndex
+					gm.territoryLastClickTime = currentTime
+					return true
+				}
+			}
+		}
+	}
+
+	// Update hover state for territory items
+	gm.territoryHoveredIndex = -1
+	if inTerritoryModal && len(gm.territoryList) > 0 {
+		itemHeight := 30
+		listStartY := gm.territoryModalY + 80
+
+		maxVisibleItems := (gm.territoryModalHeight - 120) / itemHeight
+		for i := 0; i < len(gm.territoryList) && i < maxVisibleItems; i++ {
+			itemIndex := i + gm.territoryScrollOffset
+			if itemIndex >= len(gm.territoryList) {
+				break
+			}
+
+			itemY := listStartY + (i * itemHeight)
+
+			// Territory item area
+			itemRect := Rect{
+				X:      gm.territoryModalX + 20,
+				Y:      itemY,
+				Width:  gm.territoryModalWidth - 60,
+				Height: itemHeight,
+			}
+
+			if mx >= itemRect.X && mx < itemRect.X+itemRect.Width &&
+				my >= itemRect.Y && my < itemRect.Y+itemRect.Height {
+				gm.territoryHoveredIndex = itemIndex
+				break
+			}
+		}
+	}
+
+	// Block all input while territory modal is visible
+	return true
 }
 
 // updateGuildColor updates a guild's color and saves to file
@@ -1996,4 +2332,149 @@ func (gm *EnhancedGuildManager) IsNameInputFocused() bool {
 // IsTagInputFocused returns true if the tag input is currently focused
 func (gm *EnhancedGuildManager) IsTagInputFocused() bool {
 	return gm.tagInput.Focused
+}
+
+// showEdgeMenuForTerritory shows the EdgeMenu for a specific territory
+func (gm *EnhancedGuildManager) showEdgeMenuForTerritory(territoryName string) {
+	// Get the global MapView instance
+	mapView := GetMapView()
+	if mapView == nil {
+		fmt.Printf("[GUILD_MANAGER] MapView not available\n")
+		return
+	}
+
+	// Center the map on the territory
+	mapView.CenterTerritory(territoryName)
+
+	// Set selected territory for blinking effect
+	if mapView.territoriesManager != nil {
+		mapView.territoriesManager.SetSelectedTerritory(territoryName)
+	}
+
+	// Show EdgeMenu with territory information
+	if mapView.edgeMenu != nil {
+		mapView.populateTerritoryMenu(territoryName)
+		mapView.edgeMenu.Show()
+		fmt.Printf("[GUILD_MANAGER] Opened EdgeMenu for territory: %s\n", territoryName)
+
+		// Hide the entire guild manager so EdgeMenu is visible
+		gm.Hide()
+	} else {
+		fmt.Printf("[GUILD_MANAGER] EdgeMenu not available\n")
+	}
+}
+
+// drawTerritoryModal renders the territory modal on screen
+func (gm *EnhancedGuildManager) drawTerritoryModal(screen *ebiten.Image) {
+	if !gm.territoryModalVisible {
+		return
+	}
+
+	// Get screen dimensions
+	screenW, screenH := ebiten.WindowSize()
+
+	// Draw dimming background
+	vector.DrawFilledRect(screen, 0, 0, float32(screenW), float32(screenH), color.RGBA{0, 0, 0, 128}, false)
+
+	// Draw modal background
+	vector.DrawFilledRect(screen, float32(gm.territoryModalX), float32(gm.territoryModalY), float32(gm.territoryModalWidth), float32(gm.territoryModalHeight), color.RGBA{30, 30, 30, 255}, false)
+
+	// Draw modal border
+	vector.StrokeRect(screen, float32(gm.territoryModalX), float32(gm.territoryModalY), float32(gm.territoryModalWidth), float32(gm.territoryModalHeight), 2, color.RGBA{100, 100, 100, 255}, false)
+
+	// Get font
+	font := loadWynncraftFont(16)
+
+	// Draw title
+	if gm.territoryModalGuild != nil && font != nil {
+		title := fmt.Sprintf("Territories owned by %s [%s]", gm.territoryModalGuild.Name, gm.territoryModalGuild.Tag)
+		text.Draw(screen, title, font, gm.territoryModalX+20, gm.territoryModalY+30, color.RGBA{255, 255, 255, 255})
+	}
+
+	// Draw territory count
+	if len(gm.territoryList) > 0 && font != nil {
+		countText := fmt.Sprintf("Total: %d territories", len(gm.territoryList))
+		text.Draw(screen, countText, font, gm.territoryModalX+20, gm.territoryModalY+55, color.RGBA{200, 200, 200, 255})
+	}
+
+	// Draw territory list area background
+	listX := gm.territoryModalX + 20
+	listY := gm.territoryModalY + 80
+	listWidth := gm.territoryModalWidth - 40
+	listHeight := gm.territoryModalHeight - 120
+
+	vector.DrawFilledRect(screen, float32(listX), float32(listY), float32(listWidth), float32(listHeight), color.RGBA{25, 25, 25, 255}, false)
+	vector.StrokeRect(screen, float32(listX), float32(listY), float32(listWidth), float32(listHeight), 1, color.RGBA{100, 100, 100, 255}, false)
+
+	// Draw territory items
+	if len(gm.territoryList) > 0 && font != nil {
+		itemHeight := 30
+		maxVisibleItems := listHeight / itemHeight
+
+		for i := 0; i < maxVisibleItems && (i+gm.territoryScrollOffset) < len(gm.territoryList); i++ {
+			territoryIndex := i + gm.territoryScrollOffset
+			territoryName := gm.territoryList[territoryIndex]
+
+			itemY := listY + (i * itemHeight)
+
+			// Determine item colors
+			var bgColor color.RGBA
+			if territoryIndex == gm.territorySelectedIndex {
+				bgColor = color.RGBA{70, 120, 200, 255} // Selected - blue
+			} else if territoryIndex == gm.territoryHoveredIndex {
+				bgColor = color.RGBA{60, 60, 60, 255} // Hovered - dark grey
+			} else {
+				bgColor = color.RGBA{35, 35, 35, 255} // Normal - darker grey
+			}
+
+			// Draw item background
+			vector.DrawFilledRect(screen, float32(listX+2), float32(itemY), float32(listWidth-4), float32(itemHeight), bgColor, false)
+
+			// Draw territory name
+			text.Draw(screen, territoryName, font, listX+10, itemY+20, color.RGBA{255, 255, 255, 255})
+		}
+	} else if font != nil {
+		// Draw "No territories" message
+		text.Draw(screen, "No territories owned", font, listX+20, listY+30, color.RGBA{150, 150, 150, 255})
+	}
+
+	// Draw scrollbar if needed
+	if len(gm.territoryList) > 0 {
+		maxVisibleItems := listHeight / 30
+		if len(gm.territoryList) > maxVisibleItems {
+			gm.drawTerritoryScrollbar(screen, listX+listWidth-20, listY, 16, listHeight, maxVisibleItems)
+		}
+	}
+
+	// Draw close button (X in top-right corner)
+	closeX := gm.territoryModalX + gm.territoryModalWidth - 30
+	closeY := gm.territoryModalY + 10
+	vector.DrawFilledRect(screen, float32(closeX), float32(closeY), 20, 20, color.RGBA{150, 50, 50, 255}, false)
+
+	// Draw X
+	if font != nil {
+		text.Draw(screen, "×", font, closeX+6, closeY+15, color.RGBA{255, 255, 255, 255})
+	}
+}
+
+// drawTerritoryScrollbar draws a vertical scrollbar for the territory list
+func (gm *EnhancedGuildManager) drawTerritoryScrollbar(screen *ebiten.Image, x, y, width, height, maxVisibleItems int) {
+	if len(gm.territoryList) <= maxVisibleItems {
+		return
+	}
+
+	// Draw scrollbar track
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(width), float32(height), color.RGBA{40, 40, 40, 255}, false)
+
+	// Calculate thumb size and position
+	thumbHeight := (maxVisibleItems * height) / len(gm.territoryList)
+	if thumbHeight < 20 {
+		thumbHeight = 20
+	}
+
+	maxThumbY := height - thumbHeight
+	thumbY := (gm.territoryScrollOffset * maxThumbY) / (len(gm.territoryList) - maxVisibleItems)
+
+	// Draw scrollbar thumb
+	vector.DrawFilledRect(screen, float32(x+2), float32(y+thumbY), float32(width-4), float32(thumbHeight), color.RGBA{100, 100, 100, 255}, false)
 }

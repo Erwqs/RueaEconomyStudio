@@ -42,7 +42,7 @@ type TerritoryViewSwitcher struct {
 	modalVisible  bool
 	selectedIndex int
 	views         []TerritoryViewInfo
-	hiddenGuilds  map[string]color.RGBA // Map of hidden guild names to their colors
+	color  map[string]color.RGBA // Map of hidden guild names to their colors
 }
 
 // NewTerritoryViewSwitcher creates a new territory view switcher
@@ -64,7 +64,7 @@ func NewTerritoryViewSwitcher() *TerritoryViewSwitcher {
 			{Name: "Warning", Description: "Warning status view", HiddenGuild: "__VIEW_WARNING__"},
 			{Name: "Tax", Description: "Territory taxation level", HiddenGuild: "__VIEW_TAX__"},
 		},
-		hiddenGuilds: make(map[string]color.RGBA),
+		color: make(map[string]color.RGBA),
 	}
 
 	// Initialize hidden guild colors
@@ -76,47 +76,47 @@ func NewTerritoryViewSwitcher() *TerritoryViewSwitcher {
 // initializeHiddenGuilds sets up the color schemes for each view type
 func (tvs *TerritoryViewSwitcher) initializeHiddenGuilds() {
 	// Resource colors
-	tvs.hiddenGuilds["__RESOURCE_WOOD__"] = color.RGBA{R: 50, G: 205, B: 50, A: 255}    // Lime green
-	tvs.hiddenGuilds["__RESOURCE_CROP__"] = color.RGBA{R: 255, G: 215, B: 0, A: 255}    // Gold/yellow
-	tvs.hiddenGuilds["__RESOURCE_FISH__"] = color.RGBA{R: 30, G: 144, B: 255, A: 255}   // Dodger blue (more blue)
-	tvs.hiddenGuilds["__RESOURCE_ORE__"] = color.RGBA{R: 255, G: 127, B: 193, A: 255}   // Light pink (less pink, more white)
-	tvs.hiddenGuilds["__RESOURCE_MULTI__"] = color.RGBA{R: 255, G: 255, B: 255, A: 255} // White for multiple resources
+	tvs.color["__RESOURCE_WOOD__"] = color.RGBA{R: 50, G: 205, B: 50, A: 255}    // Lime green
+	tvs.color["__RESOURCE_CROP__"] = color.RGBA{R: 255, G: 215, B: 0, A: 255}    // Gold/yellow
+	tvs.color["__RESOURCE_FISH__"] = color.RGBA{R: 30, G: 144, B: 255, A: 255}   // Dodger blue (more blue)
+	tvs.color["__RESOURCE_ORE__"] = color.RGBA{R: 255, G: 127, B: 193, A: 255}   // Light pink (less pink, more white)
+	tvs.color["__RESOURCE_MULTI__"] = color.RGBA{R: 255, G: 255, B: 255, A: 255} // White for multiple resources
 
 	// Defence level colors (very low to very high)
-	tvs.hiddenGuilds["__DEFENCE_VERY_LOW__"] = color.RGBA{R: 0, G: 128, B: 0, A: 255}  // Dark green
-	tvs.hiddenGuilds["__DEFENCE_LOW__"] = color.RGBA{R: 50, G: 205, B: 50, A: 255}     // Lime green
-	tvs.hiddenGuilds["__DEFENCE_MEDIUM__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255}  // Yellow
-	tvs.hiddenGuilds["__DEFENCE_HIGH__"] = color.RGBA{R: 255, G: 165, B: 0, A: 255}    // Orange
-	tvs.hiddenGuilds["__DEFENCE_VERY_HIGH__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
+	tvs.color["__DEFENCE_VERY_LOW__"] = color.RGBA{R: 0, G: 128, B: 0, A: 255}  // Dark green
+	tvs.color["__DEFENCE_LOW__"] = color.RGBA{R: 50, G: 205, B: 50, A: 255}     // Lime green
+	tvs.color["__DEFENCE_MEDIUM__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255}  // Yellow
+	tvs.color["__DEFENCE_HIGH__"] = color.RGBA{R: 255, G: 165, B: 0, A: 255}    // Orange
+	tvs.color["__DEFENCE_VERY_HIGH__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
 
 	// Treasury level colors (same as defence)
-	tvs.hiddenGuilds["__TREASURY_VERY_LOW__"] = color.RGBA{R: 0, G: 128, B: 0, A: 255}  // Dark green
-	tvs.hiddenGuilds["__TREASURY_LOW__"] = color.RGBA{R: 50, G: 205, B: 50, A: 255}     // Lime green
-	tvs.hiddenGuilds["__TREASURY_MEDIUM__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255}  // Yellow
-	tvs.hiddenGuilds["__TREASURY_HIGH__"] = color.RGBA{R: 255, G: 165, B: 0, A: 255}    // Orange
-	tvs.hiddenGuilds["__TREASURY_VERY_HIGH__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
+	tvs.color["__TREASURY_VERY_LOW__"] = color.RGBA{R: 0, G: 128, B: 0, A: 255}  // Dark green
+	tvs.color["__TREASURY_LOW__"] = color.RGBA{R: 50, G: 255, B: 50, A: 255}     // Lime green
+	tvs.color["__TREASURY_MEDIUM__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255}  // Yellow
+	tvs.color["__TREASURY_HIGH__"] = color.RGBA{R: 255, G: 96, B: 0, A: 255}     // Orange
+	tvs.color["__TREASURY_VERY_HIGH__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
 
 	// Treasury override colors (similar to treasury but with different saturation)
-	tvs.hiddenGuilds["__TREASURY_OVERRIDE_NONE__"] = color.RGBA{R: 128, G: 128, B: 128, A: 255}    // Gray for no override
-	tvs.hiddenGuilds["__TREASURY_OVERRIDE_VERY_LOW__"] = color.RGBA{R: 0, G: 100, B: 0, A: 255}    // Darker green
-	tvs.hiddenGuilds["__TREASURY_OVERRIDE_LOW__"] = color.RGBA{R: 34, G: 139, B: 34, A: 255}       // Forest green
-	tvs.hiddenGuilds["__TREASURY_OVERRIDE_MEDIUM__"] = color.RGBA{R: 218, G: 165, B: 32, A: 255}   // Goldenrod
-	tvs.hiddenGuilds["__TREASURY_OVERRIDE_HIGH__"] = color.RGBA{R: 255, G: 140, B: 0, A: 255}      // Dark orange
-	tvs.hiddenGuilds["__TREASURY_OVERRIDE_VERY_HIGH__"] = color.RGBA{R: 220, G: 20, B: 60, A: 255} // Crimson
+	tvs.color["__TREASURY_OVERRIDE_NONE__"] = color.RGBA{R: 128, G: 128, B: 128, A: 255}   // Gray for no override
+	tvs.color["__TREASURY_OVERRIDE_VERY_LOW__"] = color.RGBA{R: 34, G: 139, B: 34, A: 255} // Darker green
+	tvs.color["__TREASURY_OVERRIDE_LOW__"] = color.RGBA{R: 50, G: 255, B: 50, A: 255}      // Forest green
+	tvs.color["__TREASURY_OVERRIDE_MEDIUM__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255}   // Goldenrod
+	tvs.color["__TREASURY_OVERRIDE_HIGH__"] = color.RGBA{R: 255, G: 96, B: 0, A: 255}      // Dark orange
+	tvs.color["__TREASURY_OVERRIDE_VERY_HIGH__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255}  // Crimson
 
 	// Warning colors
-	tvs.hiddenGuilds["__WARNING_ACTIVE__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255} // Yellow for warnings
-	tvs.hiddenGuilds["__WARNING_NONE__"] = color.RGBA{R: 128, G: 128, B: 128, A: 255} // Gray for no warnings
+	tvs.color["__WARNING_ACTIVE__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255} // Yellow for warnings
+	tvs.color["__WARNING_NONE__"] = color.RGBA{R: 128, G: 128, B: 128, A: 255} // Gray for no warnings
 
 	// Tax level colors - based on taxation burden from other guilds
-	tvs.hiddenGuilds["__TAX_NONE__"] = color.RGBA{R: 144, G: 238, B: 144, A: 255}    // Light green for no tax
-	tvs.hiddenGuilds["__TAX_VERY_LOW__"] = color.RGBA{R: 173, G: 255, B: 47, A: 255} // Green-yellow for <10% tax
-	tvs.hiddenGuilds["__TAX_LOW__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255}       // Yellow for moderate tax
-	tvs.hiddenGuilds["__TAX_MEDIUM__"] = color.RGBA{R: 255, G: 215, B: 0, A: 255}    // Gold for higher tax
-	tvs.hiddenGuilds["__TAX_HIGH__"] = color.RGBA{R: 255, G: 165, B: 0, A: 255}      // Orange for high tax
-	tvs.hiddenGuilds["__TAX_VERY_HIGH__"] = color.RGBA{R: 255, G: 69, B: 0, A: 255}  // Orange-red for very high tax
-	tvs.hiddenGuilds["__TAX_EXTREME__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255}     // Red for extreme tax
-	tvs.hiddenGuilds["__TAX_CUT_OFF__"] = color.RGBA{R: 128, G: 128, B: 128, A: 255} // Gray for cut off territories
+	tvs.color["__TAX_NONE__"] = color.RGBA{R: 144, G: 238, B: 144, A: 255}    // Light green for no tax
+	tvs.color["__TAX_VERY_LOW__"] = color.RGBA{R: 173, G: 255, B: 47, A: 255} // Green-yellow for <10% tax
+	tvs.color["__TAX_LOW__"] = color.RGBA{R: 255, G: 255, B: 0, A: 255}       // Yellow for moderate tax
+	tvs.color["__TAX_MEDIUM__"] = color.RGBA{R: 255, G: 215, B: 0, A: 255}    // Gold for higher tax
+	tvs.color["__TAX_HIGH__"] = color.RGBA{R: 255, G: 165, B: 0, A: 255}      // Orange for high tax
+	tvs.color["__TAX_VERY_HIGH__"] = color.RGBA{R: 255, G: 69, B: 0, A: 255}  // Orange-red for very high tax
+	tvs.color["__TAX_EXTREME__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255}     // Red for extreme tax
+	tvs.color["__TAX_CUT_OFF__"] = color.RGBA{R: 128, G: 128, B: 128, A: 255} // Gray for cut off territories
 }
 
 // Update handles input and modal visibility logic
@@ -314,21 +314,21 @@ func (tvs *TerritoryViewSwitcher) getResourceColor(territory *typedef.Territory)
 
 	// If multiple resources or none, return white
 	if resourceCount != 1 {
-		return tvs.hiddenGuilds["__RESOURCE_MULTI__"]
+		return tvs.color["__RESOURCE_MULTI__"]
 	}
 
 	// Return color based on the single resource type
 	switch dominantResource {
 	case "wood":
-		return tvs.hiddenGuilds["__RESOURCE_WOOD__"]
+		return tvs.color["__RESOURCE_WOOD__"]
 	case "crops":
-		return tvs.hiddenGuilds["__RESOURCE_CROP__"]
+		return tvs.color["__RESOURCE_CROP__"]
 	case "fish":
-		return tvs.hiddenGuilds["__RESOURCE_FISH__"]
+		return tvs.color["__RESOURCE_FISH__"]
 	case "ore":
-		return tvs.hiddenGuilds["__RESOURCE_ORE__"]
+		return tvs.color["__RESOURCE_ORE__"]
 	default:
-		return tvs.hiddenGuilds["__RESOURCE_MULTI__"]
+		return tvs.color["__RESOURCE_MULTI__"]
 	}
 }
 
@@ -336,17 +336,17 @@ func (tvs *TerritoryViewSwitcher) getResourceColor(territory *typedef.Territory)
 func (tvs *TerritoryViewSwitcher) getDefenceColor(level typedef.DefenceLevel) color.RGBA {
 	switch level {
 	case typedef.DefenceLevelVeryLow:
-		return tvs.hiddenGuilds["__DEFENCE_VERY_LOW__"]
+		return tvs.color["__DEFENCE_VERY_LOW__"]
 	case typedef.DefenceLevelLow:
-		return tvs.hiddenGuilds["__DEFENCE_LOW__"]
+		return tvs.color["__DEFENCE_LOW__"]
 	case typedef.DefenceLevelMedium:
-		return tvs.hiddenGuilds["__DEFENCE_MEDIUM__"]
+		return tvs.color["__DEFENCE_MEDIUM__"]
 	case typedef.DefenceLevelHigh:
-		return tvs.hiddenGuilds["__DEFENCE_HIGH__"]
+		return tvs.color["__DEFENCE_HIGH__"]
 	case typedef.DefenceLevelVeryHigh:
-		return tvs.hiddenGuilds["__DEFENCE_VERY_HIGH__"]
+		return tvs.color["__DEFENCE_VERY_HIGH__"]
 	default:
-		return tvs.hiddenGuilds["__DEFENCE_VERY_LOW__"]
+		return tvs.color["__DEFENCE_VERY_LOW__"]
 	}
 }
 
@@ -354,17 +354,17 @@ func (tvs *TerritoryViewSwitcher) getDefenceColor(level typedef.DefenceLevel) co
 func (tvs *TerritoryViewSwitcher) getTreasuryColor(level typedef.TreasuryLevel) color.RGBA {
 	switch level {
 	case typedef.TreasuryLevelVeryLow:
-		return tvs.hiddenGuilds["__TREASURY_VERY_LOW__"]
+		return tvs.color["__TREASURY_VERY_LOW__"]
 	case typedef.TreasuryLevelLow:
-		return tvs.hiddenGuilds["__TREASURY_LOW__"]
+		return tvs.color["__TREASURY_LOW__"]
 	case typedef.TreasuryLevelMedium:
-		return tvs.hiddenGuilds["__TREASURY_MEDIUM__"]
+		return tvs.color["__TREASURY_MEDIUM__"]
 	case typedef.TreasuryLevelHigh:
-		return tvs.hiddenGuilds["__TREASURY_HIGH__"]
+		return tvs.color["__TREASURY_HIGH__"]
 	case typedef.TreasuryLevelVeryHigh:
-		return tvs.hiddenGuilds["__TREASURY_VERY_HIGH__"]
+		return tvs.color["__TREASURY_VERY_HIGH__"]
 	default:
-		return tvs.hiddenGuilds["__TREASURY_VERY_LOW__"]
+		return tvs.color["__TREASURY_VERY_LOW__"]
 	}
 }
 
@@ -372,34 +372,34 @@ func (tvs *TerritoryViewSwitcher) getTreasuryColor(level typedef.TreasuryLevel) 
 func (tvs *TerritoryViewSwitcher) getTreasuryOverrideColor(level typedef.TreasuryOverride) color.RGBA {
 	switch level {
 	case typedef.TreasuryOverrideNone:
-		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_NONE__"]
+		return tvs.color["__TREASURY_OVERRIDE_NONE__"]
 	case typedef.TreasuryOverrideVeryLow:
-		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_VERY_LOW__"]
+		return tvs.color["__TREASURY_OVERRIDE_VERY_LOW__"]
 	case typedef.TreasuryOverrideLow:
-		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_LOW__"]
+		return tvs.color["__TREASURY_OVERRIDE_LOW__"]
 	case typedef.TreasuryOverrideMedium:
-		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_MEDIUM__"]
+		return tvs.color["__TREASURY_OVERRIDE_MEDIUM__"]
 	case typedef.TreasuryOverrideHigh:
-		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_HIGH__"]
+		return tvs.color["__TREASURY_OVERRIDE_HIGH__"]
 	case typedef.TreasuryOverrideVeryHigh:
-		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_VERY_HIGH__"]
+		return tvs.color["__TREASURY_OVERRIDE_VERY_HIGH__"]
 	default:
-		return tvs.hiddenGuilds["__TREASURY_OVERRIDE_NONE__"]
+		return tvs.color["__TREASURY_OVERRIDE_NONE__"]
 	}
 }
 
 // getWarningColor returns color based on warning status
 func (tvs *TerritoryViewSwitcher) getWarningColor(warning typedef.Warning) color.RGBA {
 	if warning != 0 {
-		return tvs.hiddenGuilds["__WARNING_ACTIVE__"]
+		return tvs.color["__WARNING_ACTIVE__"]
 	}
-	return tvs.hiddenGuilds["__WARNING_NONE__"]
+	return tvs.color["__WARNING_NONE__"]
 }
 
 // getTaxColor returns color based on estimated tax burden on this territory
 func (tvs *TerritoryViewSwitcher) getTaxColor(territory *typedef.Territory) color.RGBA {
 	taxLevel := tvs.calculateTaxLevel(territory)
-	return tvs.hiddenGuilds[tvs.getTaxHiddenGuildFromLevel(taxLevel)]
+	return tvs.color[tvs.getTaxHiddenGuildFromLevel(taxLevel)]
 }
 
 // getTaxHiddenGuild returns the hidden guild name for tax view
@@ -684,6 +684,6 @@ func (tvs *TerritoryViewSwitcher) getWarningHiddenGuild(warning typedef.Warning)
 
 // GetHiddenGuildColor returns the color for a hidden guild name
 func (tvs *TerritoryViewSwitcher) GetHiddenGuildColor(hiddenGuildName string) (color.RGBA, bool) {
-	col, exists := tvs.hiddenGuilds[hiddenGuildName]
+	col, exists := tvs.color[hiddenGuildName]
 	return col, exists
 }

@@ -608,13 +608,87 @@ func calculateResourceGeneration(territory *typedef.Territory, resourceRate, eme
 	return static, now
 }
 
+// updateTerritoryWarnings removes expired warnings and maintains active ones
+func updateTerritoryWarnings(territory *typedef.Territory, currentTick uint64) {
+	// Initialize the WarningExpiration map if it's nil (for territories created before this change)
+	if territory.WarningExpiration == nil {
+		territory.WarningExpiration = make(map[typedef.Warning]uint64)
+		return // No warnings to expire if map was nil
+	}
+
+	// Remove expired warnings
+	for warningType, expirationTick := range territory.WarningExpiration {
+		if currentTick >= expirationTick {
+			// Warning has expired, remove it
+			territory.Warning &^= warningType // Clear this warning bit
+			delete(territory.WarningExpiration, warningType)
+		}
+	}
+}
+
+// triggerWarning sets a warning and ensures it stays active for 60 ticks (1 minute)
+func triggerWarning(territory *typedef.Territory, warningType typedef.Warning, currentTick uint64) {
+	// Initialize the WarningExpiration map if it's nil (for territories created before this change)
+	if territory.WarningExpiration == nil {
+		territory.WarningExpiration = make(map[typedef.Warning]uint64)
+	}
+
+	// Set the warning flag
+	territory.Warning |= warningType
+	// Set expiration to 60 ticks from now (1 simulation minute)
+	territory.WarningExpiration[warningType] = currentTick + 60
+}
+
+// checkUsageWarnings checks if territory is using more resources than it has capacity for
+func checkUsageWarnings(territory *typedef.Territory, costs typedef.BasicResourcesSecond, storage typedef.BasicResources, capacity typedef.BasicResources, currentTick uint64) {
+	// Check if using more emeralds than capacity - if costs are positive and storage will exceed capacity
+	if costs.Emeralds > 0 {
+		// Calculate storage after one minute of consumption at current rate
+		projectedEmeraldUsage := storage.Emeralds + (costs.Emeralds * 60) // 60 seconds per minute
+		if projectedEmeraldUsage > capacity.Emeralds {
+			triggerWarning(territory, typedef.WarningUsageEmerald, currentTick)
+		}
+	}
+
+	// Check if using more resources than capacity - similar projection
+	anyResourceWarning := false
+	if costs.Ores > 0 {
+		projectedOresUsage := storage.Ores + (costs.Ores * 60)
+		if projectedOresUsage > capacity.Ores {
+			anyResourceWarning = true
+		}
+	}
+	if costs.Wood > 0 {
+		projectedWoodUsage := storage.Wood + (costs.Wood * 60)
+		if projectedWoodUsage > capacity.Wood {
+			anyResourceWarning = true
+		}
+	}
+	if costs.Fish > 0 {
+		projectedFishUsage := storage.Fish + (costs.Fish * 60)
+		if projectedFishUsage > capacity.Fish {
+			anyResourceWarning = true
+		}
+	}
+	if costs.Crops > 0 {
+		projectedCropsUsage := storage.Crops + (costs.Crops * 60)
+		if projectedCropsUsage > capacity.Crops {
+			anyResourceWarning = true
+		}
+	}
+
+	if anyResourceWarning {
+		triggerWarning(territory, typedef.WarningUsageResources, currentTick)
+	}
+}
+
 func doGenerate(territory *typedef.Territory) {
 	// Lock territory for writing to prevent race conditions
 	territory.Mu.Lock()
 	defer territory.Mu.Unlock()
 
-	// Clear previous warnings
-	territory.Warning = 0
+	// Update warnings - remove expired warnings before setting new ones
+	updateTerritoryWarnings(territory, st.tick)
 
 	// Calculate generation and costs WITHOUT re-locking (already locked)
 	staticGen, _, _, costNow := calculateGenerationInternalWithTick(territory, st.tick)
@@ -651,11 +725,14 @@ func doGenerate(territory *typedef.Territory) {
 	// STEP 1: Consume costs every second with proper precision
 	currentStorage := territory.Storage.At
 	newStorage := currentStorage
+	currentTick := st.tick
 
-	applyCostsEverySecond(territory, &newStorage, costNow, st.tick)
+	applyCostsEverySecond(territory, &newStorage, costNow, currentTick)
+
+	// STEP 2: Check for usage warnings (using more resources than capacity)
+	checkUsageWarnings(territory, costNow, newStorage, maxStorage, currentTick)
 
 	// STEP 3: Check if it's time to release accumulated resources based on rate intervals
-	currentTick := st.tick
 
 	// Initialize last tick values if this is the first generation calculation
 	isFirstCall := false
@@ -711,7 +788,7 @@ func doGenerate(territory *typedef.Territory) {
 		// Set overflow warning if any generated resource was capped
 		if actualOresAdded < generatedOres || actualWoodAdded < generatedWood ||
 			actualFishAdded < generatedFish || actualCropsAdded < generatedCrops {
-			territory.Warning |= typedef.WarningOverflowResources
+			triggerWarning(territory, typedef.WarningOverflowResources, currentTick)
 		}
 
 		// Reset resource accumulator and update last tick
@@ -737,7 +814,7 @@ func doGenerate(territory *typedef.Territory) {
 
 		// Set overflow warning if generated emeralds were capped
 		if actualEmeraldsAdded < generatedEmeralds {
-			territory.Warning |= typedef.WarningOverflowEmerald
+			triggerWarning(territory, typedef.WarningOverflowEmerald, currentTick)
 		}
 
 		// Reset emerald accumulator and update last tick
@@ -749,14 +826,14 @@ func doGenerate(territory *typedef.Territory) {
 	if territory.HQ {
 		// HQ territories: clamp storage to capacity limits
 		if newStorage.Emeralds > maxStorage.Emeralds {
-			territory.Warning |= typedef.WarningOverflowEmerald
+			triggerWarning(territory, typedef.WarningOverflowEmerald, currentTick)
 			newStorage.Emeralds = maxStorage.Emeralds
 		}
 		if newStorage.Ores > maxStorage.Ores ||
 			newStorage.Wood > maxStorage.Wood ||
 			newStorage.Fish > maxStorage.Fish ||
 			newStorage.Crops > maxStorage.Crops {
-			territory.Warning |= typedef.WarningOverflowResources
+			triggerWarning(territory, typedef.WarningOverflowResources, currentTick)
 			newStorage.Ores = min(newStorage.Ores, maxStorage.Ores)
 			newStorage.Wood = min(newStorage.Wood, maxStorage.Wood)
 			newStorage.Fish = min(newStorage.Fish, maxStorage.Fish)
@@ -765,13 +842,13 @@ func doGenerate(territory *typedef.Territory) {
 	} else {
 		// Normal territories: only set warnings, don't clamp manual edits
 		if newStorage.Emeralds > maxStorage.Emeralds {
-			territory.Warning |= typedef.WarningOverflowEmerald
+			triggerWarning(territory, typedef.WarningOverflowEmerald, currentTick)
 		}
 		if newStorage.Ores > maxStorage.Ores ||
 			newStorage.Wood > maxStorage.Wood ||
 			newStorage.Fish > maxStorage.Fish ||
 			newStorage.Crops > maxStorage.Crops {
-			territory.Warning |= typedef.WarningOverflowResources
+			triggerWarning(territory, typedef.WarningOverflowResources, currentTick)
 		}
 	}
 
@@ -818,7 +895,7 @@ func calculateTowerStats(territory *typedef.Territory) typedef.TowerStats {
 		defenceLevel = len(st.costs.UpgradeMultiplier.Defence) - 1
 	}
 
-	// Base stats according to game documentation
+	// base
 	baseDamageLow := 1000.0
 	baseDamageHigh := 1500.0
 	baseAttack := 0.5
@@ -835,10 +912,10 @@ func calculateTowerStats(territory *typedef.Territory) typedef.TowerStats {
 	newDamageHigh := baseDamageHigh * damageMultiplier
 	newAttack := baseAttack * attackMultiplier
 	newHealth := baseHealth * healthMultiplier
-	newDefence := baseDefence * defenceMultiplier // Defense is already in decimal form (0.1 = 10%)
+	newDefence := baseDefence * defenceMultiplier // decimal
 
-	// Calculate territory level for display purposes (based on actual affordable levels)
-	// Calculate Aura bonus: Aura 0 = +0, Aura 1 = +5, Aura 2 = +6, Aura 3 = +7, Aura 4 = +8, etc.
+	// calculate territory level for display purposes based on actual affordable levels
+	// aura bonus: Aura 0 = +0, Aura 1 = +5, Aura 2 = +6, Aura 3 = +7, Aura 4 = +8
 	calcAuraBonus := func(aura int) int {
 		if aura == 0 {
 			return 0
@@ -846,7 +923,7 @@ func calculateTowerStats(territory *typedef.Territory) typedef.TowerStats {
 		return 4 + aura
 	}
 
-	// Calculate Volley bonus: Volley 0 = +0, Volley 1 = +3, Volley 2 = +4, Volley 3 = +5, etc.
+	// calculate Volley bonus: Volley 0 = +0, Volley 1 = +3, Volley 2 = +4, Volley 3 = +5
 	calcVolleyBonus := func(volley int) int {
 		if volley == 0 {
 			return 0

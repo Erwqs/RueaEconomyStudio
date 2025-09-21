@@ -226,6 +226,9 @@ func NewMapView() *MapView {
 	// Set the global MapView instance
 	SetMapView(mapView)
 
+	// Register the territory change callback to refresh menu when territory settings change
+	eruntime.SetTerritoryChangeCallback(mapView.onTerritoryChanged)
+
 	// Register state change callback to refresh territory colors when state is reset/loaded
 	eruntime.SetStateChangeCallback(func() {
 		fmt.Println("[MAP] State change callback triggered")
@@ -1054,8 +1057,15 @@ func (m *MapView) Update(screenW, screenH int) {
 						// Center the territory first
 						m.CenterTerritory(territoryClicked)
 
-						// Set selected territory for blinking effect
+						// Check if this is the same territory that's already selected and blinking
+						currentSelected := ""
 						if m.territoriesManager != nil {
+							currentSelected = m.territoriesManager.GetSelectedTerritoryName()
+						}
+
+						// Set selected territory for blinking effect only if it's a different territory
+						// or if no territory is currently selected
+						if m.territoriesManager != nil && currentSelected != territoryClicked {
 							m.territoriesManager.SetSelectedTerritory(territoryClicked)
 						}
 
@@ -1175,7 +1185,52 @@ func (m *MapView) Draw(screen *ebiten.Image) {
 	if !m.mapManager.IsLoaded() {
 		// Show loading message
 		if m.isLoading {
-			ebitenutil.DebugPrint(screen, "Loading map data...")
+			// Use a larger app font and center the text
+			loadingFontSize := 40.0
+			loadingFont := loadWynncraftFont(loadingFontSize)
+			if loadingFont != nil {
+				msg := "Loading map data..."
+				bounds := text.BoundString(loadingFont, msg)
+				textW := bounds.Dx()
+				textH := bounds.Dy()
+				spinnerRadius := 40.0
+				arcThickness := 8.0
+				spacing := 32.0 // space between spinner and text
+				// total height of spinner + spacing + text
+				totalHeight := spinnerRadius*2 + spacing + float64(textH)
+				groupTop := float64(m.screenH)/2 - totalHeight/2
+				// center X for both
+				centerX := float64(m.screenW) / 2
+				// spinner center
+				spinnerCenterY := groupTop + spinnerRadius
+				// text baseline
+				textY := int(groupTop + spinnerRadius*2 + spacing + float64(textH))
+
+				// youtube style arc
+				arcLength := math.Pi * 1.2 // radians (about 216 degrees)
+				// animate based on time
+				angle := float64(time.Now().UnixNano()%2000000000) / 2000000000 * 2 * math.Pi
+				segments := 60
+				for i := 0; i < segments; i++ {
+					segAngle := angle + arcLength*float64(i)/float64(segments)
+					alpha := uint8(100 + 155*float64(i)/float64(segments)) // fade out
+					col := color.RGBA{200, 200, 255, alpha}
+					if i > segments-8 {
+						// tail fade
+						col.A = uint8(60 + 20*float64(i-segments+8))
+					}
+					x1 := centerX + spinnerRadius*math.Cos(segAngle)
+					y1 := spinnerCenterY + spinnerRadius*math.Sin(segAngle)
+					x2 := centerX + (spinnerRadius-arcThickness)*math.Cos(segAngle)
+					y2 := spinnerCenterY + (spinnerRadius-arcThickness)*math.Sin(segAngle)
+					vector.StrokeLine(screen, float32(x1), float32(y1), float32(x2), float32(y2), float32(arcThickness), col, false)
+				}
+
+				// draw loading text centered
+				text.Draw(screen, msg, loadingFont, int(centerX)-textW/2, textY, color.White)
+			} else {
+				ebitenutil.DebugPrint(screen, "Loading map data...")
+			}
 		} else if err := m.mapManager.GetLoadError(); err != nil {
 			ebitenutil.DebugPrint(screen, fmt.Sprintf("Error loading map: %v", err))
 		}
@@ -1961,6 +2016,16 @@ func (m *MapView) Cleanup() {
 	}
 }
 
+// onTerritoryChanged handles territory change notifications and refreshes the menu if needed
+func (m *MapView) onTerritoryChanged(territoryName string) {
+	// Only refresh if this territory is currently being displayed in the menu
+	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.GetCurrentTerritory() == territoryName {
+		// Refresh the menu with updated data
+		m.populateTerritoryMenu(territoryName)
+		fmt.Printf("[DEBUG] Territory menu refreshed for: %s\n", territoryName)
+	}
+}
+
 // setupContextMenu configures the context menu items based on current context
 func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 	// Clear any existing items
@@ -1984,12 +2049,13 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 
 		// Context menu for territory
 		m.contextMenu.
-			Option("Open Territory Menu", "Enter", true, func() {
+			Option("Open Territory Menu", "Double Click", true, func() {
+				if m.territoriesManager != nil {
+					m.territoriesManager.SetSelectedTerritory(clickedTerritory)
+				}
+				m.populateTerritoryMenu(clickedTerritory)
 				if !m.IsEdgeMenuOpen() {
-					m.populateTerritoryMenu(clickedTerritory)
 					m.edgeMenu.Show()
-				} else {
-					m.populateTerritoryMenu(clickedTerritory)
 				}
 			}).
 			Option("Center on Territory", "C", true, func() {

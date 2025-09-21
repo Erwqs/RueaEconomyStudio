@@ -25,6 +25,12 @@ var guildChangeCallback GuildChangeCallback
 // Global callback for specific guild changes
 var guildSpecificChangeCallback GuildSpecificChangeCallback
 
+// TerritoryChangeCallback is a function type for notifications when territory data changes
+type TerritoryChangeCallback func(territoryName string)
+
+// Global callback for territory changes
+var territoryChangeCallback TerritoryChangeCallback
+
 // SetStateChangeCallback allows external packages to register for state change notifications
 func SetStateChangeCallback(callback StateChangeCallback) {
 	stateChangeCallback = callback
@@ -38,6 +44,11 @@ func SetGuildChangeCallback(callback GuildChangeCallback) {
 // SetGuildSpecificChangeCallback allows external packages to register for specific guild change notifications
 func SetGuildSpecificChangeCallback(callback GuildSpecificChangeCallback) {
 	guildSpecificChangeCallback = callback
+}
+
+// SetTerritoryChangeCallback allows external packages to register for territory change notifications
+func SetTerritoryChangeCallback(callback TerritoryChangeCallback) {
+	territoryChangeCallback = callback
 }
 
 // TerritoryStats represents comprehensive territory statistics for GUI display
@@ -86,6 +97,10 @@ type TerritoryStats struct {
 	// Tax and net calculation data
 	RouteTax  float64                `json:"routeTax"`  // Tax rate for this territory's route to HQ
 	NetAmount typedef.BasicResources `json:"netAmount"` // Net resources after tax (generation - costs)
+
+	// Connection data
+	ConnectedTerritories []string   `json:"connected_territories"` // Direct trading route connections
+	TradingRoutes        [][]string `json:"trading_routes"`        // Actual computed trading routes
 }
 
 func GetAllies() map[*typedef.Guild][]*typedef.Guild {
@@ -143,6 +158,10 @@ func GetTerritoryStats(territoryName string) *TerritoryStats {
 		// Add route tax information so the UI can display tax effects
 		RouteTax:  territory.RouteTax,
 		NetAmount: territory.Net,
+
+		// Add connection data
+		ConnectedTerritories: getTerritoryConnectionsUnsafe(territory.Name),  // Direct connections
+		TradingRoutes:        getTerritoryTradingRouteUnsafe(territory.Name), // Actual trading routes
 	}
 }
 
@@ -198,6 +217,93 @@ func GetTerritory(name string) *typedef.Territory {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
 	return getTerritoryUnsafe(name)
+}
+
+// GetTerritoryConnections returns the direct trading route connections for a territory
+func GetTerritoryConnections(territoryName string) []string {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	return getTerritoryConnectionsUnsafe(territoryName)
+}
+
+// getTerritoryConnectionsUnsafe returns connections without acquiring locks
+func getTerritoryConnectionsUnsafe(territoryName string) []string {
+	if connections, exists := TradingRoutesMap[territoryName]; exists {
+		// Return a copy to prevent external modification
+		result := make([]string, len(connections))
+		copy(result, connections)
+		return result
+	}
+	return []string{}
+}
+
+// GetTerritoryConnectionsUnsafe is exported for use by API layer when already holding locks
+func GetTerritoryConnectionsUnsafe(territoryName string) []string {
+	return getTerritoryConnectionsUnsafe(territoryName)
+}
+
+// GetTerritoryTradingRoute returns the actual trading route for a territory
+// If it's an HQ, returns all routes from HQ to other territories
+// If it's not an HQ, returns the route from this territory to its HQ
+func GetTerritoryTradingRoute(territoryName string) [][]string {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	return getTerritoryTradingRouteUnsafe(territoryName)
+}
+
+// getTerritoryTradingRouteUnsafe returns trading routes without acquiring locks
+func getTerritoryTradingRouteUnsafe(territoryName string) [][]string {
+	territory := TerritoryMap[territoryName]
+	if territory == nil {
+		return [][]string{}
+	}
+
+	// Convert TradingRoutes [][]*Territory to [][]string
+	result := make([][]string, len(territory.TradingRoutes))
+	for i, route := range territory.TradingRoutes {
+		routeNames := make([]string, len(route))
+		for j, t := range route {
+			if t != nil {
+				routeNames[j] = t.Name
+			}
+		}
+		result[i] = routeNames
+	}
+
+	return result
+}
+
+// GetTerritoryTradingRouteUnsafe is exported for use by API layer when already holding locks
+func GetTerritoryTradingRouteUnsafe(territoryName string) [][]string {
+	return getTerritoryTradingRouteUnsafe(territoryName)
+}
+
+// GetAllTradingRoutes returns all trading routes as a map
+func GetAllTradingRoutes() map[string][]string {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	// Return a deep copy to prevent external modification
+	result := make(map[string][]string)
+	for territory, routes := range TradingRoutesMap {
+		routesCopy := make([]string, len(routes))
+		copy(routesCopy, routes)
+		result[territory] = routesCopy
+	}
+	return result
+}
+
+// GetGuildsInternal returns a copy of all guilds for API use
+func GetGuildsInternal() []*typedef.Guild {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	// Return a copy to prevent external modification
+	result := make([]*typedef.Guild, len(st.guilds))
+	copy(result, st.guilds)
+	return result
 }
 
 // getTerritoryUnsafe is an internal function that doesn't acquire locks
@@ -380,6 +486,20 @@ func SetT(territory *typedef.Territory, opts typedef.TerritoryOptions) *typedef.
 	}
 
 	territory.Mu.Lock()
+	
+	// Track what changed to determine if menu refresh is needed
+	menuRefreshNeeded := false
+	
+	// Check for changes that affect the UI
+	if opts.Border != territory.Border ||
+		opts.RoutingMode != territory.RoutingMode ||
+		opts.Tax.Tax != territory.Tax.Tax ||
+		opts.Tax.Ally != territory.Tax.Ally ||
+		opts.Upgrades != territory.Options.Upgrade.Set ||
+		opts.Bonuses != territory.Options.Bonus.Set {
+		menuRefreshNeeded = true
+	}
+	
 	territory.Options.Upgrade.Set = opts.Upgrades
 	territory.Options.Bonus.Set = opts.Bonuses
 
@@ -397,8 +517,9 @@ func SetT(territory *typedef.Territory, opts typedef.TerritoryOptions) *typedef.
 	territory.RoutingMode = opts.RoutingMode
 	territory.Border = opts.Border
 
-	// Store HQ setting value before unlocking
+	// Store HQ setting value and territory name before unlocking
 	shouldSetHQ := opts.HQ && !territory.HQ
+	territoryName := territory.Name
 	territory.Mu.Unlock() // Unlock territory before route updates
 
 	// Handle route updates and HQ setting atomically under the global write lock
@@ -412,6 +533,14 @@ func SetT(territory *typedef.Territory, opts typedef.TerritoryOptions) *typedef.
 
 	// Recalculate the generation potential for this territory
 	_, _, _, _ = calculateGeneration(territory)
+
+	// Trigger menu refresh if needed
+	if menuRefreshNeeded && territoryChangeCallback != nil {
+		// Call the callback without holding locks to avoid deadlocks
+		st.mu.Unlock()
+		territoryChangeCallback(territoryName)
+		st.mu.Lock()
+	}
 
 	// Trigger auto-save after user action
 	TriggerAutoSave()
@@ -437,6 +566,20 @@ func Set(territory string, opts typedef.TerritoryOptions) *typedef.Territory {
 	}
 
 	t.Mu.Lock()
+	
+	// Track what changed to determine if menu refresh is needed
+	menuRefreshNeeded := false
+	
+	// Check for changes that affect the UI
+	if opts.Border != t.Border ||
+		opts.RoutingMode != t.RoutingMode ||
+		opts.Tax.Tax != t.Tax.Tax ||
+		opts.Tax.Ally != t.Tax.Ally ||
+		opts.Upgrades != t.Options.Upgrade.Set ||
+		opts.Bonuses != t.Options.Bonus.Set {
+		menuRefreshNeeded = true
+	}
+	
 	t.Options.Upgrade.Set = opts.Upgrades
 	t.Options.Bonus.Set = opts.Bonuses
 
@@ -454,8 +597,9 @@ func Set(territory string, opts typedef.TerritoryOptions) *typedef.Territory {
 	t.RoutingMode = opts.RoutingMode
 	t.Border = opts.Border
 
-	// Store HQ setting value before unlocking
+	// Store HQ setting value and territory name before unlocking
 	shouldSetHQ := opts.HQ && !t.HQ
+	territoryName := t.Name
 	t.Mu.Unlock() // Unlock territory before route updates
 
 	// Handle route updates and HQ setting atomically under the global write lock
@@ -469,6 +613,14 @@ func Set(territory string, opts typedef.TerritoryOptions) *typedef.Territory {
 
 	// Recalculate the generation potential for this territory
 	_, _, _, _ = calculateGeneration(t)
+
+	// Trigger menu refresh if needed
+	if menuRefreshNeeded && territoryChangeCallback != nil {
+		// Call the callback without holding locks to avoid deadlocks
+		st.mu.Unlock()
+		territoryChangeCallback(territoryName)
+		st.mu.Lock()
+	}
 
 	// Trigger auto-save after user action
 	TriggerAutoSave()
@@ -1091,6 +1243,7 @@ func SetTreasuryOverride(t *typedef.Territory, level typedef.TreasuryOverride) {
 // Auto-save functionality
 var lastAutoSaveTime time.Time
 var autoSaveEnabled = true
+var autoSaveWasLoadedOnStartup = false
 
 // EnableAutoSave enables or disables auto-save functionality
 func EnableAutoSave(enabled bool) {
@@ -1142,6 +1295,7 @@ func LoadAutoSave() bool {
 	// Check if autosave.lz4 exists
 	if _, err := os.Stat("autosave.lz4"); os.IsNotExist(err) {
 		fmt.Println("[AUTOSAVE] No auto-save file found")
+		autoSaveWasLoadedOnStartup = false
 		return false
 	}
 
@@ -1149,11 +1303,18 @@ func LoadAutoSave() bool {
 	err := LoadStateFromFile("autosave.lz4")
 	if err != nil {
 		fmt.Printf("[AUTOSAVE] Failed to load auto-save: %v\n", err)
+		autoSaveWasLoadedOnStartup = false
 		return false
 	}
 
 	fmt.Println("[AUTOSAVE] Auto-save loaded successfully")
+	autoSaveWasLoadedOnStartup = true
 	return true
+}
+
+// WasAutoSaveLoadedOnStartup returns whether auto-save was loaded during initialization
+func WasAutoSaveLoadedOnStartup() bool {
+	return autoSaveWasLoadedOnStartup
 }
 
 // NotifyTerritoryColorsUpdate triggers territory color update in the app layer

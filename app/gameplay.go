@@ -106,6 +106,13 @@ func (gm *GameplayModule) Update() {
 		return
 	}
 
+	// Check if welcome screen is visible - if so, update it and block other input
+	welcomeScreen := GetWelcomeScreen()
+	if welcomeScreen != nil && welcomeScreen.IsVisible() {
+		welcomeScreen.Update()
+		return
+	}
+
 	// Process key events to track hold states
 	for {
 		select {
@@ -150,6 +157,14 @@ mouseEventsProcessed:
 		loadoutManager := GetLoadoutManager()
 		if loadoutManager != nil && loadoutManager.IsVisible() {
 			inputHandled = loadoutManager.Update()
+		}
+	}
+
+	// Update welcome screen and check if it handled the input
+	if !inputHandled {
+		welcomeScreen := GetWelcomeScreen()
+		if welcomeScreen != nil && welcomeScreen.IsVisible() {
+			inputHandled = welcomeScreen.Update()
 		}
 	}
 
@@ -450,5 +465,11 @@ func (gm *GameplayModule) Draw(screen *ebiten.Image) {
 	loadoutManager := GetLoadoutManager()
 	if loadoutManager != nil && loadoutManager.IsVisible() {
 		loadoutManager.Draw(screen)
+	}
+
+	// Draw welcome screen if it exists and is visible
+	welcomeScreen := GetWelcomeScreen()
+	if welcomeScreen != nil && welcomeScreen.IsVisible() {
+		welcomeScreen.Draw(screen)
 	}
 }

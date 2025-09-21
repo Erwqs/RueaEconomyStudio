@@ -8,21 +8,23 @@ import (
 	"runtime"
 	"syscall"
 
+	"etools/api"
 	"etools/app"
 	_ "etools/eruntime"
 
-	// _ "net/http/pprof"
+	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"golang.design/x/clipboard"
 )
 
-// func init() {
-// 	go func() {
-// 		fmt.Println("pprof listening on :6060")
-// 		http.ListenAndServe(":6060", nil)
-// 	}()
-// }
+func init() {
+	go func() {
+		fmt.Println("pprof listening on :6060")
+		http.ListenAndServe(":6060", nil)
+	}()
+}
 
 func main() {
 	// Parse command line flags
@@ -67,12 +69,19 @@ func main() {
 func runHeadless() {
 	fmt.Println("Starting Wynncraft ETools in headless mode...")
 
+	// Start WebSocket API server
+	go func() {
+		fmt.Println("Starting WebSocket API server on port 42069...")
+		api.StartWebSocketServer()
+	}()
+
 	// Initialize shared memory as server
 	// if err := eruntime.InitializeSharedMemory(true); err != nil {
 	// 	log.Fatalf("Failed to initialize shared memory server: %v", err)
 	// }
 
 	fmt.Println("Shared memory server started. ETools is ready for external connections.")
+	fmt.Println("WebSocket API is available at ws://localhost:42069/ws")
 
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -80,6 +89,9 @@ func runHeadless() {
 
 	<-sigChan
 	fmt.Println("Received shutdown signal. Cleaning up...")
+
+	// Note: WebSocket server shutdown is handled automatically by the HTTP server
+	// when the main goroutine exits
 
 	// Clean up shared memory
 	// if api, err := eruntime.GetSharedMemoryAPI(); err == nil {
@@ -90,6 +102,13 @@ func runHeadless() {
 }
 
 func runWithGUI() {
+	// Start WebSocket API server for GUI mode as well
+	go func() {
+		fmt.Println("Starting WebSocket API server on port 42069...")
+		api.StartWebSocketServer()
+	}()
+	fmt.Println("WebSocket API is available at ws://localhost:42069/ws")
+
 	// Initialize clipboard
 	// Disable clipboard initialization on WebAssembly (wasm)
 
@@ -149,4 +168,3 @@ func runWithGUI() {
 func initClipboard() error {
 	return clipboard.Init()
 }
-

@@ -315,12 +315,9 @@ func findHQTerritories(guildTag string) []*typedef.Territory {
 func getGuildAllies(guildTag string) []string {
 	for _, guild := range st.guilds {
 		if guild != nil && guild.Tag == guildTag {
-			var allies []string
-			for _, ally := range guild.Allies {
-				if ally != nil {
-					allies = append(allies, ally.Tag)
-				}
-			}
+			// Return copy of AllyTags to avoid external modification
+			allies := make([]string, len(guild.AllyTags))
+			copy(allies, guild.AllyTags)
 			return allies
 		}
 	}
@@ -554,10 +551,20 @@ func SetTerritoryRoutingMode(territoryName string, mode typedef.Routing) error {
 		return errors.New("territory not found")
 	}
 
+	// Check if this actually changes the value
+	if territory.RoutingMode == mode {
+		return nil // No change needed
+	}
+
 	territory.RoutingMode = mode
 
 	// Update routes for this territory
 	UpdateAllRoutes()
+
+	// Trigger territory change callback
+	if territoryChangeCallback != nil {
+		territoryChangeCallback(territoryName)
+	}
 
 	// Trigger auto-save after user action
 	TriggerAutoSave()
@@ -572,10 +579,20 @@ func SetTerritoryBorder(territoryName string, border typedef.Border) error {
 		return errors.New("territory not found")
 	}
 
+	// Check if this actually changes the value
+	if territory.Border == border {
+		return nil // No change needed
+	}
+
 	territory.Border = border
 
 	// Update all routes as this might affect pathfinding
 	UpdateAllRoutes()
+
+	// Trigger territory change callback
+	if territoryChangeCallback != nil {
+		territoryChangeCallback(territoryName)
+	}
 
 	// Trigger auto-save after user action
 	TriggerAutoSave()
@@ -590,11 +607,21 @@ func SetTerritoryTax(territoryName string, normalTax, allyTax float64) error {
 		return errors.New("territory not found")
 	}
 
+	// Check if this actually changes the values
+	if territory.Tax.Tax == normalTax && territory.Tax.Ally == allyTax {
+		return nil // No change needed
+	}
+
 	territory.Tax.Tax = normalTax
 	territory.Tax.Ally = allyTax
 
 	// Update all routes as tax affects routing calculations
 	UpdateAllRoutes()
+
+	// Trigger territory change callback
+	if territoryChangeCallback != nil {
+		territoryChangeCallback(territoryName)
+	}
 
 	return nil
 }

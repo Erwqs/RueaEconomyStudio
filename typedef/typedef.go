@@ -128,10 +128,11 @@ type Costs struct {
 
 type Guild struct {
 	// TODO: Define guild structure with allies
-	Name       string         `json:"Name"`       // Guild name
-	Tag        string         `json:"Tag"`        // Guild tag
+	Name string `json:"Name"` // Guild name
+	Tag  string `json:"Tag"`  // Guild tag
 	// Color      uint           `json:"Color"`      // Guild color
-	Allies     []*Guild       `json:"Allies"`     // List of allied guilds
+	Allies     []*Guild       `json:"-"`          // List of allied guilds - excluded from JSON to prevent circular references
+	AllyTags   []string       `json:"AllyTags"`   // List of allied guild tags for safe JSON serialization
 	TributeIn  BasicResources `json:"TributeIn"`  // Resources received from tributes (per hour)
 	TributeOut BasicResources `json:"TributeOut"` // Resources sent as tributes (per hour)
 }
@@ -547,6 +548,9 @@ type Territory struct {
 
 	Warning Warning `json:"ActiveWarnings"` // Warnings for the territory, can be WarningOverflowEmerald or WarningOverflowResources
 
+	// Warning tracking to prevent flickering - tracks when each warning was last triggered
+	WarningExpiration map[Warning]uint64 `json:"-"` // Maps warning type to tick when it should expire (not serialized)
+
 	// Really important mutex to protect the territory from concurrent access
 	Mu sync.RWMutex
 }
@@ -618,8 +622,9 @@ func NewTerritory(name string, t TerritoryJSON) (*Territory, error) {
 			// TODO: reset sets everything to its initial state
 
 		},
-		Warning: 0, // No warnings initially
-		Mu:      sync.RWMutex{},
+		Warning:           0,                        // No warnings initially
+		WarningExpiration: make(map[Warning]uint64), // Initialize warning tracking
+		Mu:                sync.RWMutex{},
 	}
 
 	return territory, nil
