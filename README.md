@@ -26,13 +26,13 @@ To get things started quick, you want to import all guilds the first time you ru
 - Scriptable, write your own JavaScript code to be run within the simulation context
 
 # Keybinds
-`G` **Guild management**: you can add/remove guilds or edit guild's claim
-`P` **State management**: this menu lets you control the tick rate, modify the logic/calculation/behavior or save and load state session to and from file
-`L` **Loadout menu**: create loadout to apply to many territories, there are two application modes: **apply** whice overrides the previous territory setting and apply the loadout's one and **merge** which merge non-zero data from loadout to territory
-`B` **Tribute configuration**: set up your tribute here. you can set up a tribute between 2 guilds on the map or spawn in tribute from nothing to the hq (source) or simulate sending out tribute to non-existent guild on the map (sink)
-`I` **Resource inspector**: unfinished and abandoned in transit resource inspector and editor
-`S` **Script**: run your diy javascript code that will be interacted with the economy simulator here
-`Tab` **Territory view switcher**: switch between guild view, resource view, defence and more!
+- `G` **Guild management**: you can add/remove guilds or edit guild's claim
+- `P` **State management**: this menu lets you control the tick rate, modify the logic/calculation/behavior or save and load state session to and from file
+- `L` **Loadout menu**: create loadout to apply to many territories, there are two application modes: **apply** whice overrides the previous territory setting and apply the loadout's one and **merge** which merge non-zero data from loadout to territory
+- `B` **Tribute configuration**: set up your tribute here. you can set up a tribute between 2 guilds on the map or spawn in tribute from nothing to the hq (source) or simulate sending out tribute to non-existent guild on the map (sink)
+- `I` **Resource inspector**: unfinished and abandoned in transit resource inspector and editor
+- `S` **Script**: run your diy javascript code that will be interacted with the economy simulator here
+- `Tab` **Territory view switcher**: switch between guild view, resource view, defence and more!
 
 Double click on a territory to open territory menu.
 **Note**: if everything shows up as 0 or seems like nothing is working, press P and click Resume (if it says resume) to un-halt the state
