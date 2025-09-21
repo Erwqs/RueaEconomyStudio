@@ -14,20 +14,20 @@ import (
 
 // WelcomeScreen represents the welcome screen modal that appears when no autosave is found
 type WelcomeScreen struct {
-	modal           *EnhancedModal
-	visible         bool
-	scrollOffset    int
-	contentHeight   int
-	maxScroll       int
-	closeButton     *EnhancedButton
-	getStartedBtn   *EnhancedButton
-	font            font.Face
-	titleFont       font.Face
-	smallFont       font.Face
-	onImportGuilds  func() // Callback for importing guilds
+	modal          *EnhancedModal
+	visible        bool
+	scrollOffset   int
+	contentHeight  int
+	maxScroll      int
+	closeButton    *EnhancedButton
+	getStartedBtn  *EnhancedButton
+	font           font.Face
+	titleFont      font.Face
+	smallFont      font.Face
+	onImportGuilds func() // Callback for importing guilds
 	// Scroll bar dragging state
-	isDraggingScrollBar bool
-	dragStartY          int
+	isDraggingScrollBar   bool
+	dragStartY            int
 	dragStartScrollOffset int
 }
 
@@ -50,10 +50,10 @@ func NewWelcomeScreen() *WelcomeScreen {
 		ws.Hide()
 	})
 	// Set red color for close button
-	ws.closeButton.SetBackgroundColor(color.RGBA{200, 50, 50, 255})    // Red background
-	ws.closeButton.SetHoverColor(color.RGBA{255, 80, 80, 255})         // Lighter red on hover
+	ws.closeButton.SetBackgroundColor(color.RGBA{200, 50, 50, 255}) // Red background
+	ws.closeButton.SetHoverColor(color.RGBA{255, 80, 80, 255})      // Lighter red on hover
 
-	// Create get started button  
+	// Create get started button
 	ws.getStartedBtn = NewEnhancedButton("Guild Manager", 0, 0, 200, 30, func() {
 		// Use callback to open guild manager with import mode
 		if ws.onImportGuilds != nil {
@@ -61,7 +61,7 @@ func NewWelcomeScreen() *WelcomeScreen {
 		}
 		ws.Hide()
 	})
-	
+
 	return ws
 }
 
@@ -114,16 +114,16 @@ func (ws *WelcomeScreen) Update() bool {
 		if ws.scrollOffset < 0 {
 			ws.scrollOffset = 0
 		}
-		
+
 		// Recalculate maxScroll before applying limit
 		bounds := ws.modal.GetBounds()
 		contentHeight := bounds.Dy() - 110 // Same calculation as in Draw
-		ws.calculateMaxScroll(bounds.Min.X + 20, bounds.Min.Y + 50, bounds.Dx() - 40, contentHeight)
-		
+		ws.calculateMaxScroll(bounds.Min.X+20, bounds.Min.Y+50, bounds.Dx()-40, contentHeight)
+
 		if ws.scrollOffset > ws.maxScroll {
 			ws.scrollOffset = ws.maxScroll
 		}
-		
+
 		// Debug output
 		if ws.scrollOffset != oldScrollOffset {
 			fmt.Printf("[WELCOME] Scroll: %d/%d (delta: %.1f)\n", ws.scrollOffset, ws.maxScroll, scrollY)
@@ -148,7 +148,7 @@ func (ws *WelcomeScreen) Update() bool {
 
 	// Handle button updates and scroll bar dragging
 	mx, my := ebiten.CursorPosition()
-	
+
 	// Handle scroll bar dragging
 	if ws.maxScroll > 0 {
 		contentY := bounds.Min.Y + 50
@@ -156,16 +156,16 @@ func (ws *WelcomeScreen) Update() bool {
 		scrollBarX := bounds.Min.X + bounds.Dx() - 15
 		scrollBarY := contentY
 		scrollBarHeight := contentHeight
-		
+
 		// Calculate thumb position and size
 		totalContentHeight := contentHeight + ws.maxScroll
-		thumbHeight := maxInt(20, (contentHeight * scrollBarHeight) / totalContentHeight)
-		thumbY := scrollBarY + (ws.scrollOffset * (scrollBarHeight - thumbHeight)) / maxInt(1, ws.maxScroll)
-		
+		thumbHeight := maxInt(20, (contentHeight*scrollBarHeight)/totalContentHeight)
+		thumbY := scrollBarY + (ws.scrollOffset*(scrollBarHeight-thumbHeight))/maxInt(1, ws.maxScroll)
+
 		// Check if mouse is over scroll bar area
 		mouseOverScrollBar := mx >= scrollBarX && mx <= scrollBarX+10 && my >= scrollBarY && my <= scrollBarY+scrollBarHeight
 		mouseOverThumb := mx >= scrollBarX && mx <= scrollBarX+10 && my >= thumbY && my <= thumbY+thumbHeight
-		
+
 		// Handle mouse press on scroll bar
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 			if mouseOverThumb {
@@ -185,14 +185,14 @@ func (ws *WelcomeScreen) Update() bool {
 				}
 			}
 		}
-		
+
 		// Handle dragging
 		if ws.isDraggingScrollBar && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 			deltaY := my - ws.dragStartY
 			// Convert pixel movement to scroll offset
 			scrollDelta := (deltaY * ws.maxScroll) / maxInt(1, scrollBarHeight-thumbHeight)
 			ws.scrollOffset = ws.dragStartScrollOffset + scrollDelta
-			
+
 			if ws.scrollOffset < 0 {
 				ws.scrollOffset = 0
 			}
@@ -200,13 +200,13 @@ func (ws *WelcomeScreen) Update() bool {
 				ws.scrollOffset = ws.maxScroll
 			}
 		}
-		
+
 		// Stop dragging when mouse is released
 		if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 			ws.isDraggingScrollBar = false
 		}
 	}
-	
+
 	handled := ws.closeButton.Update(mx, my) || ws.getStartedBtn.Update(mx, my)
 
 	return handled
@@ -225,9 +225,9 @@ func (ws *WelcomeScreen) Draw(screen *ebiten.Image) {
 	bounds := ws.modal.GetBounds()
 	contentPadding := 30 // Increased padding
 	contentX := bounds.Min.X + contentPadding
-	contentY := bounds.Min.Y + 60 // More top padding for title
+	contentY := bounds.Min.Y + 60                           // More top padding for title
 	contentWidth := bounds.Dx() - (contentPadding * 2) - 20 // Extra space for scroll bar
-	contentHeight := bounds.Dy() - 120 // More space for buttons
+	contentHeight := bounds.Dy() - 120                      // More space for buttons
 
 	// Draw content with scrolling
 	ws.drawContent(screen, contentX, contentY, contentWidth, contentHeight)
@@ -241,16 +241,16 @@ func (ws *WelcomeScreen) Draw(screen *ebiten.Image) {
 		scrollBarX := bounds.Min.X + bounds.Dx() - 15
 		scrollBarY := contentY
 		scrollBarHeight := contentHeight
-		
+
 		// Background
-		vector.DrawFilledRect(screen, float32(scrollBarX), float32(scrollBarY), 10, float32(scrollBarHeight), 
+		vector.DrawFilledRect(screen, float32(scrollBarX), float32(scrollBarY), 10, float32(scrollBarHeight),
 			color.RGBA{60, 60, 60, 255}, false)
-		
+
 		// Thumb - calculate proportional size and position
 		totalContentHeight := contentHeight + ws.maxScroll
-		thumbHeight := maxInt(20, (contentHeight * scrollBarHeight) / totalContentHeight)
-		thumbY := scrollBarY + (ws.scrollOffset * (scrollBarHeight - thumbHeight)) / maxInt(1, ws.maxScroll)
-		
+		thumbHeight := maxInt(20, (contentHeight*scrollBarHeight)/totalContentHeight)
+		thumbY := scrollBarY + (ws.scrollOffset*(scrollBarHeight-thumbHeight))/maxInt(1, ws.maxScroll)
+
 		vector.DrawFilledRect(screen, float32(scrollBarX+1), float32(thumbY), 8, float32(thumbHeight),
 			color.RGBA{120, 120, 120, 255}, false)
 	}
@@ -259,10 +259,10 @@ func (ws *WelcomeScreen) Draw(screen *ebiten.Image) {
 // drawContent renders the welcome screen content
 func (ws *WelcomeScreen) drawContent(screen *ebiten.Image, x, y, width, height int) {
 	currentY := y - ws.scrollOffset
-	lineHeight := 22        // Increased line height for better readability
-	sectionSpacing := 35    // Increased spacing between sections
-	itemPadding := 5        // Padding between items within sections
-	
+	lineHeight := 22     // Increased line height for better readability
+	sectionSpacing := 35 // Increased spacing between sections
+	itemPadding := 5     // Padding between items within sections
+
 	// Title
 	titleText := "Ruea Economy Studio - Wynncraft Guild Economy Simulator"
 	titleBounds := text.BoundString(ws.titleFont, titleText)
@@ -291,7 +291,7 @@ func (ws *WelcomeScreen) drawContent(screen *ebiten.Image, x, y, width, height i
 	currentY += sectionSpacing + itemPadding
 
 	// First Time Setup section
-	currentY = ws.drawSection(screen, "First Time Setup", 
+	currentY = ws.drawSection(screen, "First Time Setup",
 		[]string{
 			"To get things started quick, you want to import all guilds the first time you run the app",
 			"Press G to bring up guild management",
@@ -343,20 +343,20 @@ func (ws *WelcomeScreen) drawContent(screen *ebiten.Image, x, y, width, height i
 func (ws *WelcomeScreen) calculateMaxScroll(x, y, width, height int) {
 	// Calculate total content height by simulating the drawing process
 	currentY := y
-	lineHeight := 22        // Match the increased line height
-	sectionSpacing := 35    // Match the increased section spacing
-	
+	lineHeight := 22     // Match the increased line height
+	sectionSpacing := 35 // Match the increased section spacing
+
 	// Title
 	currentY += 40
-	
-	// Subtitle  
+
+	// Subtitle
 	currentY += 25
-	
+
 	// Description
 	descText := "It aims to closely replicate the economy system in game as much as possible"
 	descLines := ws.wrapText(descText, width-40, ws.font)
-	currentY += len(descLines) * lineHeight + sectionSpacing
-	
+	currentY += len(descLines)*lineHeight + sectionSpacing
+
 	// First Time Setup section
 	setupItems := []string{
 		"To get things started quick, you want to import all guilds the first time you run the app",
@@ -364,8 +364,8 @@ func (ws *WelcomeScreen) calculateMaxScroll(x, y, width, height int) {
 		"Then press API import to import all guilds and the map",
 	}
 	currentY += 25 // title
-	currentY += len(setupItems) * lineHeight + sectionSpacing
-	
+	currentY += len(setupItems)*lineHeight + sectionSpacing
+
 	// Features section (large section)
 	featureItems := []string{
 		"Multiple guild supports",
@@ -383,9 +383,9 @@ func (ws *WelcomeScreen) calculateMaxScroll(x, y, width, height int) {
 		"Scriptable, write your own Javascript code to be run within the simulation context",
 	}
 	currentY += 25 // title
-	currentY += len(featureItems) * lineHeight + sectionSpacing
-	
-	// Keybinds section  
+	currentY += len(featureItems)*lineHeight + sectionSpacing
+
+	// Keybinds section
 	keybindItems := []string{
 		"G - Guild management; you can add/remove guilds or edit guild's clan",
 		"P - State management; this menu lets you control the tick rate, modify the logic/calculation/behavior or save and load state session to and from file",
@@ -396,26 +396,26 @@ func (ws *WelcomeScreen) calculateMaxScroll(x, y, width, height int) {
 		"Tab - Territory view switcher; switch between guild view, resource view, defence and moral",
 	}
 	currentY += 25 // title
-	currentY += len(keybindItems) * lineHeight + sectionSpacing
-	
+	currentY += len(keybindItems)*lineHeight + sectionSpacing
+
 	// Usage Tips section
 	usageTipItems := []string{
 		"Double click on a territory to open territory menu",
 		"Note: if everything shows up as 0 or seems like nothing is working, press P and click Resume (if it says resume) to un-halt the state",
 	}
-	currentY += 25 // title  
-	currentY += len(usageTipItems) * lineHeight + sectionSpacing
-	
+	currentY += 25 // title
+	currentY += len(usageTipItems)*lineHeight + sectionSpacing
+
 	// Calculate max scroll needed
-	ws.maxScroll = maxInt(0, currentY - y - height + 50)
+	ws.maxScroll = maxInt(0, currentY-y-height+50)
 }
 
 // drawSection renders a section with title and bullet points
 func (ws *WelcomeScreen) drawSection(screen *ebiten.Image, title string, items []string, x, startY, width, viewY, viewHeight int, titleColor color.RGBA) int {
 	currentY := startY
-	lineHeight := 22        // Match the main content line height
-	itemPadding := 5        // Padding between items
-	
+	lineHeight := 22 // Match the main content line height
+	itemPadding := 5 // Padding between items
+
 	// Draw section title with more padding
 	if currentY > viewY-lineHeight && currentY < viewY+viewHeight {
 		text.Draw(screen, title, ws.titleFont, x+10, currentY+18, titleColor)
@@ -428,7 +428,7 @@ func (ws *WelcomeScreen) drawSection(screen *ebiten.Image, title string, items [
 		if i > 0 {
 			currentY += itemPadding
 		}
-		
+
 		// Word wrap long items
 		wrappedLines := ws.wrapText(item, width-20, ws.font)
 		for j, line := range wrappedLines {
@@ -444,7 +444,7 @@ func (ws *WelcomeScreen) drawSection(screen *ebiten.Image, title string, items [
 			currentY += lineHeight
 		}
 	}
-	
+
 	return currentY + 20 // Add spacing after section
 }
 
@@ -461,7 +461,7 @@ func (ws *WelcomeScreen) wrapText(textContent string, maxWidth int, fontFace fon
 	for _, word := range words[1:] {
 		testLine := currentLine + " " + word
 		bounds := text.BoundString(fontFace, testLine)
-		
+
 		if bounds.Dx() <= maxWidth {
 			currentLine = testLine
 		} else {
@@ -469,7 +469,7 @@ func (ws *WelcomeScreen) wrapText(textContent string, maxWidth int, fontFace fon
 			currentLine = word
 		}
 	}
-	
+
 	lines = append(lines, currentLine)
 	return lines
 }

@@ -28,6 +28,12 @@ func (m *EdgeMenu) UpdateTowerStats(territoryName string) {
 					territory.TowerStats.Damage.High),
 					DefaultTextOptions())
 
+				// wynn's horrible math
+				collapsible.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f",
+					territory.TowerStats.Damage.Low*2,
+					territory.TowerStats.Damage.High*2),
+					DefaultTextOptions())
+
 				collapsible.Text(fmt.Sprintf("Attack: %.1f/s", territory.TowerStats.Attack), DefaultTextOptions())
 
 				collapsible.Text(fmt.Sprintf("Health: %.0f", territory.TowerStats.Health), DefaultTextOptions())
@@ -39,6 +45,10 @@ func (m *EdgeMenu) UpdateTowerStats(territoryName string) {
 				// Calculate and display average DPS
 				averageDPS := territory.TowerStats.Attack * ((float64(territory.TowerStats.Damage.High)) + (float64(territory.TowerStats.Damage.Low))) / 2
 				collapsible.Text(fmt.Sprintf("Average DPS: %.0f", averageDPS), DefaultTextOptions())
+
+				// wynn's math avg dps
+				averageDPS2 := territory.TowerStats.Attack * ((float64(territory.TowerStats.Damage.High*2)) + (float64(territory.TowerStats.Damage.Low*2))) / 2
+				collapsible.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", averageDPS2), DefaultTextOptions())
 
 				// Calculate and display effective HP
 				ehp := territory.TowerStats.Health / (1.0 - territory.TowerStats.Defence)

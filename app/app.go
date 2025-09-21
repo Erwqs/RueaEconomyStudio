@@ -674,14 +674,14 @@ func New() *Game {
 	if !eruntime.WasAutoSaveLoadedOnStartup() {
 		// No autosave file was found/loaded, show welcome screen
 		welcomeScreen := GetWelcomeScreen()
-		
+
 		// Set up callback to access guild manager
 		welcomeScreen.SetImportGuildsCallback(func() {
 			if game.state.gameplayModule != nil && game.state.gameplayModule.guildManager != nil {
 				game.state.gameplayModule.guildManager.Show()
 			}
 		})
-		
+
 		welcomeScreen.Show()
 		fmt.Println("[APP] No autosave loaded on startup, showing welcome screen")
 	}

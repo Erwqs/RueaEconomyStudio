@@ -486,10 +486,10 @@ func SetT(territory *typedef.Territory, opts typedef.TerritoryOptions) *typedef.
 	}
 
 	territory.Mu.Lock()
-	
+
 	// Track what changed to determine if menu refresh is needed
 	menuRefreshNeeded := false
-	
+
 	// Check for changes that affect the UI
 	if opts.Border != territory.Border ||
 		opts.RoutingMode != territory.RoutingMode ||
@@ -499,7 +499,7 @@ func SetT(territory *typedef.Territory, opts typedef.TerritoryOptions) *typedef.
 		opts.Bonuses != territory.Options.Bonus.Set {
 		menuRefreshNeeded = true
 	}
-	
+
 	territory.Options.Upgrade.Set = opts.Upgrades
 	territory.Options.Bonus.Set = opts.Bonuses
 
@@ -566,10 +566,10 @@ func Set(territory string, opts typedef.TerritoryOptions) *typedef.Territory {
 	}
 
 	t.Mu.Lock()
-	
+
 	// Track what changed to determine if menu refresh is needed
 	menuRefreshNeeded := false
-	
+
 	// Check for changes that affect the UI
 	if opts.Border != t.Border ||
 		opts.RoutingMode != t.RoutingMode ||
@@ -579,7 +579,7 @@ func Set(territory string, opts typedef.TerritoryOptions) *typedef.Territory {
 		opts.Bonuses != t.Options.Bonus.Set {
 		menuRefreshNeeded = true
 	}
-	
+
 	t.Options.Upgrade.Set = opts.Upgrades
 	t.Options.Bonus.Set = opts.Bonuses
 

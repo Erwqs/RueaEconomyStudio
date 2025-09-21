@@ -498,8 +498,8 @@ type Territory struct {
 
 	TowerStats  TowerStats   `json:"-"`           // Tower stats, calculated on the fly, not serialized
 	Level       DefenceLevel `json:"-"`           // Calculate on the fly, not serialized
-	LevelInt    uint8        `json:"-"`           // Calculate on the fly, not serialized
-	SetLevelInt uint8        `json:"SetLevelInt"` // Set level of the territory, used for serialization
+	LevelInt    uint16       `json:"-"`           // Calculate on the fly, not serialized
+	SetLevelInt uint16       `json:"SetLevelInt"` // Set level of the territory, used for serialization
 	SetLevel    DefenceLevel `json:"SetLevel"`    // Set level of the territory, used for serialization
 
 	Links Links `json:"Connections"` // Connections territories and externals

@@ -934,7 +934,7 @@ func calculateTowerStats(territory *typedef.Territory) typedef.TowerStats {
 	activeAuraLv := calcAuraBonus(territory.Options.Bonus.At.TowerAura)
 	activeVolleyLv := calcVolleyBonus(territory.Options.Bonus.At.TowerVolley)
 
-	territory.LevelInt = uint8(damageLevel + attackLevel + healthLevel + defenceLevel +
+	territory.LevelInt = uint16(damageLevel + attackLevel + healthLevel + defenceLevel +
 		territory.Options.Bonus.At.TowerAura + territory.Options.Bonus.At.TowerVolley +
 		activeAuraLv + activeVolleyLv)
 
@@ -942,10 +942,15 @@ func calculateTowerStats(territory *typedef.Territory) typedef.TowerStats {
 	setAuraLv := calcAuraBonus(territory.Options.Bonus.Set.TowerAura)
 	setVolleyLv := calcVolleyBonus(territory.Options.Bonus.Set.TowerVolley)
 
-	territory.SetLevelInt = uint8(territory.Options.Upgrade.Set.Damage + territory.Options.Upgrade.Set.Attack +
+	territory.SetLevelInt = uint16(territory.Options.Upgrade.Set.Damage + territory.Options.Upgrade.Set.Attack +
 		territory.Options.Upgrade.Set.Health + territory.Options.Upgrade.Set.Defence +
 		territory.Options.Bonus.Set.TowerAura + territory.Options.Bonus.Set.TowerVolley +
 		setAuraLv + setVolleyLv)
+
+	if territory.HQ {
+		exts := len(territory.Links.Externals)
+		territory.SetLevelInt += uint16(exts) * 4
+	}
 
 	switch {
 	case territory.LevelInt >= 49:

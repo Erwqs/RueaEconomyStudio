@@ -2318,8 +2318,12 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	towerStatsMenu.Text(fmt.Sprintf("Health: %.0f", territory.TowerStats.Health), DefaultTextOptions())
 	towerStatsMenu.Text(fmt.Sprintf("Defence: %.1f%%", territory.TowerStats.Defence*100), DefaultTextOptions())
 	towerStatsMenu.Spacer(DefaultSpacerOptions())
+	// wynn's horrible math
+	towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", territory.TowerStats.Damage.Low*2, territory.TowerStats.Damage.High*2), DefaultTextOptions())
 	averageDPS := territory.TowerStats.Attack * ((float64(territory.TowerStats.Damage.High)) + (float64(territory.TowerStats.Damage.Low))) / 2
 	towerStatsMenu.Text(fmt.Sprintf("Average DPS: %.0f", averageDPS), DefaultTextOptions())
+	averageDPS2 := territory.TowerStats.Attack * ((float64(territory.TowerStats.Damage.High * 2)) + (float64(territory.TowerStats.Damage.Low * 2))) / 2
+	towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", averageDPS2), DefaultTextOptions())
 	ehp := territory.TowerStats.Health / (1.0 - territory.TowerStats.Defence)
 	towerStatsMenu.Text(fmt.Sprintf("Effective HP: %.0f", ehp), DefaultTextOptions())
 
