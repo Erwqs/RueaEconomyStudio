@@ -226,6 +226,13 @@ func NewMapView() *MapView {
 	// Set the global MapView instance
 	SetMapView(mapView)
 
+	// Set up EdgeMenu callbacks
+	mapView.edgeMenu.SetTerritoryNavCallback(func(territoryName string) {
+		// Center map on clicked territory and open its menu
+		mapView.CenterTerritory(territoryName)
+		mapView.populateTerritoryMenu(territoryName)
+	})
+
 	// Register the territory change callback to refresh menu when territory settings change
 	eruntime.SetTerritoryChangeCallback(mapView.onTerritoryChanged)
 
@@ -2020,9 +2027,10 @@ func (m *MapView) Cleanup() {
 func (m *MapView) onTerritoryChanged(territoryName string) {
 	// Only refresh if this territory is currently being displayed in the menu
 	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.GetCurrentTerritory() == territoryName {
-		// Refresh the menu with updated data
-		m.populateTerritoryMenu(territoryName)
-		fmt.Printf("[DEBUG] Territory menu refreshed for: %s\n", territoryName)
+		// Update tower stats and trading routes, don't rebuild the entire menu to avoid breaking sliders
+		m.edgeMenu.UpdateTowerStats(territoryName)
+		m.edgeMenu.UpdateTradingRoutes(territoryName)
+		fmt.Printf("[DEBUG] Tower stats and trading routes updated for: %s\n", territoryName)
 	}
 }
 
@@ -2314,12 +2322,12 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	// Tower Stats (collapsible) - Shows tower stats with current upgrades
 	towerStatsMenu := m.edgeMenu.CollapsibleMenu("Tower Stats", DefaultCollapsibleMenuOptions())
 	towerStatsMenu.Text(fmt.Sprintf("Damage: %.0f - %.0f", territory.TowerStats.Damage.Low, territory.TowerStats.Damage.High), DefaultTextOptions())
+	towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", territory.TowerStats.Damage.Low*2, territory.TowerStats.Damage.High*2), DefaultTextOptions())
 	towerStatsMenu.Text(fmt.Sprintf("Attack: %.1f/s", territory.TowerStats.Attack), DefaultTextOptions())
 	towerStatsMenu.Text(fmt.Sprintf("Health: %.0f", territory.TowerStats.Health), DefaultTextOptions())
 	towerStatsMenu.Text(fmt.Sprintf("Defence: %.1f%%", territory.TowerStats.Defence*100), DefaultTextOptions())
 	towerStatsMenu.Spacer(DefaultSpacerOptions())
 	// wynn's horrible math
-	towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", territory.TowerStats.Damage.Low*2, territory.TowerStats.Damage.High*2), DefaultTextOptions())
 	averageDPS := territory.TowerStats.Attack * ((float64(territory.TowerStats.Damage.High)) + (float64(territory.TowerStats.Damage.Low))) / 2
 	towerStatsMenu.Text(fmt.Sprintf("Average DPS: %.0f", averageDPS), DefaultTextOptions())
 	averageDPS2 := territory.TowerStats.Attack * ((float64(territory.TowerStats.Damage.High * 2)) + (float64(territory.TowerStats.Damage.Low * 2))) / 2
@@ -2715,15 +2723,21 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 			newRoutingMode = typedef.RoutingFastest
 		}
 
-		opts := typedef.TerritoryOptions{
-			Upgrades:    territory.Options.Upgrade.Set,
-			Bonuses:     territory.Options.Bonus.Set,
-			Tax:         territory.Tax,
-			RoutingMode: newRoutingMode,
-			Border:      territory.Border,
-			HQ:          territory.HQ,
-		}
-		eruntime.Set(territoryName, opts)
+		// Delay the actual update to allow toggle animation to complete
+		go func() {
+			// Wait for toggle animation to complete (approximately 200ms)
+			time.Sleep(200 * time.Millisecond)
+
+			opts := typedef.TerritoryOptions{
+				Upgrades:    territory.Options.Upgrade.Set,
+				Bonuses:     territory.Options.Bonus.Set,
+				Tax:         territory.Tax,
+				RoutingMode: newRoutingMode,
+				Border:      territory.Border,
+				HQ:          territory.HQ,
+			}
+			eruntime.Set(territoryName, opts)
+		}()
 	})
 
 	// Border toggle switch (checking if the logic should be reversed)
@@ -2741,15 +2755,21 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 		}
 		fmt.Printf("Setting new border to: %d\n", newBorder)
 
-		opts := typedef.TerritoryOptions{
-			Upgrades:    territory.Options.Upgrade.Set,
-			Bonuses:     territory.Options.Bonus.Set,
-			Tax:         territory.Tax,
-			RoutingMode: territory.RoutingMode,
-			Border:      newBorder,
-			HQ:          territory.HQ,
-		}
-		eruntime.Set(territoryName, opts)
+		// Delay the actual update to allow toggle animation to complete
+		go func() {
+			// Wait for toggle animation to complete (approximately 200ms)
+			time.Sleep(200 * time.Millisecond)
+
+			opts := typedef.TerritoryOptions{
+				Upgrades:    territory.Options.Upgrade.Set,
+				Bonuses:     territory.Options.Bonus.Set,
+				Tax:         territory.Tax,
+				RoutingMode: territory.RoutingMode,
+				Border:      newBorder,
+				HQ:          territory.HQ,
+			}
+			eruntime.Set(territoryName, opts)
+		}()
 	})
 
 	// Add divider/spacer

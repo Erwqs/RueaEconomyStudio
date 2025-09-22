@@ -204,7 +204,7 @@ func (api *API) createTerritoryStats() map[string]*TerritoryStateSafe {
 			GuildTag:             territory.Guild.Tag,
 			Location:             territory.Location,
 			HQ:                   territory.HQ,
-			Level:                territory.LevelInt,
+			Level:                uint8(territory.LevelInt),
 			Storage:              territory.Storage,
 			ResourceGeneration:   territory.ResourceGeneration,
 			Treasury:             territory.Treasury,

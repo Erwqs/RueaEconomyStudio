@@ -420,6 +420,7 @@ type MenuSlider struct {
 	value      float64
 	options    SliderOptions
 	callback   func(value float64)
+	onDragEnd  func() // Called when dragging ends
 	dragging   bool
 	sliderRect image.Rectangle
 }
@@ -456,6 +457,10 @@ func (s *MenuSlider) Update(mx, my int, deltaTime float64) bool {
 			return true
 		} else {
 			s.dragging = false
+			// Call drag end callback if it exists
+			if s.onDragEnd != nil {
+				s.onDragEnd()
+			}
 		}
 	}
 
@@ -552,6 +557,10 @@ func (s *MenuSlider) GetMinHeight() int {
 
 func (s *MenuSlider) SetValue(value float64) {
 	s.value = math.Max(s.options.MinValue, math.Min(s.options.MaxValue, value))
+}
+
+func (s *MenuSlider) SetOnDragEnd(callback func()) {
+	s.onDragEnd = callback
 }
 
 func (s *MenuSlider) GetValue() float64 {
@@ -700,6 +709,13 @@ func (c *CollapsibleMenu) Update(mx, my int, deltaTime float64) bool {
 		if c.hovered {
 			c.collapsed = !c.collapsed
 			c.lastClickTime = 0.0 // Reset timer to prevent immediate re-triggering
+
+			// If this is a trading route submenu, save its state
+			if c.parentMenu != nil && strings.HasPrefix(c.title, "Route to ") {
+				c.parentMenu.tradingRouteStates[c.title] = !c.collapsed
+				fmt.Printf("DEBUG: Saved trading route state: %s = %t\n", c.title, !c.collapsed)
+			}
+
 			return true
 		}
 	}
@@ -793,6 +809,29 @@ func (c *CollapsibleMenu) IsCollapsed() bool {
 	return c.collapsed
 }
 
+// HasDraggingSliders checks if any sliders within this CollapsibleMenu are currently being dragged
+func (c *CollapsibleMenu) HasDraggingSliders() bool {
+	for _, element := range c.elements {
+		if slider, ok := element.(*MenuSlider); ok {
+			if slider.dragging {
+				return true
+			}
+		}
+		// Also check for sliders within nested elements like UpgradeControl and BonusControl
+		if upgradeControl, ok := element.(*UpgradeControl); ok {
+			if upgradeControl.slider != nil && upgradeControl.slider.dragging {
+				return true
+			}
+		}
+		if bonusControl, ok := element.(*BonusControl); ok {
+			if bonusControl.slider != nil && bonusControl.slider.dragging {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // EdgeMenu represents the main edge menu container
 type EdgeMenu struct {
 	title        string
@@ -804,26 +843,27 @@ type EdgeMenu struct {
 	animTarget   float64
 
 	// Modal background
-	modal            *TerritoryModal
-	screenWidth      int
-	screenHeight     int
-	scrollOffset     int
-	maxScroll        int
-	scrollTarget     float64 // Target scroll position for smooth scrolling
-	scrollVelocity   float64 // Current scroll velocity for smooth scrolling
-	bounds           image.Rectangle
-	closeButton      image.Rectangle
-	font             font.Face
-	titleFont        font.Face
-	contentHeight    int
-	titleVisible     bool
-	titleAnimating   bool
-	titleProgress    float64
-	titleTarget      float64
-	lastScrollTime   float64
-	lastUpdateTime   float64
-	currentTerritory string
-	refreshCallback  func(string)
+	modal                *TerritoryModal
+	screenWidth          int
+	screenHeight         int
+	scrollOffset         int
+	maxScroll            int
+	scrollTarget         float64 // Target scroll position for smooth scrolling
+	scrollVelocity       float64 // Current scroll velocity for smooth scrolling
+	bounds               image.Rectangle
+	closeButton          image.Rectangle
+	font                 font.Face
+	titleFont            font.Face
+	contentHeight        int
+	titleVisible         bool
+	titleAnimating       bool
+	titleProgress        float64
+	titleTarget          float64
+	lastScrollTime       float64
+	lastUpdateTime       float64
+	currentTerritory     string
+	refreshCallback      func(string)
+	territoryNavCallback func(string) // Callback for navigating to and opening a territory menu
 
 	// Scrollbar interaction state
 	scrollbarRect     image.Rectangle // The entire scrollbar track
@@ -831,6 +871,21 @@ type EdgeMenu struct {
 	scrollbarDragging bool            // Whether the handle is being dragged
 	dragStartY        int             // Y position where drag started
 	dragStartOffset   int             // Scroll offset when drag started
+
+	// Delayed update system to prevent updates during slider dragging
+	pendingUpdate       bool    // Whether an update is pending
+	pendingFullRefresh  bool    // Whether a full refresh is needed (for Tower Multi-Attack)
+	updateDelay         float64 // Time to wait after last change before updating
+	timeSinceLastChange float64 // Time since the last change that requires an update
+
+	// Mouse interaction tracking for preventing updates during drag operations
+	needsTowerStatsUpdate   bool    // Whether tower stats need to be updated when mouse is released
+	lastMousePressed        bool    // Previous frame's mouse button state
+	towerStatsUpdateTime    float64 // Timer for periodic tower stats updates
+	tradingRoutesUpdateTime float64 // Timer for periodic trading routes updates
+
+	// State preservation for trading routes
+	tradingRouteStates map[string]bool // Map of route title -> expanded state
 }
 
 // NewEdgeMenu creates a new edge menu with the specified title and options
@@ -843,23 +898,28 @@ func NewEdgeMenu(title string, options EdgeMenuOptions) *EdgeMenu {
 	initClipboard()
 
 	menu := &EdgeMenu{
-		title:          title,
-		options:        options,
-		elements:       make([]EdgeMenuElement, 0),
-		visible:        false,
-		animating:      false,
-		animProgress:   0.0,
-		animTarget:     0.0,
-		modal:          NewTerritoryModal(),
-		font:           loadWynncraftFont(16),
-		titleFont:      loadWynncraftFont(22),
-		titleVisible:   true,
-		titleAnimating: false,
-		titleProgress:  1.0,
-		titleTarget:    1.0,
-		lastScrollTime: 0.0,
-		scrollTarget:   0.0,
-		scrollVelocity: 0.0,
+		title:               title,
+		options:             options,
+		elements:            make([]EdgeMenuElement, 0),
+		visible:             false,
+		animating:           false,
+		animProgress:        0.0,
+		animTarget:          0.0,
+		modal:               NewTerritoryModal(),
+		font:                loadWynncraftFont(16),
+		titleFont:           loadWynncraftFont(22),
+		titleVisible:        true,
+		titleAnimating:      false,
+		titleProgress:       1.0,
+		titleTarget:         1.0,
+		lastScrollTime:      0.0,
+		scrollTarget:        0.0,
+		scrollVelocity:      0.0,
+		updateDelay:         0.3, // Wait 300ms after last change before updating
+		pendingUpdate:       false,
+		pendingFullRefresh:  false,
+		timeSinceLastChange: 0.0,
+		tradingRouteStates:  make(map[string]bool), // Initialize trading route states map
 	}
 
 	return menu
@@ -989,20 +1049,131 @@ func (m *EdgeMenu) IsMouseInside(mx, my int) bool {
 		my >= m.bounds.Min.Y && my <= m.bounds.Max.Y
 }
 
+// HasDraggingSliders checks if any sliders in the menu are currently being dragged
+func (m *EdgeMenu) HasDraggingSliders() bool {
+	for _, element := range m.elements {
+		if hasSlidersDragging(element) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSlidersDragging recursively checks for dragging sliders in menu elements
+func hasSlidersDragging(element EdgeMenuElement) bool {
+	switch e := element.(type) {
+	case *MenuSlider:
+		if e.dragging {
+			return true
+		}
+	case *UpgradeControl:
+		if e.slider != nil && e.slider.dragging {
+			return true
+		}
+	case *BonusControl:
+		if e.slider != nil && e.slider.dragging {
+			return true
+		}
+	case *CollapsibleMenu:
+		for _, childElement := range e.elements {
+			if hasSlidersDragging(childElement) {
+				return true
+			}
+		}
+	case *Card:
+		for _, childElement := range e.elements {
+			if hasSlidersDragging(childElement) {
+				return true
+			}
+		}
+	case *Container:
+		for _, childElement := range e.elements {
+			if hasSlidersDragging(childElement) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ScheduleDelayedUpdate marks that an update is needed and resets the delay timer
+func (m *EdgeMenu) ScheduleDelayedUpdate() {
+	m.pendingUpdate = true
+	m.timeSinceLastChange = 0.0
+}
+
+// ScheduleDelayedFullRefresh marks that a full refresh is needed and resets the delay timer
+func (m *EdgeMenu) ScheduleDelayedFullRefresh() {
+	m.pendingUpdate = true
+	m.pendingFullRefresh = true
+	m.timeSinceLastChange = 0.0
+}
+
+// ProcessDelayedUpdates handles delayed updates after the delay period has passed
+func (m *EdgeMenu) ProcessDelayedUpdates(deltaTime float64) {
+	if m.pendingUpdate {
+		m.timeSinceLastChange += deltaTime
+
+		// Only update if the delay has passed AND no sliders are being dragged
+		if m.timeSinceLastChange >= m.updateDelay && !m.HasDraggingSliders() {
+			m.pendingUpdate = false
+			m.timeSinceLastChange = 0.0
+
+			// Perform the delayed update
+			if m.pendingFullRefresh {
+				// Do full refresh for Tower Multi-Attack changes
+				m.pendingFullRefresh = false
+				m.refreshMenuData()
+			} else if m.currentTerritory != "" {
+				// Do targeted update for tower stats only
+				m.UpdateTowerStats(m.currentTerritory)
+				m.UpdateTotalCosts(m.currentTerritory)
+			}
+		}
+	}
+}
+
 // Update handles input and animations
 func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool {
 	m.screenWidth = screenWidth
 	m.screenHeight = screenHeight
 	m.lastScrollTime += deltaTime
 	m.lastUpdateTime += deltaTime
+	m.towerStatsUpdateTime += deltaTime
+	m.tradingRoutesUpdateTime += deltaTime
 
-	// Update menu data every 50ms for territory stats, but only if no storage controls are being edited
+	// Check if any mouse button is currently pressed
+	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) ||
+		ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) ||
+		ebiten.IsMouseButtonPressed(ebiten.MouseButtonMiddle)
+
+	// Update mouse state for next frame
+	m.lastMousePressed = mousePressed
+
+	// Update tower stats every 1 second when no mouse buttons are pressed
+	if m.towerStatsUpdateTime >= 1.0 && !mousePressed && m.currentTerritory != "" {
+		m.towerStatsUpdateTime = 0.0
+		m.UpdateTowerStats(m.currentTerritory)
+		fmt.Printf("DEBUG: Periodic tower stats update for territory: %s\n", m.currentTerritory)
+	}
+
+	// Update trading routes every 2 seconds when no mouse buttons are pressed (less frequent than tower stats)
+	if m.tradingRoutesUpdateTime >= 2.0 && !mousePressed && m.currentTerritory != "" {
+		m.tradingRoutesUpdateTime = 0.0
+		m.UpdateTradingRoutes(m.currentTerritory)
+		fmt.Printf("DEBUG: Periodic trading routes update for territory: %s\n", m.currentTerritory)
+	}
+
+	// Update menu data every 50ms for territory stats, but only if no mouse buttons are pressed
 	if m.lastUpdateTime >= 0.05 {
 		m.lastUpdateTime = 0.0
-		// Skip refreshing menu data if storage input is being edited
-		// if !m.hasActiveStorageInput() {
-		m.refreshMenuData()
-		// }
+		// Skip refreshing menu data if any mouse button is pressed to avoid interrupting interactions
+		if !mousePressed {
+			fmt.Printf("DEBUG: Regular refreshMenuData called\n")
+			m.refreshMenuData()
+		} else {
+			fmt.Printf("DEBUG: Skipping refreshMenuData - mouse button pressed\n")
+		}
 	}
 
 	// Update main menu animations
@@ -1552,6 +1723,14 @@ func NewUpgradeControl(label, upgradeType, territoryName string, currentLevel in
 		uc.setLevel(int(value))
 	})
 
+	// Set up drag end callback to update tower stats only when dragging finishes
+	uc.slider.SetOnDragEnd(func() {
+		fmt.Printf("DEBUG: UpgradeControl drag ended for %s\n", uc.upgradeType)
+		if uc.parentMenu != nil {
+			uc.parentMenu.UpdateTowerStats(uc.territoryName)
+		}
+	})
+
 	// Create decrement button
 	decrementOptions := DefaultButtonOptions()
 	decrementOptions.Height = 20
@@ -1585,6 +1764,7 @@ func NewUpgradeControl(label, upgradeType, territoryName string, currentLevel in
 }
 
 func (uc *UpgradeControl) setLevel(level int) {
+	fmt.Printf("DEBUG: UpgradeControl.setLevel called for %s, level %d\n", uc.upgradeType, level)
 	if level < 0 || level > uc.maxLevel {
 		return
 	}
@@ -1596,10 +1776,11 @@ func (uc *UpgradeControl) setLevel(level int) {
 	// Update the territory in eruntime
 	eruntime.SetTerritoryUpgrade(uc.territoryName, uc.upgradeType, level)
 
-	// Trigger targeted refresh to update total costs and tower stats without rebuilding entire menu
+	// Update costs immediately (no visual disruption)
 	if uc.parentMenu != nil {
 		uc.parentMenu.UpdateTotalCosts(uc.territoryName)
-		uc.parentMenu.UpdateTowerStats(uc.territoryName)
+		// Tower stats will be updated by the periodic timer or on mouse release
+		fmt.Printf("DEBUG: UpgradeControl - setLevel completed, tower stats will update periodically\n")
 	}
 }
 
@@ -1758,7 +1939,10 @@ func (uc *UpgradeControl) refreshData() {
 	// Update current level if it changed
 	if uc.currentLevel != setLevel {
 		uc.currentLevel = setLevel
-		uc.slider.SetValue(float64(setLevel))
+		// Only update slider value if it's not currently being dragged
+		if !uc.slider.dragging {
+			uc.slider.SetValue(float64(setLevel))
+		}
 		uc.updateCostDisplay()
 	}
 }
@@ -1808,6 +1992,18 @@ func NewBonusControl(label, bonusType, territoryName string, currentLevel int, e
 	bc.slider = NewMenuSlider("", float64(currentLevel), sliderOptions, func(value float64) {
 		if enabled {
 			bc.setLevel(int(value))
+		}
+	})
+
+	// Set up drag end callback to update tower stats only when dragging finishes
+	bc.slider.SetOnDragEnd(func() {
+		fmt.Printf("DEBUG: BonusControl drag ended for %s\n", bc.bonusType)
+		if bc.parentMenu != nil {
+			bc.parentMenu.UpdateTowerStats(bc.territoryName)
+			// For Tower Multi-Attack, also do a full refresh when drag ends
+			if bc.bonusType == "towerMultiAttack" {
+				bc.parentMenu.refreshMenuData()
+			}
 		}
 	})
 
@@ -1919,14 +2115,11 @@ func (bc *BonusControl) setLevel(level int) {
 	// Update the territory in eruntime
 	eruntime.SetTerritoryBonus(bc.territoryName, bc.bonusType, level)
 
-	// Trigger targeted refresh to update total costs without rebuilding entire menu
+	// Update costs immediately (no visual disruption)
 	if bc.parentMenu != nil {
 		bc.parentMenu.UpdateTotalCosts(bc.territoryName)
-	}
-
-	// For Tower Multi-Attack, refresh all menu data to update other controls' enabled state
-	if bc.bonusType == "towerMultiAttack" && bc.parentMenu != nil {
-		bc.parentMenu.refreshMenuData()
+		// Tower stats will be updated by the periodic timer or on mouse release
+		fmt.Printf("DEBUG: BonusControl - setLevel completed, tower stats will update periodically\n")
 	}
 }
 
@@ -2297,7 +2490,10 @@ func (bc *BonusControl) refreshData() {
 	// Update current level if it changed
 	if bc.currentLevel != setLevel {
 		bc.currentLevel = setLevel
-		bc.slider.SetValue(float64(setLevel))
+		// Only update slider value if it's not currently being dragged
+		if !bc.slider.dragging {
+			bc.slider.SetValue(float64(setLevel))
+		}
 		bc.updateCostDisplay()
 	} else if bc.bonusType == "towerMultiAttack" || bc.bonusType == "xpSeeking" || bc.bonusType == "tomeSeeking" || bc.bonusType == "emeraldSeeking" {
 		// For bonuses with limits, always update cost display to show error messages if needed
@@ -2315,9 +2511,9 @@ func (m *EdgeMenu) refreshMenuData() {
 	// Always use selective updates instead of rebuilding the entire menu
 	// This prevents text inputs from losing focus
 
-	// Update tower stats and total costs first if we have a current territory
+	// Update total costs if we have a current territory
+	// Tower stats are now updated only via drag end callbacks to prevent interruption
 	if m.currentTerritory != "" {
-		m.UpdateTowerStats(m.currentTerritory)
 		m.UpdateTotalCosts(m.currentTerritory)
 	}
 
@@ -2393,6 +2589,11 @@ func (m *EdgeMenu) UpdateTotalCosts(territoryName string) {
 // SetRefreshCallback sets a callback function that will be called to refresh menu content
 func (m *EdgeMenu) SetRefreshCallback(callback func(string)) {
 	m.refreshCallback = callback
+}
+
+// SetTerritoryNavCallback sets a callback function that will be called to navigate to a territory
+func (m *EdgeMenu) SetTerritoryNavCallback(callback func(string)) {
+	m.territoryNavCallback = callback
 }
 
 // SetCurrentTerritory sets the territory name that this menu is displaying

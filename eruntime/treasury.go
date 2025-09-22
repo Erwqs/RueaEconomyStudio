@@ -37,7 +37,7 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 	var treasuryBonus float64
 
 	switch distance {
-	case 1, 2:
+	case 0, 1, 2, 3:
 		// For HQ + 1 & 2 distance
 		switch level {
 		case typedef.TreasuryLevelVeryLow:

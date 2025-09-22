@@ -42,7 +42,7 @@ type TerritoryViewSwitcher struct {
 	modalVisible  bool
 	selectedIndex int
 	views         []TerritoryViewInfo
-	color  map[string]color.RGBA // Map of hidden guild names to their colors
+	color         map[string]color.RGBA // Map of hidden guild names to their colors
 }
 
 // NewTerritoryViewSwitcher creates a new territory view switcher
@@ -75,12 +75,18 @@ func NewTerritoryViewSwitcher() *TerritoryViewSwitcher {
 
 // initializeHiddenGuilds sets up the color schemes for each view type
 func (tvs *TerritoryViewSwitcher) initializeHiddenGuilds() {
-	// Resource colors
+	// Resource colors (normal production - 3600 base)
 	tvs.color["__RESOURCE_WOOD__"] = color.RGBA{R: 50, G: 205, B: 50, A: 255}    // Lime green
 	tvs.color["__RESOURCE_CROP__"] = color.RGBA{R: 255, G: 215, B: 0, A: 255}    // Gold/yellow
 	tvs.color["__RESOURCE_FISH__"] = color.RGBA{R: 30, G: 144, B: 255, A: 255}   // Dodger blue (more blue)
 	tvs.color["__RESOURCE_ORE__"] = color.RGBA{R: 255, G: 127, B: 193, A: 255}   // Light pink (less pink, more white)
 	tvs.color["__RESOURCE_MULTI__"] = color.RGBA{R: 255, G: 255, B: 255, A: 255} // White for multiple resources
+
+	// Resource colors (double production - 7200+ base) - lighter variants
+	tvs.color["__RESOURCE_WOOD_DOUBLE__"] = color.RGBA{R: 34, G: 139, B: 34, A: 255}   // Forest green (darker)
+	tvs.color["__RESOURCE_CROP_DOUBLE__"] = color.RGBA{R: 218, G: 165, B: 32, A: 255}  // Goldenrod (darker)
+	tvs.color["__RESOURCE_FISH_DOUBLE__"] = color.RGBA{R: 70, G: 130, B: 180, A: 255}  // Steel blue (darker)
+	tvs.color["__RESOURCE_ORE_DOUBLE__"] = color.RGBA{R: 199, G: 21, B: 133, A: 255}   // Medium violet red (darker)
 
 	// Defence level colors (very low to very high)
 	tvs.color["__DEFENCE_VERY_LOW__"] = color.RGBA{R: 0, G: 128, B: 0, A: 255}  // Dark green
@@ -288,15 +294,24 @@ func (tvs *TerritoryViewSwitcher) getResourceColor(territory *typedef.Territory)
 	// Count non-zero resources (excluding emeralds)
 	resourceCount := 0
 	dominantResource := ""
+	isDoubleProduction := false
 
 	if resources.Wood > 0 {
 		resourceCount++
 		dominantResource = "wood"
+		// Check if this is double production (7200 or higher)
+		if resources.Wood >= 7200 {
+			isDoubleProduction = true
+		}
 	}
 	if resources.Crops > 0 {
 		resourceCount++
 		if dominantResource == "" {
 			dominantResource = "crops"
+		}
+		// Check if this is double production
+		if resources.Crops >= 7200 {
+			isDoubleProduction = true
 		}
 	}
 	if resources.Fish > 0 {
@@ -304,30 +319,56 @@ func (tvs *TerritoryViewSwitcher) getResourceColor(territory *typedef.Territory)
 		if dominantResource == "" {
 			dominantResource = "fish"
 		}
+		// Check if this is double production
+		if resources.Fish >= 7200 {
+			isDoubleProduction = true
+		}
 	}
 	if resources.Ores > 0 {
 		resourceCount++
 		if dominantResource == "" {
 			dominantResource = "ore"
 		}
+		// Check if this is double production
+		if resources.Ores >= 7200 {
+			isDoubleProduction = true
+		}
 	}
 
-	// If multiple resources or none, return white
+	// If multiple resources or none, return appropriate color
 	if resourceCount != 1 {
+		if isDoubleProduction {
+			return tvs.color["__RESOURCE_MULTI_DOUBLE__"]
+		}
 		return tvs.color["__RESOURCE_MULTI__"]
 	}
 
-	// Return color based on the single resource type
+	// Return color based on the single resource type and production level
 	switch dominantResource {
 	case "wood":
+		if isDoubleProduction {
+			return tvs.color["__RESOURCE_WOOD_DOUBLE__"]
+		}
 		return tvs.color["__RESOURCE_WOOD__"]
 	case "crops":
+		if isDoubleProduction {
+			return tvs.color["__RESOURCE_CROP_DOUBLE__"]
+		}
 		return tvs.color["__RESOURCE_CROP__"]
 	case "fish":
+		if isDoubleProduction {
+			return tvs.color["__RESOURCE_FISH_DOUBLE__"]
+		}
 		return tvs.color["__RESOURCE_FISH__"]
 	case "ore":
+		if isDoubleProduction {
+			return tvs.color["__RESOURCE_ORE_DOUBLE__"]
+		}
 		return tvs.color["__RESOURCE_ORE__"]
 	default:
+		if isDoubleProduction {
+			return tvs.color["__RESOURCE_MULTI_DOUBLE__"]
+		}
 		return tvs.color["__RESOURCE_MULTI__"]
 	}
 }
