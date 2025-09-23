@@ -10,7 +10,7 @@ import (
 // debugf prints debug information only if debug logging is enabled
 func debugf(format string, args ...interface{}) {
 	if st.debugLogging {
-		fmt.Printf("[DEBUG] "+format, args...)
+		// fmt.Printf("[DEBUG] "+format, args...)
 	}
 }
 
@@ -83,7 +83,7 @@ func init() {
 		hqMap:                 make(map[string]*typedef.Territory),
 		territoryMap:          make(map[string]*typedef.Territory),
 		tickQueue:             make(chan struct{}, 50000),
-		useParallelProcessing: true,                       // Enable parallel processing by default for better performance
+		useParallelProcessing: true, // Enable parallel processing by default for better performance
 	}
 
 	// Start the tick processing goroutine
@@ -91,17 +91,17 @@ func init() {
 
 	loadTerritories()
 	loadCosts(&st)
-	fmt.Println("[ERUNTIME] Bootstrap complete. Loaded", len(st.territories), "territories and", len(st.guilds), "guilds.")
+	// fmt.Println("[ERUNTIME] Bootstrap complete. Loaded", len(st.territories), "territories and", len(st.guilds), "guilds.")
 
 	// Start the timer for resource generation
 	st.start()
-	fmt.Println("[ERUNTIME] Resource generation timer started.")
+	// fmt.Println("[ERUNTIME] Resource generation timer started.")
 
 	// Attempt to load auto-save file if it exists
 	if LoadAutoSave() {
-		fmt.Println("[ERUNTIME] Auto-save file loaded successfully on startup")
+		// fmt.Println("[ERUNTIME] Auto-save file loaded successfully on startup")
 	} else {
-		fmt.Println("[ERUNTIME] No auto-save file found, starting with fresh state")
+		// fmt.Println("[ERUNTIME] No auto-save file found, starting with fresh state")
 	}
 }
 

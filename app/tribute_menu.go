@@ -353,7 +353,7 @@ func (tm *TributeMenu) findGuildIndex(guildName string) int {
 func (tm *TributeMenu) deleteTribute(tribute *typedef.ActiveTribute) {
 	err := eruntime.DeleteTribute(tribute.ID)
 	if err != nil {
-		fmt.Printf("Error deleting tribute: %v\n", err)
+		// fmt.Printf("Error deleting tribute: %v\n", err)
 	} else {
 		tm.refreshData()
 		if tm.selectedTributeIndex >= len(tm.activeTributes) && tm.selectedTributeIndex > 0 {
@@ -372,7 +372,7 @@ func (tm *TributeMenu) toggleTribute(tribute *typedef.ActiveTribute) {
 	}
 
 	if err != nil {
-		fmt.Printf("Error toggling tribute: %v\n", err)
+		// fmt.Printf("Error toggling tribute: %v\n", err)
 	} else {
 		tm.refreshData()
 	}
@@ -422,7 +422,7 @@ func (tm *TributeMenu) saveTribute() {
 
 	// Validate input
 	if fromGuildName == "" && toGuildName == "" {
-		fmt.Println("Error: At least one guild must be specified")
+		// fmt.Println("Error: At least one guild must be specified")
 		return
 	}
 
@@ -472,7 +472,7 @@ func (tm *TributeMenu) saveTribute() {
 		// Update existing tribute (delete and recreate for simplicity)
 		err = eruntime.DeleteTribute(tm.editingTribute.ID)
 		if err != nil {
-			fmt.Printf("Error deleting old tribute: %v\n", err)
+			// fmt.Printf("Error deleting old tribute: %v\n", err)
 			return
 		}
 	}
@@ -480,7 +480,7 @@ func (tm *TributeMenu) saveTribute() {
 	// Create new tribute (1 minute interval)
 	_, err = eruntime.CreateNewTribute(fromGuildName, toGuildName, amount, 1)
 	if err != nil {
-		fmt.Printf("Error creating tribute: %v\n", err)
+		// fmt.Printf("Error creating tribute: %v\n", err)
 		return
 	}
 
@@ -904,7 +904,7 @@ func (tm *TributeMenu) drawEditScreen(screen *ebiten.Image) {
 
 // handleClick handles mouse clicks on various UI elements
 func (tm *TributeMenu) handleClick(mx, my int) {
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	menuX := (screenW - tm.menuWidth) / 2
 	menuY := (screenH - tm.menuHeight) / 2
 
@@ -1084,7 +1084,7 @@ func (tm *TributeMenu) initializeDropdownSelections() {
 
 // updateHoverStates updates hover states for UI elements
 func (tm *TributeMenu) updateHoverStates(mx, my int) {
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	menuX := (screenW - tm.menuWidth) / 2
 	menuY := (screenH - tm.menuHeight) / 2
 

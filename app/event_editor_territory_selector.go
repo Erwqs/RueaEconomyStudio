@@ -29,7 +29,7 @@ type EventEditorTerritorySelector struct {
 
 // NewEventEditorTerritorySelector creates a new territory selector
 func NewEventEditorTerritorySelector(eventEditor *EventEditorGUI) *EventEditorTerritorySelector {
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	modalWidth := 600
 	modalHeight := 500
 	modalX := (screenW - modalWidth) / 2

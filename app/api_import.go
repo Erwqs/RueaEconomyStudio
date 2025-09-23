@@ -2,10 +2,22 @@ package app
 
 import (
 	"encoding/json"
+	"etools/eruntime"
 	"fmt"
 	"net/http"
+	"runtime"
 	"strings"
 )
+
+// getAPIBaseURL returns the appropriate API base URL based on the runtime environment
+func getAPIBaseURL() string {
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		// In WASM, use the current domain (window.location.origin) to avoid hardcoding
+		return "" // Use empty string to make relative URLs that work with current domain
+	}
+	// In native builds, use direct API calls
+	return ""
+}
 
 // GuildListResponse represents the response from the Athena API
 type GuildListResponse []GuildInfo
@@ -33,7 +45,21 @@ type GuildReference struct {
 // ImportGuildsFromAPI imports guilds from the Athena API
 func (gm *EnhancedGuildManager) ImportGuildsFromAPI() (int, int, error) {
 	// Fetch guild list from Athena API
-	resp, err := http.Get("https://athena.wynntils.com/cache/get/guildList")
+	var url string
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		// Use simplified endpoint in WASM - server handles the API call
+		url = "/guild_list"
+	} else {
+		// Direct API call in native builds
+		url = "https://athena.wynntils.com/cache/get/guildList"
+	}
+
+	// Debug logging for WASM builds
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		fmt.Printf("[DEBUG] Guild API URL: %s\n", url)
+	}
+
+	resp, err := http.Get(url)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to fetch guild list: %v", err)
 	}
@@ -50,12 +76,12 @@ func (gm *EnhancedGuildManager) ImportGuildsFromAPI() (int, int, error) {
 	importedCount := 0
 	skippedCount := 0
 
-	fmt.Printf("[API_IMPORT] Got %d guilds from API\n", len(guildListResp))
+	// fmt.Printf("[API_IMPORT] Got %d guilds from API\n", len(guildListResp))
 
 	for _, guildInfo := range guildListResp {
 		// Skip if name or tag is empty
 		if guildInfo.Name == "" || guildInfo.Tag == "" {
-			fmt.Printf("[API_IMPORT] Skipping guild with empty name or tag: %+v\n", guildInfo)
+			// fmt.Printf("[API_IMPORT] Skipping guild with empty name or tag: %+v\n", guildInfo)
 			continue
 		}
 
@@ -95,6 +121,11 @@ func (gm *EnhancedGuildManager) ImportGuildsFromAPI() (int, int, error) {
 	if importedCount > 0 {
 		gm.saveGuildsToFile()
 		gm.filterGuilds()
+
+		// Notify the territory system that guild colors have been updated
+		// This is important for ensuring territories get the correct colors after API import
+		eruntime.NotifyTerritoryColorsUpdate()
+		// fmt.Printf("[API_IMPORT] Triggered territory color update after importing %d guilds\n", importedCount)
 	}
 
 	return importedCount, skippedCount, nil
@@ -109,7 +140,21 @@ func (gm *EnhancedGuildManager) ImportTerritoriesFromAPI() (int, int, error) {
 	}
 
 	// Fetch territory list from Wynncraft API
-	resp, err := http.Get("https://api.wynncraft.com/v3/guild/list/territory")
+	var url string
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		// Use simplified endpoint in WASM - server handles the API call
+		url = "/territory_list"
+	} else {
+		// Direct API call in native builds
+		url = "https://api.wynncraft.com/v3/guild/list/territory"
+	}
+
+	// Debug logging for WASM builds
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		fmt.Printf("[DEBUG] Territory API URL: %s\n", url)
+	}
+
+	resp, err := http.Get(url)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to fetch territory list: %v", err)
 	}
@@ -127,7 +172,7 @@ func (gm *EnhancedGuildManager) ImportTerritoriesFromAPI() (int, int, error) {
 	defer func() {
 		// Re-enable redraws and trigger one comprehensive redraw at the end
 		claimManager.suspendRedraws = false
-		fmt.Printf("[API_IMPORT] Triggering final redraw after bulk territory import\n")
+		// fmt.Printf("[API_IMPORT] Triggering final redraw after bulk territory import\n")
 		claimManager.TriggerRedraw()
 	}()
 

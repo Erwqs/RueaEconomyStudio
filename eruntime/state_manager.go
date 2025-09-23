@@ -37,7 +37,7 @@ type StateData struct {
 
 // SaveStateToFile saves the current state to a file with LZ4 compression
 func SaveStateToFile(filepath string) error {
-	fmt.Printf("[STATE] SaveStateToFile called with filepath: %s\n", filepath)
+	// fmt.Printf("[STATE] SaveStateToFile called with filepath: %s\n", filepath)
 
 	// Capture current state under read lock - minimize lock time for better performance
 	var stateData StateData
@@ -202,8 +202,309 @@ func SaveStateToFile(filepath string) error {
 		return fmt.Errorf("failed to write file: %v", err)
 	}
 
-	fmt.Printf("[STATE] Successfully saved state to %s (JSON: %d bytes, Compressed: %d bytes, Ratio: %.1f%%)\n",
-		filepath, len(jsonData), len(compressedData), float64(len(compressedData))/float64(len(jsonData))*100)
+	// fmt.Printf("[STATE] Successfully saved state to %s (JSON: %d bytes, Compressed: %d bytes, Ratio: %.1f%%)\n",
+		// filepath, len(jsonData), len(compressedData), float64(len(compressedData))/float64(len(jsonData))*100)
+
+	return nil
+}
+
+// SaveStateToBytes saves the current state to a byte array with LZ4 compression (for web browsers)
+func SaveStateToBytes() ([]byte, error) {
+	// fmt.Printf("[STATE] SaveStateToBytes called\n")
+
+	// Use the same logic as SaveStateToFile but return bytes instead of writing to file
+	var stateData StateData
+
+	st.mu.RLock()
+
+	// Quick copy of basic state data (no deep copying yet)
+	stateData.Type = "state_save"
+	stateData.Version = "1.2"
+	stateData.Timestamp = time.Now()
+	stateData.Tick = st.tick
+	stateData.RuntimeOptions = st.runtimeOptions
+	stateData.Costs = st.costs
+	stateData.TotalTerritories = len(st.territories)
+	stateData.TotalGuilds = len(st.guilds)
+
+	// Create slices with the right capacity but don't copy data yet
+	territoryRefs := make([]*typedef.Territory, len(st.territories))
+	copy(territoryRefs, st.territories)
+
+	guildRefs := make([]*typedef.Guild, len(st.guilds))
+	copy(guildRefs, st.guilds)
+
+	tributeRefs := make([]*typedef.ActiveTribute, len(st.activeTributes))
+	copy(tributeRefs, st.activeTributes)
+
+	st.mu.RUnlock()
+
+	// Now do the expensive deep copying WITHOUT holding any locks
+	encodeTransit := st.runtimeOptions.EncodeInTransitResources
+	stateData.Territories = make([]*typedef.Territory, len(territoryRefs))
+	for i, territory := range territoryRefs {
+		if territory != nil {
+			territory.Mu.RLock()
+			territoryData := typedef.Territory{
+				ID:                   territory.ID,
+				Name:                 territory.Name,
+				Guild:                territory.Guild,
+				Location:             territory.Location,
+				Options:              territory.Options,
+				Costs:                territory.Costs,
+				Net:                  territory.Net,
+				TowerStats:           territory.TowerStats,
+				Level:                territory.Level,
+				LevelInt:             territory.LevelInt,
+				SetLevelInt:          territory.SetLevelInt,
+				SetLevel:             territory.SetLevel,
+				Links:                territory.Links,
+				ResourceGeneration:   territory.ResourceGeneration,
+				Treasury:             territory.Treasury,
+				TreasuryOverride:     territory.TreasuryOverride,
+				GenerationBonus:      territory.GenerationBonus,
+				CapturedAt:           territory.CapturedAt,
+				ConnectedTerritories: territory.ConnectedTerritories,
+				TradingRoutes:        territory.TradingRoutes,
+				TradingRoutesJSON:    territory.TradingRoutesJSON,
+				RouteTax:             territory.RouteTax,
+				RoutingMode:          territory.RoutingMode,
+				Border:               territory.Border,
+				Tax:                  territory.Tax,
+				HQ:                   territory.HQ,
+				NextTerritory:        territory.NextTerritory,
+				Destination:          territory.Destination,
+				Storage:              territory.Storage,
+				TransitResource:      territory.TransitResource,
+				Warning:              territory.Warning,
+			}
+			if encodeTransit {
+				for j := range territoryData.TransitResource {
+					tr := &territoryData.TransitResource[j]
+					if tr.Origin != nil {
+						tr.OriginID = tr.Origin.ID
+					} else {
+						tr.OriginID = ""
+					}
+					if tr.Destination != nil {
+						tr.DestinationID = tr.Destination.ID
+					} else {
+						tr.DestinationID = ""
+					}
+					if tr.Next != nil {
+						tr.NextID = tr.Next.ID
+					} else {
+						tr.NextID = ""
+					}
+					tr.Route2 = make([]string, 0, len(tr.Route))
+					for _, t := range tr.Route {
+						if t != nil {
+							tr.Route2 = append(tr.Route2, t.ID)
+						}
+					}
+				}
+				territoryData.TradingRoutesJSON = make([][]string, len(territoryData.TradingRoutes))
+				for k, route := range territoryData.TradingRoutes {
+					ids := make([]string, 0, len(route))
+					for _, t := range route {
+						if t != nil {
+							ids = append(ids, t.ID)
+						}
+					}
+					territoryData.TradingRoutesJSON[k] = ids
+				}
+			} else {
+				for j := range territoryData.TransitResource {
+					tr := &territoryData.TransitResource[j]
+					tr.OriginID = ""
+					tr.DestinationID = ""
+					tr.NextID = ""
+					tr.Route2 = nil
+				}
+				territoryData.TradingRoutesJSON = nil
+			}
+			territory.Mu.RUnlock()
+			stateData.Territories[i] = &territoryData
+		}
+	}
+
+	// Deep copy guilds
+	stateData.Guilds = make([]*typedef.Guild, len(guildRefs))
+	for i, guild := range guildRefs {
+		if guild != nil {
+			guildData := *guild
+			stateData.Guilds[i] = &guildData
+		}
+	}
+
+	// Deep copy active tributes
+	stateData.ActiveTributes = make([]*typedef.ActiveTribute, len(tributeRefs))
+	for i, tribute := range tributeRefs {
+		if tribute != nil {
+			tributeData := *tribute
+			stateData.ActiveTributes[i] = &tributeData
+		}
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(stateData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal state data: %v", err)
+	}
+
+	// Compress with LZ4
+	compressedData, err := compressLZ4(jsonData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compress data: %v", err)
+	}
+
+	// fmt.Printf("[STATE] Successfully created state bytes (JSON: %d bytes, Compressed: %d bytes, Ratio: %.1f%%)\n",
+		// len(jsonData), len(compressedData), float64(len(compressedData))/float64(len(jsonData))*100)
+
+	return compressedData, nil
+}
+
+// LoadStateFromBytes loads state from a byte array with LZ4 decompression (for web browsers)
+func LoadStateFromBytes(data []byte) error {
+	// fmt.Printf("[STATE] LoadStateFromBytes called with %d bytes\n", len(data))
+
+	// Halt the runtime during state loading to prevent flickering
+	wasHalted := st.halted
+	if !wasHalted {
+		st.halt()
+	}
+
+	// Decompress LZ4
+	jsonData, err := decompressLZ4(data)
+	if err != nil {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
+		return fmt.Errorf("failed to decompress data: %v", err)
+	}
+
+	// Unmarshal JSON
+	var stateData StateData
+	err = json.Unmarshal(jsonData, &stateData)
+	if err != nil {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
+		return fmt.Errorf("failed to unmarshal state data: %v", err)
+	}
+
+	// Validate state data
+	if stateData.Type != "state_save" {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
+		return fmt.Errorf("invalid file type: expected 'state_save', got '%s'", stateData.Type)
+	}
+
+	if !arrutil.Contains(supportedStateVersion, stateData.Version) {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
+		return fmt.Errorf("unsupported version: %s", stateData.Version)
+	}
+
+	// Merge guilds from state file with existing guilds and update guilds.json
+	err = mergeGuildsFromState(stateData.Guilds)
+	if err != nil {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
+		return fmt.Errorf("failed to merge guilds from state: %v", err)
+	}
+
+	hasTransitFields := false
+	for _, t := range stateData.Territories {
+		if t == nil {
+			continue
+		}
+		if len(t.TransitResource) > 0 {
+			for _, tr := range t.TransitResource {
+				if tr.OriginID != "" || len(tr.Route2) > 0 || tr.DestinationID != "" || tr.NextID != "" {
+					hasTransitFields = true
+					break
+				}
+			}
+		}
+		if len(t.TradingRoutesJSON) > 0 {
+			hasTransitFields = true
+		}
+		if hasTransitFields {
+			break
+		}
+	}
+
+	// Apply state under write lock
+	st.mu.Lock()
+	st.stateLoading = true
+
+	// Clear existing territories
+	for _, territory := range st.territories {
+		if territory != nil && territory.CloseCh != nil {
+			territory.CloseCh()
+		}
+	}
+
+	st.tick = stateData.Tick
+	st.territories = stateData.Territories
+	st.activeTributes = stateData.ActiveTributes
+	st.runtimeOptions = stateData.RuntimeOptions
+
+	// Rebuild territory map for fast lookups
+	TerritoryMap = make(map[string]*typedef.Territory)
+	st.territoryMap = make(map[string]*typedef.Territory)
+	for _, territory := range st.territories {
+		if territory != nil {
+			TerritoryMap[territory.Name] = territory
+			st.territoryMap[territory.ID] = territory
+			setCh := make(chan typedef.TerritoryOptions, 1)
+			territory.SetCh = setCh
+			territory.CloseCh = func() { close(setCh) }
+		}
+	}
+
+	rebuildHQMap()
+
+	// Rebuild guild pointers in tributes
+	rebuildTributeGuildPointers()
+
+	// Only recalculate routes if new fields are missing
+	if !hasTransitFields {
+		st.updateRoute()
+	} else {
+		// Restore in-memory pointers from JSON-safe IDs
+		RestorePointersFromIDs(st.territories)
+	}
+
+	loadCosts(&st)
+
+	// fmt.Printf("[STATE] Successfully loaded state from bytes (Territories: %d, Guilds: %d, Tick: %d)\n",
+		// len(st.territories), len(st.guilds), st.tick)
+
+	st.mu.Unlock()
+
+	st.mu.Lock()
+	st.stateLoading = false
+	st.mu.Unlock()
+
+	if !wasHalted {
+		st.start()
+	}
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		NotifyTerritoryColorsUpdate()
+		// fmt.Printf("[STATE] State loading completed, notifications sent\n")
+	}()
 
 	return nil
 }
@@ -311,7 +612,6 @@ func LoadStateFromFile(filepath string) error {
 	st.activeTributes = stateData.ActiveTributes
 	st.runtimeOptions = stateData.RuntimeOptions
 
-
 	// Rebuild territory map for fast lookups
 	TerritoryMap = make(map[string]*typedef.Territory)
 	st.territoryMap = make(map[string]*typedef.Territory)
@@ -340,8 +640,8 @@ func LoadStateFromFile(filepath string) error {
 
 	loadCosts(&st)
 
-	fmt.Printf("[STATE] Successfully loaded state from %s (Territories: %d, Guilds: %d, Tick: %d)\n",
-		filepath, len(st.territories), len(st.guilds), st.tick)
+	// fmt.Printf("[STATE] Successfully loaded state from %s (Territories: %d, Guilds: %d, Tick: %d)\n",
+		// filepath, len(st.territories), len(st.guilds), st.tick)
 
 	st.mu.Unlock()
 
@@ -356,10 +656,10 @@ func LoadStateFromFile(filepath string) error {
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		NotifyTerritoryColorsUpdate()
-		fmt.Printf("[STATE] State loading completed, notifications sent\n")
+		// fmt.Printf("[STATE] State loading completed, notifications sent\n")
 	}()
 
-	fmt.Printf("[STATE] Monitoring HQ status for the next few seconds after state load...\n")
+	// fmt.Printf("[STATE] Monitoring HQ status for the next few seconds after state load...\n")
 	go func() {
 		for i := 0; i < 3; i++ {
 			time.Sleep(1 * time.Second)
@@ -368,16 +668,16 @@ func LoadStateFromFile(filepath string) error {
 			for _, territory := range st.territories {
 				if territory != nil && territory.HQ {
 					hqCount++
-					fmt.Printf("[HQ_MONITOR] Tick %d: Territory %s (Guild: %s) is still HQ\n",
-						i+1, territory.Name, territory.Guild.Name)
+					// fmt.Printf("[HQ_MONITOR] Tick %d: Territory %s (Guild: %s) is still HQ\n",
+						// i+1, territory.Name, territory.Guild.Name)
 				}
 			}
 			if hqCount == 0 {
-				fmt.Printf("[HQ_MONITOR] Tick %d: No HQ territories found!\n", i+1)
+				// fmt.Printf("[HQ_MONITOR] Tick %d: No HQ territories found!\n", i+1)
 			}
 			st.mu.RUnlock()
 		}
-		fmt.Printf("[HQ_MONITOR] Monitoring complete\n")
+		// fmt.Printf("[HQ_MONITOR] Monitoring complete\n")
 	}()
 
 	return nil
@@ -496,16 +796,16 @@ func mergeGuildsFromState(loadedGuilds []*typedef.Guild) error {
 		st.guilds = append(st.guilds, newGuilds...)
 		st.mu.Unlock()
 
-		fmt.Printf("[STATE] Added %d new guilds from state file\n", len(newGuilds))
-		for _, guild := range newGuilds {
-			fmt.Printf("[STATE] - Added guild: %s [%s]\n", guild.Name, guild.Tag)
-		}
+		// fmt.Printf("[STATE] Added %d new guilds from state file\n", len(newGuilds))
+		// for _, _ := range newGuilds {
+		// 	// fmt.Printf("[STATE] - Added guild: %s [%s]\n", guild.Name, guild.Tag)
+		// }
 	}
 
 	// Only notify guild managers to handle the merge themselves, don't overwrite their files
 	if len(newGuilds) > 0 || len(updatedGuilds) > 0 {
-		fmt.Printf("[STATE] Found %d new and %d updated guilds from state - notifying UI to merge\n",
-			len(newGuilds), len(updatedGuilds))
+		// fmt.Printf("[STATE] Found %d new and %d updated guilds from state - notifying UI to merge\n",
+			// len(newGuilds), len(updatedGuilds))
 
 		// Notify guild managers to merge new guilds while preserving local data like colors
 		// This is now safe because we have state loading protection
@@ -529,20 +829,20 @@ func validateAndFixHQConflicts() {
 	}
 
 	// Fix conflicts: each guild should have at most one HQ
-	for guildTag, hqTerritories := range guildHQs {
+	for _, hqTerritories := range guildHQs {
 		if len(hqTerritories) > 1 {
-			fmt.Printf("[STATE] HQ conflict detected for guild %s: multiple HQs found\n", guildTag)
+			// fmt.Printf("[STATE] HQ conflict detected for guild %s: multiple HQs found\n", guildTag)
 
 			// Keep the first HQ found (from state file) and clear others
 			// This ensures state file takes precedence
 			for i, territory := range hqTerritories {
 				if i == 0 {
-					fmt.Printf("[STATE] Keeping HQ at territory: %s\n", territory.Name)
+					// fmt.Printf("[STATE] Keeping HQ at territory: %s\n", territory.Name)
 				} else {
 					territory.Mu.Lock()
 					territory.HQ = false
 					territory.Mu.Unlock()
-					fmt.Printf("[STATE] Cleared HQ status from territory: %s\n", territory.Name)
+					// fmt.Printf("[STATE] Cleared HQ status from territory: %s\n", territory.Name)
 				}
 			}
 		}

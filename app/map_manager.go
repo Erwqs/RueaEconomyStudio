@@ -36,14 +36,14 @@ func NewMapManager() *MapManager {
 func (mm *MapManager) LoadMapAsync() {
 	go func() {
 		if err := mm.LoadMapData(); err != nil {
-			fmt.Printf("Error loading map data: %v\n", err)
+			// fmt.Printf("Error loading map data: %v\n", err)
 		}
 	}()
 }
 
 // LoadMapData loads the local map image
 func (mm *MapManager) LoadMapData() error {
-	fmt.Println("Loading local map image...")
+	// fmt.Println("Loading local map image...")
 
 	// Load the embedded map image
 	file, err := assets.AssetFiles.Open("main-map.png")
@@ -71,7 +71,7 @@ func (mm *MapManager) LoadMapData() error {
 	}
 
 	mm.isLoaded = true
-	fmt.Printf("Map loaded successfully: %dx%d pixels\n", mm.mapInfo.Width, mm.mapInfo.Height)
+	// fmt.Printf("Map loaded successfully: %dx%d pixels\n", mm.mapInfo.Width, mm.mapInfo.Height)
 
 	return nil
 }

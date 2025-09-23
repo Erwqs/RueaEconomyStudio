@@ -1,0 +1,23 @@
+{
+  "name": "ruea-web-server",
+  "version": "1.0.0",
+  "description": "Development server for Ruea Economy Studio WebAssembly version",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "http-proxy-middleware": "^3.0.5"
+  },
+  "keywords": [
+    "webassembly",
+    "wasm",
+    "game",
+    "server"
+  ],
+  "author": "Ruea Economy Studio",
+  "license": "AGPL-3.0-only"
+}

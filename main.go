@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"runtime"
@@ -21,7 +20,7 @@ import (
 
 func init() {
 	go func() {
-		fmt.Println("pprof listening on :6060")
+		// fmt.Println("pprof listening on :6060")
 		http.ListenAndServe(":6060", nil)
 	}()
 }
@@ -35,25 +34,25 @@ func main() {
 
 	// Check for session lock, if exists, exit
 	if _, err := os.Stat(".rueaes.lock"); err == nil {
-		fmt.Println("Another instance of Ruea Economy Studio is already running.")
-		fmt.Println("If none is running, remove .rueaes.lock file to continue.")
-		fmt.Println("Exiting...")
+		// fmt.Println("Another instance of Ruea Economy Studio is already running.")
+		// fmt.Println("If none is running, remove .rueaes.lock file to continue.")
+		// fmt.Println("Exiting...")
 		os.Exit(1)
 	}
 
 	// Create lock file
 	lockFile, err := os.Create(".rueaes.lock")
 	if err != nil {
-		fmt.Printf("Failed to create lock file: %v\n", err)
+		// fmt.Printf("Failed to create lock file: %v\n", err)
 		os.Exit(1)
 	}
 
 	defer func() {
 		if err := lockFile.Close(); err != nil {
-			fmt.Printf("Failed to close lock file: %v\n", err)
+			// fmt.Printf("Failed to close lock file: %v\n", err)
 		}
 		if err := os.Remove(".rueaes.lock"); err != nil {
-			fmt.Printf("Failed to remove lock file: %v\n", err)
+			// fmt.Printf("Failed to remove lock file: %v\n", err)
 		}
 	}()
 
@@ -67,11 +66,11 @@ func main() {
 }
 
 func runHeadless() {
-	fmt.Println("Starting Wynncraft ETools in headless mode...")
+	// fmt.Println("Starting Wynncraft ETools in headless mode...")
 
 	// Start WebSocket API server
 	go func() {
-		fmt.Println("Starting WebSocket API server on port 42069...")
+		// fmt.Println("Starting WebSocket API server on port 42069...")
 		api.StartWebSocketServer()
 	}()
 
@@ -80,15 +79,15 @@ func runHeadless() {
 	// 	log.Fatalf("Failed to initialize shared memory server: %v", err)
 	// }
 
-	fmt.Println("Shared memory server started. ETools is ready for external connections.")
-	fmt.Println("WebSocket API is available at ws://localhost:42069/ws")
+	// fmt.Println("Shared memory server started. ETools is ready for external connections.")
+	// fmt.Println("WebSocket API is available at ws://localhost:42069/ws")
 
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sigChan
-	fmt.Println("Received shutdown signal. Cleaning up...")
+	// fmt.Println("Received shutdown signal. Cleaning up...")
 
 	// Note: WebSocket server shutdown is handled automatically by the HTTP server
 	// when the main goroutine exits
@@ -98,16 +97,16 @@ func runHeadless() {
 	// 	api.Close()
 	// }
 
-	fmt.Println("Shutdown complete.")
+	// fmt.Println("Shutdown complete.")
 }
 
 func runWithGUI() {
 	// Start WebSocket API server for GUI mode as well
 	go func() {
-		fmt.Println("Starting WebSocket API server on port 42069...")
+		// fmt.Println("Starting WebSocket API server on port 42069...")
 		api.StartWebSocketServer()
 	}()
-	fmt.Println("WebSocket API is available at ws://localhost:42069/ws")
+	// fmt.Println("WebSocket API is available at ws://localhost:42069/ws")
 
 	// Initialize clipboard
 	// Disable clipboard initialization on WebAssembly (wasm)
@@ -118,7 +117,7 @@ func runWithGUI() {
 		if err != nil {
 			// Clipboard initialization failed, but we can continue without it
 			// The clipboard operations will simply not work
-			fmt.Printf("Warning: Clipboard initialization failed: %v\n", err)
+			// fmt.Printf("Warning: Clipboard initialization failed: %v\n", err)
 		}
 	}
 
@@ -127,16 +126,16 @@ func runWithGUI() {
 
 	go func() {
 		<-signalChan
-		fmt.Println("Received shutdown signal. Cleaning up...")
+		// fmt.Println("Received shutdown signal. Cleaning up...")
 		// Delete lock file if exists
 		if _, err := os.Stat(".rueaes.lock"); err == nil {
 			if err := os.Remove(".rueaes.lock"); err != nil {
-				fmt.Printf("Failed to remove lock file: %v\n", err)
+				// fmt.Printf("Failed to remove lock file: %v\n", err)
 			} else {
-				fmt.Println("Lock file removed successfully.")
+				// fmt.Println("Lock file removed successfully.")
 			}
 		} else {
-			fmt.Println("No lock file found, nothing to remove.")
+			// fmt.Println("No lock file found, nothing to remove.")
 		}
 		os.Exit(0)
 	}()

@@ -196,8 +196,8 @@ func canAffordBonusWithTick(storage typedef.BasicResources, bonusType string, le
 		tolerance = 0.75 // Allow 25% tolerance (need only 75% of required resources)
 		// Debug logging for emerald rate at :59
 		if bonusType == "EmeraldRate" {
-			fmt.Printf("DEBUG canAffordBonusWithTick EmeraldRate: level=%d, cost=%d, costPerSec=%.6f, tolerance=%.2f\n",
-				level, cost, costPerSec, tolerance)
+			// fmt.Printf("DEBUG canAffordBonusWithTick EmeraldRate: level=%d, cost=%d, costPerSec=%.6f, tolerance=%.2f\n",
+			//	level, cost, costPerSec, tolerance)
 		}
 	}
 	adjustedCostPerSec := costPerSec * tolerance
@@ -215,8 +215,8 @@ func canAffordBonusWithTick(storage typedef.BasicResources, bonusType string, le
 		result := storage.Crops >= adjustedCostPerSec
 		// Debug logging for crops specifically at :59
 		if tick%60 == 59 && bonusType == "EmeraldRate" && resourceType == "crops" {
-			fmt.Printf("DEBUG crops check: storage.Crops=%.6f >= adjustedCost=%.6f = %v\n",
-				storage.Crops, adjustedCostPerSec, result)
+			// fmt.Printf("DEBUG crops check: storage.Crops=%.6f >= adjustedCost=%.6f = %v\n",
+			//	storage.Crops, adjustedCostPerSec, result)
 		}
 		return result
 	default:
@@ -261,11 +261,11 @@ func setAffordableBonusesWithTick(territory *typedef.Territory, storage typedef.
 		} else {
 			// Debug logging for emerald rate specifically
 			if bonus.name == "EmeraldRate" && bonus.set > 0 {
-				affordable := canAffordBonusWithTick(storage, bonus.name, bonus.set, tick)
+				// affordable := canAffordBonusWithTick(storage, bonus.name, bonus.set, tick)
 				if tick%60 == 59 {
 					// Log debug info for emerald rate at :59 regardless of affordability
-					fmt.Printf("DEBUG :59 EmeraldRate SETTING TO 0: set=%d, affordable=%v, crops=%.6f, tick=%d\n",
-						bonus.set, affordable, storage.Crops, tick)
+					// fmt.Printf("DEBUG :59 EmeraldRate SETTING TO 0: set=%d, affordable=%v, crops=%.6f, tick=%d\n",
+					//	bonus.set, affordable, storage.Crops, tick)
 				}
 			}
 			*bonus.at = 0

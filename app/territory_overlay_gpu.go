@@ -1,10 +1,8 @@
 package app
 
 import (
-	"fmt"
 	"image/color"
 	"math"
-	"runtime/debug"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -76,8 +74,8 @@ func NewTerritoryOverlayGPU() (*TerritoryOverlayGPU, error) {
 func (r *TerritoryOverlayGPU) Draw(dst, mapImg *ebiten.Image, polygons []OverlayPolygon, time float32) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			fmt.Printf("[PANIC] TerritoryOverlayGPU.Draw recovered: %v\n", rec)
-			fmt.Printf("[PANIC] Stack trace:\n%s\n", debug.Stack())
+			// fmt.Printf("[PANIC] TerritoryOverlayGPU.Draw recovered: %v\n", rec)
+			// fmt.Printf("[PANIC] Stack trace:\n%s\n", debug.Stack())
 		}
 	}()
 	if len(polygons) == 0 {

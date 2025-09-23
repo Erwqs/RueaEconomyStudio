@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"runtime"
 	"strconv"
 	"time"
 )
@@ -13,30 +14,30 @@ import (
 // Only shows in map view
 
 // Logarithmic scaling helpers for the rate slider
-// Maps linear slider position (0-100) to logarithmic rate value (1-7200)
+// Maps linear slider position (0-100) to logarithmic rate value (1-300) for web, this is to prevent the page from locking up
 func linearToLogRate(linear float64) float64 {
 	if linear <= 0 {
 		return 1.0 // Minimum rate value
 	}
-	// Use logarithmic scale: rate = 1 * (7200/1)^(linear/100)
-	// This gives us a smooth scale from 1 to 7200 TPS
+	// Use logarithmic scale: rate = 1 * (300/1)^(linear/100)
+	// This gives us a smooth scale from 1 to 300 TPS
 	ratio := linear / 100.0
-	return 1.0 * math.Pow(7200.0/1.0, ratio)
+	return 1.0 * math.Pow(300/1.0, ratio)
 }
 
 func logToLinearRate(rate int) float64 {
 	if rate <= 1 {
 		return 0
 	}
-	// Inverse of the above: linear = 100 * log(rate/1) / log(7200/1)
-	return 100.0 * math.Log(float64(rate)/1.0) / math.Log(7200.0/1.0)
+	// Inverse of the above: linear = 100 * log(rate/1) / log(300/1)
+	return 100.0 * math.Log(float64(rate)/1.0) / math.Log(300.0/1.0)
 }
 
 func advanceTickFunc(smm *StateManagementMenu) {
 	// Limit the number of ticks to advance at once to prevent excessive processing
 	maxTicks := smm.addTickValue
-	if maxTicks > 12000 {
-		maxTicks = 12000 // Cap at 12000 ticks maximum (about 3.3 hours of simulation)
+	if maxTicks > 600 {
+		maxTicks = 600 // Cap at 12000 ticks maximum (about 3.3 hours of simulation)
 	}
 
 	// Always run tick advancement in a separate goroutine to prevent UI blocking
@@ -146,7 +147,7 @@ func (smm *StateManagementMenu) Show() {
 			return true
 		}
 		if v, err := strconv.Atoi(newValue); err == nil {
-			return v >= 1 && v <= 7200 // Updated to match practical maximum
+			return v >= 1 && v <= 300 // Updated to match practical maximum
 		}
 		return false
 	}
@@ -158,8 +159,8 @@ func (smm *StateManagementMenu) Show() {
 			// Clamp the manually entered value to valid range
 			if v < 1 {
 				v = 1
-			} else if v > 7200 {
-				v = 7200 // Cap at 7200 TPS (practical maximum simulation speed)
+			} else if v > 300 {
+				v = 300 // Cap at 300 TPS (practical maximum simulation speed)
 			}
 			smm.rateValue = v
 			// Update the slider to reflect the new value
@@ -333,21 +334,34 @@ func (smm *StateManagementMenu) Show() {
 	saveLoadButtonOpts.BorderColor = color.RGBA{100, 120, 150, 255}
 
 	loadSaveSection.Button("Save Session", saveLoadButtonOpts, func() {
-		fmt.Println("[STATE_MGMT] Save Session button clicked")
-		// Trigger save file dialogue
-		if fileManager := GetFileSystemManager(); fileManager != nil {
-			fmt.Println("[STATE_MGMT] File system manager found, showing save dialogue")
-			fileManager.ShowSaveDialogue()
+		// fmt.Println("[STATE_MGMT] Save Session button clicked")
+		// Check if running in WASM environment
+		if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+			// Use browser file download for WASM
+			saveSessionToBrowser()
 		} else {
-			fmt.Println("[STATE_MGMT] File system manager not available")
+			// Trigger save file dialogue for native builds
+			if fileManager := GetFileSystemManager(); fileManager != nil {
+				// fmt.Println("[STATE_MGMT] File system manager found, showing save dialogue")
+				fileManager.ShowSaveDialogue()
+			} else {
+				// fmt.Println("[STATE_MGMT] File system manager not available")
+			}
 		}
 	})
 	loadSaveSection.Button("Load Session", saveLoadButtonOpts, func() {
-		// Trigger load file dialogue
-		if fileManager := GetFileSystemManager(); fileManager != nil {
-			fileManager.ShowOpenDialogue()
+		// fmt.Println("[STATE_MGMT] Load Session button clicked")
+		// Check if running in WASM environment
+		if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+			// Use browser file picker for WASM
+			loadSessionFromBrowser()
 		} else {
-			fmt.Println("[STATE_MGMT] File system manager not available")
+			// Trigger load file dialogue for native builds
+			if fileManager := GetFileSystemManager(); fileManager != nil {
+				fileManager.ShowOpenDialogue()
+			} else {
+				// fmt.Println("[STATE_MGMT] File system manager not available")
+			}
 		}
 	})
 
@@ -362,9 +376,9 @@ func (smm *StateManagementMenu) Show() {
 	resetButtonOpts.BorderColor = color.RGBA{220, 100, 100, 255}
 
 	loadSaveSection.Button("Reset", resetButtonOpts, func() {
-		fmt.Println("[STATE_MGMT] Calling eruntime.Reset()...")
+		// fmt.Println("[STATE_MGMT] Calling eruntime.Reset()...")
 		eruntime.Reset()
-		fmt.Println("[STATE_MGMT] Reset completed")
+		// fmt.Println("[STATE_MGMT] Reset completed")
 	})
 
 	smm.menu.Show()
@@ -427,4 +441,91 @@ func (m *MapViewWithStateMenu) ShowStateMenuIfMapView() {
 	if m != nil && m.stateMenu != nil {
 		m.stateMenu.Show()
 	}
+}
+
+// saveSessionToBrowser saves the session using the browser's download API
+func saveSessionToBrowser() {
+	// fmt.Println("[STATE_MGMT] Saving session to browser")
+
+	// Get state data as bytes using eruntime function
+	stateBytes, err := eruntime.SaveStateToBytes()
+	if err != nil {
+		// fmt.Printf("[STATE_MGMT] Error getting state bytes: %v\n", err)
+		NewToast().
+			Text("Error saving session: "+err.Error(), ToastOption{Colour: color.RGBA{255, 100, 100, 255}}).
+			AutoClose(time.Second * 5).
+			Show()
+		return
+	}
+
+	// Generate filename with timestamp
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	filename := fmt.Sprintf("ruea_session_%s.lz4", timestamp)
+
+	// Use web file operations to download
+	err = WebSaveFile(filename, stateBytes)
+	if err != nil {
+		// fmt.Printf("[STATE_MGMT] Error downloading file: %v\n", err)
+		NewToast().
+			Text("Error downloading session: "+err.Error(), ToastOption{Colour: color.RGBA{255, 100, 100, 255}}).
+			AutoClose(time.Second * 5).
+			Show()
+		return
+	}
+
+	NewToast().
+		Text("Session saved successfully", ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
+		AutoClose(time.Second * 3).
+		Show()
+}
+
+// loadSessionFromBrowser loads the session using the browser's file picker API
+func loadSessionFromBrowser() {
+	// fmt.Println("[STATE_MGMT] Loading session from browser")
+
+	// Use web file operations to pick file
+	stateBytes, filename, err := WebLoadFile()
+	if err != nil {
+		if err.Error() != "user cancelled file selection" {
+			// fmt.Printf("[STATE_MGMT] Error loading file: %v\n", err)
+			NewToast().
+				Text("Error loading session: "+err.Error(), ToastOption{Colour: color.RGBA{255, 100, 100, 255}}).
+				AutoClose(time.Second * 5).
+				Show()
+		}
+		return
+	}
+
+	// fmt.Printf("[STATE_MGMT] Loaded file: %s (%d bytes)\n", filename, len(stateBytes))
+
+	// Load state from bytes using eruntime function
+	err = eruntime.LoadStateFromBytes(stateBytes)
+	if err != nil {
+		// fmt.Printf("[STATE_MGMT] Error loading state: %v\n", err)
+		NewToast().
+			Text("Error loading session: "+err.Error(), ToastOption{Colour: color.RGBA{255, 100, 100, 255}}).
+			AutoClose(time.Second * 5).
+			Show()
+		return
+	}
+
+	NewToast().
+		Text("Session loaded successfully from "+filename, ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
+		AutoClose(time.Second * 3).
+		Show()
+}
+
+// getCurrentSessionData returns the current session as JSON string
+func getCurrentSessionData() string {
+	// TODO: Implement this based on your session structure
+	// This should serialize the current game state to JSON
+	return "{}" // Placeholder
+}
+
+// loadSessionFromData loads session from JSON string
+func loadSessionFromData(data string) error {
+	// TODO: Implement this based on your session structure
+	// This should parse and load the session data
+	// fmt.Printf("[STATE_MGMT] Would load session data: %s\n", data)
+	return nil
 }

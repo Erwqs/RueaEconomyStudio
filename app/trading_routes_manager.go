@@ -9,7 +9,7 @@ import (
 
 // UpdateTradingRoutes updates only the Trading Routes section with new territory data
 func (m *EdgeMenu) UpdateTradingRoutes(territoryName string) {
-	fmt.Printf("DEBUG: UpdateTradingRoutes called for territory: %s\n", territoryName)
+	// fmt.Printf("DEBUG: UpdateTradingRoutes called for territory: %s\n", territoryName)
 	// Get fresh territory data from eruntime
 	territory := eruntime.GetTerritory(territoryName)
 	if territory == nil {
@@ -129,7 +129,7 @@ func (m *EdgeMenu) UpdateTradingRoutes(territoryName string) {
 								if m.territoryNavCallback != nil {
 									m.territoryNavCallback(capturedTerritoryName)
 								} else {
-									fmt.Printf("DEBUG: Route territory clicked (no nav callback): %s\n", capturedTerritoryName)
+									// fmt.Printf("DEBUG: Route territory clicked (no nav callback): %s\n", capturedTerritoryName)
 								}
 							})
 						}
@@ -140,7 +140,7 @@ func (m *EdgeMenu) UpdateTradingRoutes(territoryName string) {
 					collapsible.elements = append(collapsible.elements, noRoutesText)
 				}
 
-				fmt.Printf("DEBUG: Trading routes updated in place for %s (preserved %d route states)\n", territoryName, len(routeStates))
+				// fmt.Printf("DEBUG: Trading routes updated in place for %s (preserved %d route states)\n", territoryName, len(routeStates))
 				return // Found and updated, exit
 			}
 		}

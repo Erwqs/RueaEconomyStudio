@@ -1615,13 +1615,13 @@ func (e *EventEditorGUI) SetAvailableTerritories(territories []*typedef.Territor
 // importEvents placeholder for importing events
 func (e *EventEditorGUI) importEvents() {
 	// TODO: Implement import functionality
-	fmt.Println("Import events functionality - to be implemented")
+	// fmt.Println("Import events functionality - to be implemented")
 }
 
 // exportEvents placeholder for exporting events
 func (e *EventEditorGUI) exportEvents() {
 	// TODO: Implement export functionality
-	fmt.Println("Export events functionality - to be implemented")
+	// fmt.Println("Export events functionality - to be implemented")
 }
 
 // ensureEventVisible ensures the specified event index is visible in the scroll area
@@ -1754,7 +1754,7 @@ func (e *EventEditorGUI) handleTextEditing() {
 
 	// Debug: Print that we're in text editing mode
 	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) || inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) {
-		fmt.Printf("Text editing: processing arrow key (editingEventIndex: %d)\n", e.editingEventIndex)
+		// fmt.Printf("Text editing: processing arrow key (editingEventIndex: %d)\n", e.editingEventIndex)
 	}
 
 	// Handle keyboard shortcuts and text manipulation

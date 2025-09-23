@@ -61,7 +61,7 @@ func NewGameplayModule(inputManager *InputManager) *GameplayModule {
 
 		// Set up callback for guild data changes to invalidate territory cache
 		guildManager.SetGuildDataChangedCallback(func() {
-			fmt.Printf("[GAMEPLAY] Guild data changed callback triggered, invalidating territory cache\n")
+			// fmt.Printf("[GAMEPLAY] Guild data changed callback triggered, invalidating territory cache\n")
 			mapView.territoriesManager.InvalidateTerritoryCache()
 		})
 	}
@@ -84,10 +84,10 @@ func NewGameplayModule(inputManager *InputManager) *GameplayModule {
 func (gm *GameplayModule) SetActive(active bool) {
 	gm.active = active
 	if active {
-		// fmt.Println("[GAMEPLAY] Gameplay module activated - Use WASD/Arrow keys to move, SHIFT to run, SPACE to jump")
+		// // fmt.Println("[GAMEPLAY] Gameplay module activated - Use WASD/Arrow keys to move, SHIFT to run, SPACE to jump")
 		gm.lastMoveTime = time.Now()
 	} else {
-		// fmt.Println("[GAMEPLAY] Gameplay module deactivated")
+		// // fmt.Println("[GAMEPLAY] Gameplay module deactivated")
 		// Clear all key hold states when deactivating
 		for key := range gm.keyHoldStates {
 			gm.keyHoldStates[key] = false
@@ -138,7 +138,7 @@ keyEventsProcessed:
 mouseEventsProcessed:
 
 	// Get screen dimensions for map positioning
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 
 	// Update guild manager first and check if it handled the input
 	inputHandled := false
@@ -183,7 +183,7 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 	if event.Pressed {
 		switch event.Key {
 		case ebiten.KeySpace:
-			// fmt.Printf("[GAMEPLAY] Player jumped!\n")
+			// // fmt.Printf("[GAMEPLAY] Player jumped!\n")
 		case ebiten.KeyShift:
 			gm.moveSpeed = 4.0 // Run speed
 		case ebiten.KeyR:

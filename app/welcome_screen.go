@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"image/color"
 	"strings"
 
@@ -78,14 +77,14 @@ func (ws *WelcomeScreen) Show() {
 	ws.visible = true
 	ws.modal.Show()
 	ws.scrollOffset = 0
-	fmt.Println("[WELCOME] Welcome screen shown")
+	// fmt.Println("[WELCOME] Welcome screen shown")
 }
 
 // Hide hides the welcome screen
 func (ws *WelcomeScreen) Hide() {
 	ws.visible = false
 	ws.modal.Hide()
-	fmt.Println("[WELCOME] Welcome screen hidden")
+	// fmt.Println("[WELCOME] Welcome screen hidden")
 }
 
 // IsVisible returns whether the welcome screen is visible
@@ -107,7 +106,7 @@ func (ws *WelcomeScreen) Update() bool {
 	ws.modal.Update()
 
 	// Handle scroll wheel for content scrolling
-	_, scrollY := ebiten.Wheel()
+	_, scrollY := WebSafeWheel()
 	if scrollY != 0 {
 		oldScrollOffset := ws.scrollOffset
 		ws.scrollOffset -= int(scrollY * 30) // Scroll sensitivity
@@ -126,7 +125,7 @@ func (ws *WelcomeScreen) Update() bool {
 
 		// Debug output
 		if ws.scrollOffset != oldScrollOffset {
-			fmt.Printf("[WELCOME] Scroll: %d/%d (delta: %.1f)\n", ws.scrollOffset, ws.maxScroll, scrollY)
+			// fmt.Printf("[WELCOME] Scroll: %d/%d (delta: %.1f)\n", ws.scrollOffset, ws.maxScroll, scrollY)
 		}
 	}
 

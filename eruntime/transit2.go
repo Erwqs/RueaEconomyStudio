@@ -438,7 +438,7 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 	}
 
 	// DEBUG: Log when deficit handling is triggered (commented out for performance)
-	// fmt.Printf("[DEBUG] Deficit handling for %s: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
+	// // fmt.Printf("[DEBUG] Deficit handling for %s: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
 	//	territory.Name, territory.Net.Emeralds, territory.Net.Ores, territory.Net.Wood, territory.Net.Fish, territory.Net.Crops)
 
 	// Find a valid HQ and route
@@ -453,11 +453,11 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 		}
 	}
 	if bestHQ == nil || bestRoute == nil {
-		// fmt.Printf("[DEBUG] No valid route found from any HQ to %s\n", territory.Name)
+		// // fmt.Printf("[DEBUG] No valid route found from any HQ to %s\n", territory.Name)
 		return // No valid route
 	}
 
-	// fmt.Printf("[DEBUG] Found route from %s to %s\n", bestHQ.Name, territory.Name)
+	// // fmt.Printf("[DEBUG] Found route from %s to %s\n", bestHQ.Name, territory.Name)
 
 	// Calculate how much is needed at destination (deficit)
 	// The territory should have approximately 1 second worth of consumption left at :59
@@ -518,7 +518,7 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 		}
 	}
 
-	// fmt.Printf("[DEBUG] Calculated deficit (per minute): E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
+	// // fmt.Printf("[DEBUG] Calculated deficit (per minute): E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n",
 	//	deficit.Emeralds, deficit.Ores, deficit.Wood, deficit.Fish, deficit.Crops)
 
 	// Calculate total tax along the route
@@ -539,8 +539,8 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 	defer bestHQ.Mu.Unlock()
 
 	// Debug logging commented out for performance
-	// fmt.Printf("[DEBUG] HQ %s storage: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n", ...)
-	// fmt.Printf("[DEBUG] Trying to send: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n", ...)
+	// // fmt.Printf("[DEBUG] HQ %s storage: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n", ...)
+	// // fmt.Printf("[DEBUG] Trying to send: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n", ...)
 
 	// Create actualSend with only resources that HQ can afford
 	actualSend := typedef.BasicResources{}
@@ -567,12 +567,12 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 	}
 
 	// Debug logging commented out for performance
-	// fmt.Printf("[DEBUG] Actually sending: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n", ...)
+	// // fmt.Printf("[DEBUG] Actually sending: E=%.2f, O=%.2f, W=%.2f, F=%.2f, C=%.2f\n", ...)
 
 	// Check if there's anything to send
 	if actualSend.Emeralds <= 0 && actualSend.Ores <= 0 && actualSend.Wood <= 0 && actualSend.Fish <= 0 && actualSend.Crops <= 0 {
 		// Debug logging commented out for performance
-		// fmt.Printf("[DEBUG] Nothing to send from %s to %s\n", bestHQ.Name, territory.Name)
+		// // fmt.Printf("[DEBUG] Nothing to send from %s to %s\n", bestHQ.Name, territory.Name)
 		return // Nothing to send
 	}
 
@@ -585,7 +585,7 @@ func handleDeficitV2(territory *typedef.Territory, hqs []*typedef.Territory) {
 	// Start transit using the new system with actually sent resources
 	_ = st.transitManager.StartTransit(actualSend, bestHQ.ID, territory.ID, routeIDs)
 	// Debug logging commented out for performance
-	// fmt.Printf("[DEBUG] Created transit %s from %s to %s\n", transitID, bestHQ.Name, territory.Name)
+	// // fmt.Printf("[DEBUG] Created transit %s from %s to %s\n", transitID, bestHQ.Name, territory.Name)
 }
 
 // findRouteToHQV2 finds a valid route from a territory to an HQ

@@ -112,7 +112,7 @@ func (pn *PanicNotifier) setupButtons() {
 		// Deregister panic handler and rethrow panic
 		if pn.panicInfo != nil {
 			DeregisterPanicNotifier()
-			fmt.Printf("Panic occurred: %v\n", pn.panicInfo.Error)
+			// fmt.Printf("Panic occurred: %v\n", pn.panicInfo.Error)
 			os.Remove(".rueaes.lock")
 			os.Exit(1)
 		}
@@ -190,7 +190,7 @@ func (pn *PanicNotifier) ShowPanic(panicValue interface{}) {
 	// Update button positions after modal is shown
 	pn.updateButtonPositions()
 
-	fmt.Printf("[PANIC] Displaying panic notification for: %v\n", panicValue)
+	// fmt.Printf("[PANIC] Displaying panic notification for: %v\n", panicValue)
 }
 
 // formatStackTrace formats the stack trace for display
@@ -576,7 +576,7 @@ func (pn *PanicNotifier) drawScrollbar(screen *ebiten.Image, contentArea struct{
 // HandlePanic is a global function to handle panics and show the notification
 func HandlePanic() {
 	if r := recover(); r != nil {
-		fmt.Printf("[PANIC] Critical error caught: %v\n", r)
+		// fmt.Printf("[PANIC] Critical error caught: %v\n", r)
 
 		// Initialize panic notifier if not already done
 		pn := GetPanicNotifier()

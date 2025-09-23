@@ -9,7 +9,7 @@ import (
 
 // UpdateTowerStats updates only the Tower Stats section with new territory data
 func (m *EdgeMenu) UpdateTowerStats(territoryName string) {
-	fmt.Printf("DEBUG: UpdateTowerStats called for territory: %s\n", territoryName)
+	// fmt.Printf("DEBUG: UpdateTowerStats called for territory: %s\n", territoryName)
 	// Get fresh territory data from eruntime
 	territory := eruntime.GetTerritory(territoryName)
 	if territory == nil {
@@ -106,7 +106,7 @@ func (m *EdgeMenu) UpdateTowerStats(territoryName string) {
 					}
 				}
 
-				fmt.Printf("DEBUG: Tower stats updated in place for %s\n", territoryName)
+				// fmt.Printf("DEBUG: Tower stats updated in place for %s\n", territoryName)
 				return // Found and updated, exit
 			}
 		}

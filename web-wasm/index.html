@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ruea Economy Studio - Web</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            color: white;
+            font-family: Arial, sans-serif;
+            overflow: hidden; /* Prevent browser scrolling */
+        }
+        
+        #gameContainer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #000;
+            overflow: hidden;
+        }
+        
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            display: block;
+            background-color: #000;
+            touch-action: none; /* Prevent default touch behaviors */
+            width: 100vw !important;
+            height: 100vh !important;
+        }
+        
+        #loadingScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        #loadingText {
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        
+        #progressBar {
+            width: 300px;
+            height: 20px;
+            border: 2px solid #fff;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        #progressFill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #45a049);
+            transition: width 0.3s ease;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        #errorScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1001;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        #errorMessage {
+            background-color: #333;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 600px;
+            margin-bottom: 20px;
+        }
+        
+        #retryButton {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        #retryButton:hover {
+            background-color: #45a049;
+        }
+        
+        /* Disable text selection and context menus */
+        * {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="loadingScreen">
+        <div id="loadingText">Loading Ruea Economy Studio...</div>
+        <div id="progressBar">
+            <div id="progressFill"></div>
+        </div>
+    </div>
+    
+    <div id="errorScreen" class="hidden">
+        <div id="errorMessage">
+            <h2>Failed to Load</h2>
+            <p id="errorDetails">An error occurred while loading the application.</p>
+        </div>
+        <button id="retryButton" onclick="location.reload()">Retry</button>
+    </div>
+    
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+    
+    <script src="wasm_exec.js"></script>
+    <script>
+        // Global variables
+        let wasmInstance = null;
+        let loadingScreen = document.getElementById('loadingScreen');
+        let errorScreen = document.getElementById('errorScreen');
+        let gameCanvas = document.getElementById('gameCanvas');
+        let progressFill = document.getElementById('progressFill');
+        
+        // Prevent default browser behaviors
+        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('selectstart', e => e.preventDefault());
+        
+        // Prevent browser zoom on Ctrl+Wheel
+        document.addEventListener('wheel', function(e) {
+            if (e.ctrlKey) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+        
+        // Prevent browser shortcuts that might interfere
+        document.addEventListener('keydown', function(e) {
+            // Prevent F5/Ctrl+R refresh while game is running
+            if ((e.key === 'F5' || (e.ctrlKey && e.key === 'r')) && !loadingScreen.classList.contains('hidden')) {
+                e.preventDefault();
+            }
+            
+            // Prevent browser zoom shortcuts
+            if (e.ctrlKey && (e.key === '+' || e.key === '-' || e.key === '0')) {
+                e.preventDefault();
+            }
+        });
+        
+        // Handle canvas resize - critical for proper WASM rendering
+        
+        // Global functions that WASM can call
+        window.getCanvasWidth = function() {
+            return gameCanvas ? gameCanvas.width : window.innerWidth;
+        };
+        
+        window.getCanvasHeight = function() {
+            return gameCanvas ? gameCanvas.height : window.innerHeight;
+        };
+        
+        // File operations for web - Binary data support with LZ4 compression
+        window.downloadFile = function(filename, uint8Array) {
+            const blob = new Blob([uint8Array], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
+        
+        window.pickFile = function(acceptTypes, callback) {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = acceptTypes || '.lz4';
+            input.onchange = function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const arrayBuffer = e.target.result;
+                        const uint8Array = new Uint8Array(arrayBuffer);
+                        callback(true, file.name, uint8Array);
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    callback(false, "", null);
+                }
+            };
+            input.click();
+        };
+        
+        // Clipboard operations for web
+        window.writeClipboard = function(text) {
+            return new Promise((resolve) => {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        resolve(true);
+                    }).catch(() => {
+                        resolve(false);
+                    });
+                } else {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = text;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    try {
+                        const successful = document.execCommand('copy');
+                        document.body.removeChild(textArea);
+                        resolve(successful);
+                    } catch (err) {
+                        document.body.removeChild(textArea);
+                        resolve(false);
+                    }
+                }
+            });
+        };
+        
+        window.readClipboard = function() {
+            return new Promise((resolve) => {
+                if (navigator.clipboard && navigator.clipboard.readText) {
+                    navigator.clipboard.readText().then((text) => {
+                        resolve(text);
+                    }).catch(() => {
+                        resolve('');
+                    });
+                } else {
+                    // Fallback - can't read clipboard in older browsers
+                    resolve('');
+                }
+            });
+        };
+        
+        function resizeCanvas() {
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            
+            console.log(`Resizing canvas to: ${vw}x${vh}`);
+            
+            // Set the actual canvas buffer size
+            gameCanvas.width = vw;
+            gameCanvas.height = vh;
+            
+            // Ensure canvas fills viewport exactly
+            gameCanvas.style.width = vw + 'px';
+            gameCanvas.style.height = vh + 'px';
+            
+            // Force layout recalculation
+            gameCanvas.offsetHeight; // Trigger reflow
+            
+            console.log(`Canvas buffer: ${gameCanvas.width}x${gameCanvas.height}`);
+            console.log(`Canvas CSS: ${gameCanvas.style.width} x ${gameCanvas.style.height}`);
+        }
+        
+        // Enhanced resize handling with debouncing
+        let resizeTimeout;
+        function handleResize() {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                resizeCanvas();
+                
+                // Notify WASM about size change if available
+                if (window.notifyCanvasResize && typeof window.notifyCanvasResize === 'function') {
+                    window.notifyCanvasResize(gameCanvas.width, gameCanvas.height);
+                }
+            }, 10);
+        }
+        
+        // Initialize canvas size immediately and on resize
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', handleResize);
+        
+        // Set initial size
+        resizeCanvas();
+        
+        // Progress simulation for better UX
+        function simulateProgress(duration = 3000) {
+            let progress = 0;
+            const increment = 100 / (duration / 50); // 50ms intervals
+            
+            const interval = setInterval(() => {
+                progress += increment * (Math.random() * 0.5 + 0.5); // Vary speed
+                if (progress >= 100) {
+                    progress = 100;
+                    clearInterval(interval);
+                }
+                progressFill.style.width = progress + '%';
+            }, 50);
+        }
+        
+        // Start progress simulation
+        simulateProgress();
+        
+        // Error handling
+        function showError(message, details = '') {
+            console.error('WASM Error:', message, details);
+            document.getElementById('errorDetails').textContent = details || message;
+            loadingScreen.classList.add('hidden');
+            errorScreen.classList.remove('hidden');
+        }
+        
+        // Success handler
+        function onLoadSuccess() {
+            console.log('WASM loaded successfully');
+            progressFill.style.width = '100%';
+            setTimeout(() => {
+                loadingScreen.classList.add('hidden');
+            }, 500);
+        }
+        
+        // Load WASM
+        async function loadWasm() {
+            try {
+                console.log('Starting WASM load...');
+                
+                if (!WebAssembly) {
+                    throw new Error('WebAssembly is not supported in this browser');
+                }
+                
+                const go = new Go();
+                
+                // Enhanced error handling for fetch
+                const response = await fetch('ruea.wasm');
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch WASM file: ${response.status} ${response.statusText}`);
+                }
+                
+                console.log('WASM file fetched, instantiating...');
+                const result = await WebAssembly.instantiateStreaming(response, go.importObject);
+                
+                console.log('WASM instantiated, running...');
+                wasmInstance = result.instance;
+                
+                // Set up the Go runtime
+                go.run(wasmInstance);
+                
+                // Make sure canvas is properly sized before showing the game
+                setTimeout(() => {
+                    resizeCanvas();
+                    console.log('Final canvas check:', {
+                        bufferSize: `${gameCanvas.width}x${gameCanvas.height}`,
+                        cssSize: `${gameCanvas.style.width} x ${gameCanvas.style.height}`,
+                        windowSize: `${window.innerWidth}x${window.innerHeight}`
+                    });
+                }, 100);
+                
+                onLoadSuccess();
+                
+            } catch (error) {
+                showError('Failed to load WebAssembly module', error.message);
+            }
+        }
+        
+        // Start loading when page is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadWasm);
+        } else {
+            loadWasm();
+        }
+        
+        // Debug helpers (remove in production)
+        window.debugWasm = {
+            reload: () => location.reload(),
+            getCanvas: () => gameCanvas,
+            getInstance: () => wasmInstance
+        };
+    </script>
+</body>
+</html>

@@ -10,7 +10,7 @@ import (
 	"image/png"
 	"math"
 	"os"
-	"runtime/debug"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -501,18 +501,31 @@ func (tm *TerritoriesManager) loadTerritoryClaims() error {
 	tm.claimsMutex.Lock()
 	defer tm.claimsMutex.Unlock()
 
-	// Read territory_claims.json file
+	// Check if we're running in WASM
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		// Use memory storage for WASM
+		claims, err := loadTerritoryClaimsFromMemory()
+		if err != nil {
+			// fmt.Printf("Warning: Could not load territory claims from memory: %v\n", err)
+			return nil
+		}
+		tm.territoryClaims = claims
+		// fmt.Printf("[TERRITORY_STORAGE] Loaded %d territory claims from WASM memory\n", len(claims))
+		return nil
+	}
+
+	// Read territory_claims.json file (non-WASM)
 	data, err := os.ReadFile("territory_claims.json")
 	if err != nil {
 		// File doesn't exist or can't be read - not a fatal error
-		fmt.Printf("Warning: Could not load territory_claims.json: %v\n", err)
+		// fmt.Printf("Warning: Could not load territory_claims.json: %v\n", err)
 		return nil
 	}
 
 	// Parse JSON array
 	var claims []TerritoryClaim
 	if err := json.Unmarshal(data, &claims); err != nil {
-		fmt.Printf("Warning: Could not parse territory_claims.json: %v\n", err)
+		// fmt.Printf("Warning: Could not parse territory_claims.json: %v\n", err)
 		return nil
 	}
 
@@ -563,8 +576,8 @@ func (tm *TerritoriesManager) loadTerritoryClaims() error {
 		updatedTerritories := eruntime.SetGuildBatch(guildUpdates)
 		syncCount = len(updatedTerritories)
 
-		fmt.Printf("[TERRITORIES] Batch synchronized %d/%d claims with eruntime\n",
-			syncCount, len(guildUpdates))
+		// fmt.Printf("[TERRITORIES] Batch synchronized %d/%d claims with eruntime\n",
+		// syncCount, len(guildUpdates))
 
 		// Log any failures
 		if syncCount < len(guildUpdates) {
@@ -577,19 +590,19 @@ func (tm *TerritoriesManager) loadTerritoryClaims() error {
 					}
 				}
 				if !found {
-					fmt.Printf("[TERRITORIES] Warning: Failed to sync claim %s with eruntime\n", territoryName)
+					// fmt.Printf("[TERRITORIES] Warning: Failed to sync claim %s with eruntime\n", territoryName)
 				}
 			}
 		}
 	}
 
-	fmt.Printf("Loaded %d territory claims, batch synchronized %d with eruntime\n", len(tm.territoryClaims), syncCount)
+	// fmt.Printf("Loaded %d territory claims, batch synchronized %d with eruntime\n", len(tm.territoryClaims), syncCount)
 	return nil
 }
 
 // ReloadClaims reloads territory claims from the persistent storage file
 func (tm *TerritoriesManager) ReloadClaims() error {
-	// fmt.Println("[DEBUG] TerritoriesManager.ReloadClaims called")
+	// // fmt.Println("[DEBUG] TerritoriesManager.ReloadClaims called")
 	return tm.loadTerritoryClaims()
 }
 
@@ -609,7 +622,7 @@ func (tm *TerritoriesManager) LoadTerritoriesAsync() {
 	go func() {
 		if err := tm.LoadTerritories(); err != nil {
 			// Consider a more robust logging mechanism or error propagation if needed
-			fmt.Printf("Error loading territories data asynchronously: %v\n", err)
+			// fmt.Printf("Error loading territories data asynchronously: %v\n", err)
 			// Potentially set tm.loadError here, carefully considering concurrency
 		}
 	}()
@@ -625,7 +638,7 @@ func (tm *TerritoriesManager) LoadTerritories() error {
 	// Load territory claims data
 	if err := tm.loadTerritoryClaims(); err != nil {
 		// This is not fatal, continue with empty claims
-		fmt.Printf("Warning: Failed to load territory claims: %v\n", err)
+		// fmt.Printf("Warning: Failed to load territory claims: %v\n", err)
 	}
 
 	// Process territory coordinates and initialize defaults
@@ -635,7 +648,7 @@ func (tm *TerritoriesManager) LoadTerritories() error {
 	// Build spatial partitioning grid for efficient rendering
 	tm.buildSpatialGrid()
 
-	fmt.Printf("Loaded %d territories, %d with valid borders\n", len(tm.Territories), len(tm.TerritoryBorders))
+	// fmt.Printf("Loaded %d territories, %d with valid borders\n", len(tm.Territories), len(tm.TerritoryBorders))
 	tm.isLoaded = true
 	tm.loadError = nil // Clear any previous error on success
 	return nil
@@ -790,7 +803,7 @@ func (tm *TerritoriesManager) SaveTerritories() error {
 		return fmt.Errorf("failed to write territories file: %v", err)
 	}
 
-	fmt.Println("Successfully saved territories data")
+	// fmt.Println("Successfully saved territories data")
 	return nil
 }
 
@@ -926,19 +939,19 @@ func (tm *TerritoriesManager) updateOffscreenBuffer() {
 	// bufferCreateStart := time.Now()
 	if tm.offscreenBuffer == nil || tm.offscreenBuffer.Bounds().Dx() != tm.bufferWidth || tm.offscreenBuffer.Bounds().Dy() != tm.bufferHeight {
 		tm.offscreenBuffer = ebiten.NewImage(tm.bufferWidth, tm.bufferHeight)
-		// fmt.Printf("[PROFILE] Buffer creation took %v\n", time.Since(bufferCreateStart))
+		// // fmt.Printf("[PROFILE] Buffer creation took %v\n", time.Since(bufferCreateStart))
 	}
 
 	// clearStart := time.Now()
 	tm.offscreenBuffer.Clear()
-	// fmt.Printf("[PROFILE] Buffer clear took %v\n", time.Since(clearStart))
+	// // fmt.Printf("[PROFILE] Buffer clear took %v\n", time.Since(clearStart))
 
 	// drawStart := time.Now()
 	tm.drawTerritoriesToBuffer(tm.offscreenBuffer, tm.bufferScale, tm.bufferViewX, tm.bufferViewY, "")
-	// fmt.Printf("[PROFILE] drawTerritoriesToBuffer took %v\n", time.Since(drawStart))
+	// // fmt.Printf("[PROFILE] drawTerritoriesToBuffer took %v\n", time.Since(drawStart))
 
 	tm.bufferNeedsUpdate = false
-	// fmt.Printf("[PROFILE] updateOffscreenBuffer total took %v\n", time.Since(profileStart))
+	// // fmt.Printf("[PROFILE] updateOffscreenBuffer total took %v\n", time.Since(profileStart))
 }
 
 // --- Get visible territory names using the grid ---
@@ -1002,8 +1015,8 @@ func (tm *TerritoriesManager) drawTerritoriesToBuffer(buffer *ebiten.Image, scal
 func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX, viewY float64, hoveredTerritory string) {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("[PANIC] DrawTerritories recovered: %v\n", r)
-			fmt.Printf("[PANIC] Stack trace:\n%s\n", debug.Stack())
+			// fmt.Printf("[PANIC] DrawTerritories recovered: %v\n", r)
+			// fmt.Printf("[PANIC] Stack trace:\n%s\n", debug.Stack())
 		}
 	}()
 
@@ -1175,13 +1188,22 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 		// Try to get color from enhanced guild manager first (if available)
 		if tm.guildManager != nil && actualGuildName != "" {
 			if guildColor, found := tm.guildManager.GetGuildColor(actualGuildName, actualGuildTag); found {
+				// fmt.Printf("[TERRITORIES] Using guild color for territory %s (guild %s [%s]): R=%d G=%d B=%d\n",
+				// name, actualGuildName, actualGuildTag, guildColor.R, guildColor.G, guildColor.B)
 				// Convert RGBA to [3]float32
 				col = [3]float32{
 					float32(guildColor.R) / 255.0,
 					float32(guildColor.G) / 255.0,
 					float32(guildColor.B) / 255.0,
 				}
+			} else {
+				// fmt.Printf("[TERRITORIES] Guild color not found for territory %s (guild %s [%s])\n",
+				// name, actualGuildName, actualGuildTag)
 			}
+		} else if tm.guildManager == nil {
+			// fmt.Printf("[TERRITORIES] Warning: Guild manager is nil for territory %s\n", name)
+		} else if actualGuildName == "" {
+			// fmt.Printf("[TERRITORIES] No guild name for territory %s\n", name)
 		}
 
 		// Check territory view switcher for alternative coloring modes (using batched lookup)
@@ -1198,7 +1220,7 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 
 		// Check if this territory is selected for loadout application (highest priority override)
 		if tm.territoryRenderer != nil && tm.territoryRenderer.isLoadoutApplicationMode && tm.territoryRenderer.IsTerritorySelectedForLoadout(name) {
-			fmt.Printf("[TERRITORIES] Territory %s is selected for loadout application - applying bright yellow color in GPU overlay\n", name)
+			// fmt.Printf("[TERRITORIES] Territory %s is selected for loadout application - applying bright yellow color in GPU overlay\n", name)
 			// Use bright yellow for selected territories (same as in renderer)
 			col = [3]float32{1.0, 1.0, 0.0} // Bright yellow (RGB: 255, 255, 0)
 		}
@@ -1310,7 +1332,7 @@ func (tm *TerritoriesManager) OpenGuildManagement() {
 	// The GuildManager reference is passed in from GameplayModule
 	// This function is called when the guild manager should be shown
 	if tm.guildManager != nil {
-		fmt.Printf("[TERRITORIES] Opening guild management menu\n")
+		// fmt.Printf("[TERRITORIES] Opening guild management menu\n")
 
 		// Close loadout manager if it's open (mutually exclusive)
 		loadoutManager := GetLoadoutManager()
@@ -1320,7 +1342,7 @@ func (tm *TerritoriesManager) OpenGuildManagement() {
 
 		tm.guildManager.Show()
 	} else {
-		fmt.Printf("[TERRITORIES] Guild manager is nil, can't open\n")
+		// fmt.Printf("[TERRITORIES] Guild manager is nil, can't open\n")
 	}
 }
 
@@ -1328,7 +1350,7 @@ func (tm *TerritoriesManager) OpenGuildManagement() {
 func (tm *TerritoriesManager) loadUpgradeData() {
 	data, err := assets.AssetFiles.ReadFile("upgrades.json")
 	if err != nil {
-		fmt.Printf("Failed to read upgrades file: %v\n", err)
+		// fmt.Printf("Failed to read upgrades file: %v\n", err)
 		return
 	}
 
@@ -1344,15 +1366,15 @@ func (tm *TerritoriesManager) loadUpgradeData() {
 
 	var upgradeData UpgradeData
 	if err := json.Unmarshal([]byte(jsonStr), &upgradeData); err != nil {
-		fmt.Printf("Warning: Failed to parse upgrades data after stripping comments: %v. Trying raw data.\n", err)
+		// fmt.Printf("Warning: Failed to parse upgrades data after stripping comments: %v. Trying raw data.\n", err)
 		if errFallback := json.Unmarshal(data, &upgradeData); errFallback != nil {
-			fmt.Printf("Failed to parse upgrades data: %v\n", errFallback)
+			// fmt.Printf("Failed to parse upgrades data: %v\n", errFallback)
 			return
 		}
 	}
 
 	tm.upgradeData = &upgradeData
-	fmt.Println("Successfully loaded upgrade data")
+	// fmt.Println("Successfully loaded upgrade data")
 }
 
 // loadHQImage loads the HQ icon from embedded assets
@@ -1360,20 +1382,20 @@ func (tm *TerritoriesManager) loadHQImage() {
 	// Load HQ image from embedded assets
 	hqImageData, err := assets.AssetFiles.ReadFile("hq.png")
 	if err != nil {
-		fmt.Printf("Warning: Could not load HQ image: %v\n", err)
+		// fmt.Printf("Warning: Could not load HQ image: %v\n", err)
 		return
 	}
 
 	// Decode the image
 	img, err := png.Decode(bytes.NewReader(hqImageData))
 	if err != nil {
-		fmt.Printf("Warning: Could not decode HQ image: %v\n", err)
+		// fmt.Printf("Warning: Could not decode HQ image: %v\n", err)
 		return
 	}
 
 	// Convert to ebiten.Image
 	tm.hqImage = ebiten.NewImageFromImage(img)
-	fmt.Printf("Successfully loaded HQ image (%dx%d)\n", img.Bounds().Dx(), img.Bounds().Dy())
+	// fmt.Printf("Successfully loaded HQ image (%dx%d)\n", img.Bounds().Dx(), img.Bounds().Dy())
 }
 
 // drawTextOffset is a stub function (was part of side menu functionality)
@@ -1407,7 +1429,7 @@ func (tm *TerritoriesManager) GetTerritoryAtPosition(mouseX, mouseY int, scale, 
 	worldY := (float64(mouseY) - viewY) / scale
 
 	// Debug output (can be removed later)
-	// fmt.Printf("Mouse: (%d, %d), Scale: %.3f, Offset: (%.1f, %.1f), World: (%.1f, %.1f)\n",
+	// // fmt.Printf("Mouse: (%d, %d), Scale: %.3f, Offset: (%.1f, %.1f), World: (%.1f, %.1f)\n",
 	//     mouseX, mouseY, scale, viewX, viewY, worldX, worldY)
 
 	// Collect all territories that contain the mouse position
@@ -1541,7 +1563,7 @@ func (tm *TerritoriesManager) CloseSideMenu() {
 // SelectTerritory method stub (commented out functionality)
 func (tm *TerritoriesManager) SelectTerritory(territoryName string, directTransition ...bool) {
 	// NO-OP: Side menu is disabled, EdgeMenu is used instead
-	fmt.Printf("SelectTerritory called for %s but old side menu is disabled\n", territoryName)
+	// fmt.Printf("SelectTerritory called for %s but old side menu is disabled\n", territoryName)
 }
 
 // GetSelectedTerritoryName returns the name of the currently selected/blinking territory
@@ -1590,7 +1612,7 @@ func (tm *TerritoriesManager) Update(deltaTime float64) {
 
 // RefreshFromEruntime reloads territory data from eruntime
 func (tm *TerritoriesManager) RefreshFromEruntime() error {
-	// fmt.Println("[DEBUG] TerritoriesManager.RefreshFromEruntime called")
+	// // fmt.Println("[DEBUG] TerritoriesManager.RefreshFromEruntime called")
 
 	// Acquire write lock to prevent concurrent access during refresh
 	tm.territoryMutex.Lock()
@@ -1617,7 +1639,7 @@ func (tm *TerritoriesManager) RefreshFromEruntime() error {
 	tm.bufferNeedsUpdate = true
 	tm.bufferMutex.Unlock()
 
-	fmt.Printf("[DEBUG] RefreshFromEruntime complete. Loaded %d territories, buffer marked for update\n", len(tm.Territories))
+	// fmt.Printf("[DEBUG] RefreshFromEruntime complete. Loaded %d territories, buffer marked for update\n", len(tm.Territories))
 
 	tm.isLoaded = true
 	tm.loadError = nil
@@ -1754,7 +1776,7 @@ func (tm *TerritoriesManager) SetTerritoryHQ(territoryName string, isHQ bool) bo
 		guildName := eruntimeTerritory.Guild.Name // Capture guild name before unlocking
 		eruntimeTerritory.HQ = false
 		eruntimeTerritory.Mu.Unlock()
-		fmt.Printf("[TERRITORIES] Removed HQ status from territory %s\n", territoryName)
+		// fmt.Printf("[TERRITORIES] Removed HQ status from territory %s\n", territoryName)
 
 		// Trigger UI updates for HQ removal with specific guild notification
 		go func() {
@@ -1776,7 +1798,7 @@ func (tm *TerritoriesManager) SetTerritoryHQ(territoryName string, isHQ bool) bo
 	if territory, exists := tm.Territories[territoryName]; exists {
 		territory.isHQ = isHQ
 		tm.Territories[territoryName] = territory
-		fmt.Printf("[TERRITORIES] Updated local HQ status for %s to %v\n", territoryName, isHQ)
+		// fmt.Printf("[TERRITORIES] Updated local HQ status for %s to %v\n", territoryName, isHQ)
 		return true
 	}
 
@@ -1792,7 +1814,7 @@ func (tm *TerritoriesManager) UpdateTerritoryHQStatus(territoryName string, isHQ
 		if territory.isHQ != isHQ {
 			territory.isHQ = isHQ
 			tm.Territories[territoryName] = territory
-			fmt.Printf("[TERRITORIES] Updated HQ status for %s to %v\n", territoryName, isHQ)
+			// fmt.Printf("[TERRITORIES] Updated HQ status for %s to %v\n", territoryName, isHQ)
 
 			// Mark buffer as needing update to refresh visual display
 			tm.bufferMutex.Lock()

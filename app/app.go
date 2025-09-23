@@ -468,7 +468,7 @@ func (s *State) Update() error {
 	}
 
 	// Get screen dimensions ONLY ONCE per frame
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 
 	// Process key events from channel ONLY ONCE
 	for {
@@ -571,7 +571,7 @@ func (s *State) handleKeyEvent(event KeyEvent) {
 		case ebiten.KeyP:
 			// CTRL + ALT + P - Trigger panic for demonstration
 			if ebiten.IsKeyPressed(ebiten.KeyControl) && ebiten.IsKeyPressed(ebiten.KeyAlt) {
-				// fmt.Println("[PANIC_DEMO] User triggered panic via CTRL+ALT+P")
+				// // fmt.Println("[PANIC_DEMO] User triggered panic via CTRL+ALT+P")
 				panic("User-triggered panic for demonstration (CTRL+ALT+P)")
 			}
 		}
@@ -683,7 +683,7 @@ func New() *Game {
 		})
 
 		welcomeScreen.Show()
-		fmt.Println("[APP] No autosave loaded on startup, showing welcome screen")
+		// fmt.Println("[APP] No autosave loaded on startup, showing welcome screen")
 	}
 
 	return game
@@ -701,13 +701,46 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 // Layout returns the layout of the game
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-	// Use fixed resolution for WebAssembly to ensure correct coordinate mapping
-	// Dynamic sizing for desktop builds
 	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
-		// Fixed resolution for consistent coordinate system in WebAssembly
-		return 1280, 720
+		// Web-specific handling with more aggressive fallbacks
+
+		// Debug logging (will appear in browser console)
+		if outsideWidth == 0 || outsideHeight == 0 {
+			// fmt.Printf("WARNING: Layout received 0x0 dimensions, using fallback\n")
+		}
+
+		// Ensure we always return reasonable dimensions
+		finalWidth := outsideWidth
+		finalHeight := outsideHeight
+
+		// Use browser viewport as fallback (typical web app sizes)
+		if finalWidth <= 0 {
+			finalWidth = 1920 // Common desktop width
+		}
+		if finalHeight <= 0 {
+			finalHeight = 1080 // Common desktop height
+		}
+
+		// Enforce minimums to prevent UI issues
+		if finalWidth < 800 {
+			finalWidth = 800
+		}
+		if finalHeight < 600 {
+			finalHeight = 600
+		}
+
+		// Log the final decision
+		if finalWidth != outsideWidth || finalHeight != outsideHeight {
+			// fmt.Printf("Layout: adjusted %dx%d -> %dx%d\n",
+				// outsideWidth, outsideHeight, finalWidth, finalHeight)
+		}
+
+		return finalWidth, finalHeight
 	} else {
-		// Dynamic sizing based on the outside dimensions for desktop
+		// Desktop: use provided dimensions or reasonable defaults
+		if outsideWidth <= 0 || outsideHeight <= 0 {
+			return 1280, 720
+		}
 		return outsideWidth, outsideHeight
 	}
 }

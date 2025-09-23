@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"runtime"
 	"strings"
 
 	"etools/eruntime"
@@ -39,7 +40,7 @@ type GuildManager struct {
 
 // NewGuildManager creates a new guild manager
 func NewGuildManager() *GuildManager {
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	modalWidth := 500
 	modalHeight := 400
 	modalX := (screenW - modalWidth) / 2
@@ -336,13 +337,13 @@ func (gm *GuildManager) loadGuildsFromFile() {
 func (gm *GuildManager) saveGuildsToFile() {
 	data, err := json.MarshalIndent(gm.guilds, "", "  ")
 	if err != nil {
-		fmt.Println("Error marshaling guilds:", err)
+		// fmt.Println("Error marshaling guilds:", err)
 		return
 	}
 
 	err = os.WriteFile(gm.guildFilePath, data, 0644)
 	if err != nil {
-		fmt.Println("Error writing guilds file:", err)
+		// fmt.Println("Error writing guilds file:", err)
 	}
 }
 
@@ -394,10 +395,10 @@ func (gcm *GuildClaimManager) AddClaim(territoryName, guildName, guildTag string
 	// Notify the eruntime that this territory now belongs to this guild
 	updatedTerritory := eruntime.SetGuild(territoryName, guild)
 	if updatedTerritory != nil {
-		fmt.Printf("[GUILD_MANAGER] Successfully updated eruntime for territory %s -> guild %s [%s]\n",
-			territoryName, guildName, guildTag)
+		// fmt.Printf("[GUILD_MANAGER] Successfully updated eruntime for territory %s -> guild %s [%s]\n",
+			// territoryName, guildName, guildTag)
 	} else {
-		fmt.Printf("[GUILD_MANAGER] Warning: Failed to update eruntime for territory %s\n", territoryName)
+		// fmt.Printf("[GUILD_MANAGER] Warning: Failed to update eruntime for territory %s\n", territoryName)
 	}
 
 	// Save changes
@@ -423,9 +424,9 @@ func (gcm *GuildClaimManager) RemoveClaim(territoryName string) {
 	// Notify the eruntime that this territory no longer belongs to any guild
 	updatedTerritory := eruntime.SetGuild(territoryName, emptyGuild)
 	if updatedTerritory != nil {
-		fmt.Printf("[GUILD_MANAGER] Successfully removed guild ownership from territory %s in eruntime\n", territoryName)
+		// fmt.Printf("[GUILD_MANAGER] Successfully removed guild ownership from territory %s in eruntime\n", territoryName)
 	} else {
-		fmt.Printf("[GUILD_MANAGER] Warning: Failed to update eruntime when removing claim for territory %s\n", territoryName)
+		// fmt.Printf("[GUILD_MANAGER] Warning: Failed to update eruntime when removing claim for territory %s\n", territoryName)
 	}
 
 	// Save changes
@@ -441,44 +442,44 @@ func (gcm *GuildClaimManager) RemoveClaim(territoryName string) {
 func (gcm *GuildClaimManager) TriggerRedraw() {
 	// Find all territory managers that might need updating
 	// For now, just invalidate any visible territory cache
-	// fmt.Println("[DEBUG] TriggerRedraw called for GuildClaimManager")
+	// // fmt.Println("[DEBUG] TriggerRedraw called for GuildClaimManager")
 	if app := GetCurrentApp(); app != nil {
-		// fmt.Println("[DEBUG] Got app instance")
+		// // fmt.Println("[DEBUG] Got app instance")
 		if gameplayModule := app.GetGameplayModule(); gameplayModule != nil {
-			// fmt.Println("[DEBUG] Got gameplay module")
+			// // fmt.Println("[DEBUG] Got gameplay module")
 			if mapView := gameplayModule.GetMapView(); mapView != nil {
-				// fmt.Println("[DEBUG] Got map view")
+				// // fmt.Println("[DEBUG] Got map view")
 				if tm := mapView.GetTerritoriesManager(); tm != nil {
-					// fmt.Println("[DEBUG] Got territories manager")
+					// // fmt.Println("[DEBUG] Got territories manager")
 					// First reload the persistent claims from file
 					if err := tm.ReloadClaims(); err != nil {
-						// fmt.Printf("[DEBUG] Error reloading claims: %v\n", err)
+						// // fmt.Printf("[DEBUG] Error reloading claims: %v\n", err)
 					} else {
-						// fmt.Println("[DEBUG] Successfully reloaded claims")
+						// // fmt.Println("[DEBUG] Successfully reloaded claims")
 					}
 					// Then invalidate the cache to force a redraw
 					if renderer := tm.GetRenderer(); renderer != nil {
-						// fmt.Println("[DEBUG] Got renderer")
+						// // fmt.Println("[DEBUG] Got renderer")
 						if cache := renderer.GetTerritoryCache(); cache != nil {
-							// fmt.Println("[DEBUG] Got cache, calling ForceRedraw")
+							// // fmt.Println("[DEBUG] Got cache, calling ForceRedraw")
 							cache.ForceRedraw()
 						} else {
-							// fmt.Println("[DEBUG] Cache is nil")
+							// // fmt.Println("[DEBUG] Cache is nil")
 						}
 					} else {
-						// fmt.Println("[DEBUG] Renderer is nil")
+						// // fmt.Println("[DEBUG] Renderer is nil")
 					}
 				} else {
-					// fmt.Println("[DEBUG] Territories manager is nil")
+					// // fmt.Println("[DEBUG] Territories manager is nil")
 				}
 			} else {
-				// fmt.Println("[DEBUG] Map view is nil")
+				// // fmt.Println("[DEBUG] Map view is nil")
 			}
 		} else {
-			// fmt.Println("[DEBUG] Gameplay module is nil")
+			// // fmt.Println("[DEBUG] Gameplay module is nil")
 		}
 	} else {
-		// fmt.Println("[DEBUG] App instance is nil")
+		// // fmt.Println("[DEBUG] App instance is nil")
 	}
 }
 
@@ -515,17 +516,31 @@ func (gcm *GuildClaimManager) SaveClaimsToFile() error {
 		claimsList = append(claimsList, claim)
 	}
 
-	// Marshal the claims to JSON
+	// Check if we're running in WASM
+	if runtime.GOOS == "js" && runtime.GOARCH == "wasm" {
+		// Convert GuildClaim to TerritoryClaim for memory storage
+		territoryClaimsMap := make(map[string]TerritoryClaim)
+		for _, claim := range claimsList {
+			territoryClaimsMap[claim.TerritoryName] = TerritoryClaim{
+				Territory: claim.TerritoryName,
+				GuildName: claim.GuildName,
+				GuildTag:  claim.GuildTag,
+			}
+		}
+		return saveTerritoryClaims(territoryClaimsMap)
+	}
+
+	// Marshal the claims to JSON (non-WASM)
 	data, err := json.MarshalIndent(claimsList, "", "  ")
 	if err != nil {
-		fmt.Printf("Error marshaling claims: %v\n", err)
+		// fmt.Printf("Error marshaling claims: %v\n", err)
 		return err
 	}
 
 	// Write to file
 	err = os.WriteFile(gcm.ClaimsFilePath, data, 0644)
 	if err != nil {
-		fmt.Printf("Error writing claims to file: %v\n", err)
+		// fmt.Printf("Error writing claims to file: %v\n", err)
 		return err
 	}
 
@@ -543,7 +558,7 @@ func (gcm *GuildClaimManager) LoadClaimsFromFile() error {
 	// Read the file
 	data, err := os.ReadFile(gcm.ClaimsFilePath)
 	if err != nil {
-		fmt.Printf("Error reading claims file: %v\n", err)
+		// fmt.Printf("Error reading claims file: %v\n", err)
 		return err
 	}
 
@@ -551,14 +566,14 @@ func (gcm *GuildClaimManager) LoadClaimsFromFile() error {
 	var claimsList []GuildClaim
 	err = json.Unmarshal(data, &claimsList)
 	if err != nil {
-		fmt.Printf("Error unmarshaling claims: %v\n", err)
+		// fmt.Printf("Error unmarshaling claims: %v\n", err)
 		return err
 	}
 
 	// Use batch function for all claims
 	gcm.AddClaimsBatch(claimsList)
 
-	fmt.Printf("[GUILD_MANAGER] Loaded %d claims and batch synchronized with eruntime\n", len(claimsList))
+	// fmt.Printf("[GUILD_MANAGER] Loaded %d claims and batch synchronized with eruntime\n", len(claimsList))
 	return nil
 }
 
@@ -575,16 +590,16 @@ func GetGuildClaimManager() *GuildClaimManager {
 
 // PrintClaims prints all current territory claims for debugging
 func (gcm *GuildClaimManager) PrintClaims() {
-	fmt.Printf("===== Territory Claims =====\n")
+	// fmt.Printf("===== Territory Claims =====\n")
 	if len(gcm.Claims) == 0 {
-		fmt.Printf("No territories claimed.\n")
+		// fmt.Printf("No territories claimed.\n")
 	} else {
-		for territoryName, claim := range gcm.Claims {
-			fmt.Printf("Territory: %s, Guild: %s [%s]\n",
-				territoryName, claim.GuildName, claim.GuildTag)
-		}
+		// for territoryName, claim := range gcm.Claims {
+		// 	// fmt.Printf("Territory: %s, Guild: %s [%s]\n",
+		// 		// territoryName, claim.GuildName, claim.GuildTag)
+		// }
 	}
-	fmt.Printf("===========================\n")
+	// fmt.Printf("===========================\n")
 }
 
 // AddClaimsBatch sets multiple claims at once and synchronizes with eruntime efficiently.
@@ -603,10 +618,10 @@ func (gcm *GuildClaimManager) AddClaimsBatch(claims []GuildClaim) {
 	}
 
 	if len(guildUpdates) > 0 {
-		updatedTerritories := eruntime.SetGuildBatch(guildUpdates)
-		successCount := len(updatedTerritories)
-		fmt.Printf("[GUILD_MANAGER] Batch synchronized %d/%d claims with eruntime\n",
-			successCount, len(guildUpdates))
+		_ = eruntime.SetGuildBatch(guildUpdates)
+		// successCount := len(updatedTerritories)
+		// fmt.Printf("[GUILD_MANAGER] Batch synchronized %d/%d claims with eruntime\n",
+			// successCount, len(guildUpdates))
 	}
 
 	gcm.SaveClaimsToFile()

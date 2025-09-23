@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -71,20 +70,20 @@ func (tc *TerritoryCache) AttachManager(manager *TerritoriesManager) {
 
 // ForceRedraw marks the buffer as needing update, forcing a redraw next frame.
 func (tc *TerritoryCache) ForceRedraw() {
-	fmt.Printf("[TERRITORY_CACHE] ForceRedraw called\n")
+	// fmt.Printf("[TERRITORY_CACHE] ForceRedraw called\n")
 	if tc.manager != nil {
 		tc.manager.bufferMutex.Lock()
 		tc.manager.bufferNeedsUpdate = true
 		tc.manager.bufferMutex.Unlock()
-		fmt.Printf("[TERRITORY_CACHE] Set bufferNeedsUpdate = true\n")
+		// fmt.Printf("[TERRITORY_CACHE] Set bufferNeedsUpdate = true\n")
 	} else {
-		fmt.Printf("[TERRITORY_CACHE] Manager is nil\n")
+		// fmt.Printf("[TERRITORY_CACHE] Manager is nil\n")
 	}
 }
 
 // InvalidateCache is an alias for ForceRedraw.
 func (tc *TerritoryCache) InvalidateCache() {
-	fmt.Printf("[TERRITORY_CACHE] InvalidateCache called\n")
+	// fmt.Printf("[TERRITORY_CACHE] InvalidateCache called\n")
 	tc.ForceRedraw()
 }
 
@@ -208,21 +207,21 @@ func (tr *TerritoryRenderer) GetTerritoryCache() *TerritoryCache {
 
 // SetEditingGuild sets the guild being edited for claim highlighting
 func (tr *TerritoryRenderer) SetEditingGuild(name, tag string, claims map[string]bool) {
-	fmt.Printf("[RENDERER] SetEditingGuild called: name=%s, tag=%s, claims count=%d\n", name, tag, len(claims))
+	// fmt.Printf("[RENDERER] SetEditingGuild called: name=%s, tag=%s, claims count=%d\n", name, tag, len(claims))
 	tr.editingGuildName = name
 	tr.editingGuildTag = tag
 	tr.editingClaims = claims
 
 	// Print all claims for debugging
 	if claims != nil {
-		for territory, claimed := range claims {
-			fmt.Printf("[RENDERER] Claim: %s = %v\n", territory, claimed)
-		}
+		// for territory, claimed := range claims {
+		// 	// fmt.Printf("[RENDERER] Claim: %s = %v\n", territory, claimed)
+		// }
 	}
 
 	// Force a redraw whenever editing guild information changes
 	if tr.territoryCache != nil {
-		fmt.Printf("[RENDERER] Forcing cache redraw\n")
+		// fmt.Printf("[RENDERER] Forcing cache redraw\n")
 		tr.territoryCache.ForceRedraw()
 	}
 }
@@ -242,12 +241,12 @@ func (tr *TerritoryRenderer) GetEditingGuildName() string {
 // IsTerritoryClaimed checks if a territory is claimed by the editing guild
 func (tr *TerritoryRenderer) IsTerritoryClaimed(territoryName string) bool {
 	if tr.editingClaims == nil {
-		fmt.Printf("[RENDERER] IsTerritoryClaimed(%s): editingClaims is nil\n", territoryName)
+		// fmt.Printf("[RENDERER] IsTerritoryClaimed(%s): editingClaims is nil\n", territoryName)
 		return false
 	}
 	claimed, exists := tr.editingClaims[territoryName]
 	result := exists && claimed
-	fmt.Printf("[RENDERER] IsTerritoryClaimed(%s): exists=%v, claimed=%v, result=%v\n", territoryName, exists, claimed, result)
+	// fmt.Printf("[RENDERER] IsTerritoryClaimed(%s): exists=%v, claimed=%v, result=%v\n", territoryName, exists, claimed, result)
 	return result
 }
 
@@ -256,7 +255,7 @@ func (tr *TerritoryRenderer) SetLoadoutApplicationMode(loadoutName string, selec
 	tr.isLoadoutApplicationMode = true
 	tr.loadoutName = loadoutName
 	tr.selectedForLoadout = selectedTerritories
-	fmt.Printf("[RENDERER] Set loadout application mode: %s, selected territories: %v\n", loadoutName, selectedTerritories)
+	// fmt.Printf("[RENDERER] Set loadout application mode: %s, selected territories: %v\n", loadoutName, selectedTerritories)
 }
 
 // ClearLoadoutApplicationMode clears the loadout application mode
@@ -264,7 +263,7 @@ func (tr *TerritoryRenderer) ClearLoadoutApplicationMode() {
 	tr.isLoadoutApplicationMode = false
 	tr.loadoutName = ""
 	tr.selectedForLoadout = nil
-	fmt.Printf("[RENDERER] Cleared loadout application mode\n")
+	// fmt.Printf("[RENDERER] Cleared loadout application mode\n")
 }
 
 // IsLoadoutApplicationMode returns whether the renderer is in loadout application mode
@@ -275,12 +274,12 @@ func (tr *TerritoryRenderer) IsLoadoutApplicationMode() bool {
 // IsTerritorySelectedForLoadout checks if a territory is selected for loadout application
 func (tr *TerritoryRenderer) IsTerritorySelectedForLoadout(territoryName string) bool {
 	if tr.selectedForLoadout == nil {
-		fmt.Printf("[RENDERER] IsTerritorySelectedForLoadout(%s): selectedForLoadout is nil\n", territoryName)
+		// fmt.Printf("[RENDERER] IsTerritorySelectedForLoadout(%s): selectedForLoadout is nil\n", territoryName)
 		return false
 	}
 	selected, exists := tr.selectedForLoadout[territoryName]
 	result := exists && selected
-	fmt.Printf("[RENDERER] IsTerritorySelectedForLoadout(%s): exists=%v, selected=%v, result=%v\n", territoryName, exists, selected, result)
+	// fmt.Printf("[RENDERER] IsTerritorySelectedForLoadout(%s): exists=%v, selected=%v, result=%v\n", territoryName, exists, selected, result)
 	return result
 }
 
@@ -303,7 +302,7 @@ func (tr *TerritoryRenderer) RenderToBuffer(buffer *ebiten.Image, scale, viewX, 
 
 // renderDirectly implements the territory cache rendering logic by calling the actual territory drawing function.
 func (tc *TerritoryCache) renderDirectly(buffer *ebiten.Image, scale, viewX, viewY float64, manager *TerritoriesManager, renderer *TerritoryRenderer, hoveredTerritory string) {
-	fmt.Printf("[TERRITORY_CACHE] renderDirectly called with scale=%.2f, renderer editing guild='%s'\n", scale, renderer.editingGuildName)
+	// fmt.Printf("[TERRITORY_CACHE] renderDirectly called with scale=%.2f, renderer editing guild='%s'\n", scale, renderer.editingGuildName)
 
 	// Get buffer dimensions for culling
 	bounds := buffer.Bounds()
@@ -321,7 +320,7 @@ func (tc *TerritoryCache) renderDirectly(buffer *ebiten.Image, scale, viewX, vie
 	// Call the actual territory drawing function that handles guild colors and editing
 	renderer.drawTerritoriesToOverlayWithHover(buffer, visible, scale, viewX, viewY, screenWidth, screenHeight, hoveredTerritory)
 
-	fmt.Printf("[TERRITORY_CACHE] renderDirectly completed territory drawing\n")
+	// fmt.Printf("[TERRITORY_CACHE] renderDirectly completed territory drawing\n")
 }
 
 // drawRoutesToOverlay draws trading routes to the overlay buffer
@@ -404,7 +403,7 @@ func (tr *TerritoryRenderer) drawTerritoriesToOverlayWithHover(overlay *ebiten.I
 
 	// Debug: Log when we're in editing mode
 	if tr.editingGuildName != "" {
-		fmt.Printf("[RENDERER DEBUG] Drawing in editing mode for guild: %s, territories visible: %d\n", tr.editingGuildName, len(visible))
+		// fmt.Printf("[RENDERER DEBUG] Drawing in editing mode for guild: %s, territories visible: %d\n", tr.editingGuildName, len(visible))
 	}
 
 	// Create a 1x1 white pixel if we don't have one
@@ -423,13 +422,13 @@ func (tr *TerritoryRenderer) drawTerritoriesToOverlayWithHover(overlay *ebiten.I
 
 		// Validate border data to prevent rendering artifacts
 		if len(border) < 4 {
-			fmt.Printf("[RENDERER] Warning: Invalid border data for territory %s (length %d)\n", name, len(border))
+			// fmt.Printf("[RENDERER] Warning: Invalid border data for territory %s (length %d)\n", name, len(border))
 			continue
 		}
 
 		// Check for NaN or infinite values in border coordinates
 		if !(border[0] == border[0]) || !(border[1] == border[1]) || !(border[2] == border[2]) || !(border[3] == border[3]) {
-			fmt.Printf("[RENDERER] Warning: NaN/Inf values in border data for territory %s\n", name)
+			// fmt.Printf("[RENDERER] Warning: NaN/Inf values in border data for territory %s\n", name)
 			continue
 		}
 
@@ -470,16 +469,16 @@ func (tr *TerritoryRenderer) drawTerritoriesToOverlayWithHover(overlay *ebiten.I
 
 		// Check if this territory is claimed by the currently editing guild (override persistent claims)
 		if tr.editingGuildName != "" && tr.IsTerritoryClaimed(name) {
-			fmt.Printf("[RENDERER] Territory %s is claimed by editing guild %s [%s]\n", name, tr.editingGuildName, tr.editingGuildTag)
+			// fmt.Printf("[RENDERER] Territory %s is claimed by editing guild %s [%s]\n", name, tr.editingGuildName, tr.editingGuildTag)
 			// Get guild color from the guild manager
 			if guildManager := GetEnhancedGuildManager(); guildManager != nil {
 				if guildColor, found := guildManager.GetGuildColor(tr.editingGuildName, tr.editingGuildTag); found {
-					fmt.Printf("[RENDERER] Using guild color for territory %s: R=%d G=%d B=%d\n", name, guildColor.R, guildColor.G, guildColor.B)
+					// fmt.Printf("[RENDERER] Using guild color for territory %s: R=%d G=%d B=%d\n", name, guildColor.R, guildColor.G, guildColor.B)
 					// Use guild color for the territory
 					fillColor = guildColor
 					borderColor = guildColor
 				} else {
-					fmt.Printf("[RENDERER] Guild color not found for %s [%s]\n", tr.editingGuildName, tr.editingGuildTag)
+					// fmt.Printf("[RENDERER] Guild color not found for %s [%s]\n", tr.editingGuildName, tr.editingGuildTag)
 				}
 			}
 		}
@@ -487,15 +486,15 @@ func (tr *TerritoryRenderer) drawTerritoriesToOverlayWithHover(overlay *ebiten.I
 		// Check if this territory is selected for loadout application (override other colors)
 		isSelectedForLoadout := tr.isLoadoutApplicationMode && tr.IsTerritorySelectedForLoadout(name)
 		if isSelectedForLoadout {
-			fmt.Printf("[RENDERER] Territory %s is selected for loadout application - applying yellow color\n", name)
+			// fmt.Printf("[RENDERER] Territory %s is selected for loadout application - applying yellow color\n", name)
 			// Use bright yellow for selected territories
 			fillColor = color.RGBA{255, 255, 0, 120}   // Bright yellow with moderate opacity
 			borderColor = color.RGBA{255, 200, 0, 255} // Slightly orange-yellow for border with full opacity
-			fmt.Printf("[RENDERER] Set colors - Fill: R=%d G=%d B=%d A=%d, Border: R=%d G=%d B=%d A=%d\n",
-				fillColor.R, fillColor.G, fillColor.B, fillColor.A,
-				borderColor.R, borderColor.G, borderColor.B, borderColor.A)
-		} else if tr.isLoadoutApplicationMode {
-			fmt.Printf("[RENDERER] Territory %s is NOT selected for loadout (loadout mode active)\n", name)
+			// fmt.Printf("[RENDERER] Set colors - Fill: R=%d G=%d B=%d A=%d, Border: R=%d G=%d B=%d A=%d\n",
+			// fillColor.R, fillColor.G, fillColor.B, fillColor.A,
+			// borderColor.R, borderColor.G, borderColor.B, borderColor.A)
+			// } else if tr.isLoadoutApplicationMode {
+			// fmt.Printf("[RENDERER] Territory %s is NOT selected for loadout (loadout mode active)\n", name)
 		}
 
 		// For the enhanced shader approach, we need:
@@ -576,8 +575,8 @@ func (tr *TerritoryRenderer) drawTerritoriesToOverlayWithHover(overlay *ebiten.I
 
 			// Debug: Check for potential problematic rectangles that might cause green stripes
 			if rect.Dx() > int(screenWidth) || rect.Dy() > int(screenHeight) {
-				fmt.Printf("[RENDERER DEBUG] Large territory rectangle detected: %s, rect=%v, screen=%.0fx%.0f\n",
-					name, rect, screenWidth, screenHeight)
+				// fmt.Printf("[RENDERER DEBUG] Large territory rectangle detected: %s, rect=%v, screen=%.0fx%.0f\n",
+				// name, rect, screenWidth, screenHeight)
 			}
 			// Use DrawTriangles instead of Fill to avoid potential SubImage issues
 			// Add vertices to batch instead of drawing individually
@@ -588,8 +587,8 @@ func (tr *TerritoryRenderer) drawTerritoriesToOverlayWithHover(overlay *ebiten.I
 
 			// Debug: Log vertex colors for selected territories
 			if tr.isLoadoutApplicationMode && tr.IsTerritorySelectedForLoadout(name) {
-				fmt.Printf("[RENDERER] Creating vertices for selected territory %s with colors: R=%.3f G=%.3f B=%.3f A=%.3f\n",
-					name, colorR, colorG, colorB, colorA)
+				// fmt.Printf("[RENDERER] Creating vertices for selected territory %s with colors: R=%.3f G=%.3f B=%.3f A=%.3f\n",
+				// name, colorR, colorG, colorB, colorA)
 			}
 
 			// Add 4 vertices for this territory rectangle

@@ -2,7 +2,6 @@ package app
 
 import (
 	"etools/typedef"
-	"fmt"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -56,7 +55,7 @@ func (tp *EventEditorTerritoryPicker) StartTerritoryPicking() {
 		tp.eventEditor.targetMinimal = true
 	}
 
-	fmt.Printf("[TERRITORY PICKER] Started territory picking with %d pre-selected territories\n", len(tp.selectedTerritories))
+	// fmt.Printf("[TERRITORY PICKER] Started territory picking with %d pre-selected territories\n", len(tp.selectedTerritories))
 }
 
 // StopTerritoryPicking deactivates territory picking mode
@@ -76,7 +75,7 @@ func (tp *EventEditorTerritoryPicker) StopTerritoryPicking() {
 		tp.eventEditor.targetMinimal = false
 	}
 
-	fmt.Printf("[TERRITORY PICKER] Stopped territory picking with %d selected territories\n", len(tp.selectedTerritories))
+	// fmt.Printf("[TERRITORY PICKER] Stopped territory picking with %d selected territories\n", len(tp.selectedTerritories))
 }
 
 // IsActive returns whether territory picking is currently active
@@ -158,7 +157,7 @@ func (tp *EventEditorTerritoryPicker) Update() bool {
 
 		// For now, just clear the selection flag
 		// TODO: Implement area selection with proper territory detection
-		fmt.Printf("[TERRITORY PICKER] Area selection completed (not yet implemented)\n")
+		// fmt.Printf("[TERRITORY PICKER] Area selection completed (not yet implemented)\n")
 		return true
 	}
 
@@ -173,10 +172,10 @@ func (tp *EventEditorTerritoryPicker) ToggleTerritorySelection(territory *typede
 
 	if tp.selectedTerritories[territory.ID] != nil {
 		delete(tp.selectedTerritories, territory.ID)
-		fmt.Printf("[TERRITORY PICKER] Deselected territory: %s\n", territory.Name)
+		// fmt.Printf("[TERRITORY PICKER] Deselected territory: %s\n", territory.Name)
 	} else {
 		tp.selectedTerritories[territory.ID] = territory
-		fmt.Printf("[TERRITORY PICKER] Selected territory: %s\n", territory.Name)
+		// fmt.Printf("[TERRITORY PICKER] Selected territory: %s\n", territory.Name)
 	}
 }
 

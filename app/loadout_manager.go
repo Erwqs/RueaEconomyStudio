@@ -56,32 +56,32 @@ type LoadoutManager struct {
 	applyUIVisible       bool            // Whether apply mode UI is visible
 
 	// UI state
-	addButtonHovered    bool
-	editButtonHovered   map[int]bool
-	deleteButtonHovered map[int]bool
-	mergeButtonHovered  map[int]bool
+	addButtonHovered     bool
+	editButtonHovered    map[int]bool
+	deleteButtonHovered  map[int]bool
+	mergeButtonHovered   map[int]bool
 	replaceButtonHovered map[int]bool
-	importButtonHovered bool
-	exportButtonHovered bool
-	closeButtonHovered  bool
+	importButtonHovered  bool
+	exportButtonHovered  bool
+	closeButtonHovered   bool
 }
 
 // NewLoadoutManager creates a new loadout manager
 func NewLoadoutManager() *LoadoutManager {
 	lm := &LoadoutManager{
-		visible:             false,
-		loadouts:            make([]LoadoutData, 0),
-		selectedIndex:       -1,
-		editingIndex:        -1,
-		showColorPicker:     false,
-		editSideMenuVisible: false,
-		editButtonHovered:   make(map[int]bool),
-		deleteButtonHovered: make(map[int]bool),
-		mergeButtonHovered:  make(map[int]bool),
+		visible:              false,
+		loadouts:             make([]LoadoutData, 0),
+		selectedIndex:        -1,
+		editingIndex:         -1,
+		showColorPicker:      false,
+		editSideMenuVisible:  false,
+		editButtonHovered:    make(map[int]bool),
+		deleteButtonHovered:  make(map[int]bool),
+		mergeButtonHovered:   make(map[int]bool),
 		replaceButtonHovered: make(map[int]bool),
-		isApplyingLoadout:   false,
-		selectedTerritories: make(map[string]bool),
-		applyUIVisible:      false,
+		isApplyingLoadout:    false,
+		selectedTerritories:  make(map[string]bool),
+		applyUIVisible:       false,
 	}
 
 	// Initialize text input
@@ -131,21 +131,21 @@ func (lm *LoadoutManager) Update() bool {
 	if lm.isApplyingLoadout {
 		// Handle escape key to cancel loadout application
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			fmt.Printf("[LOADOUT] ESC pressed in apply mode - canceling\n")
+			// fmt.Printf("[LOADOUT] ESC pressed in apply mode - canceling\n")
 			lm.CancelLoadoutApplication()
 			return true
 		}
 
 		// Handle MouseButton3 (back button) to cancel loadout application
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButton3) {
-			fmt.Printf("[LOADOUT] Back button pressed in apply mode - canceling\n")
+			// fmt.Printf("[LOADOUT] Back button pressed in apply mode - canceling\n")
 			lm.CancelLoadoutApplication()
 			return true
 		}
 
 		// Handle enter key to apply loadout to selected territories
 		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			fmt.Printf("[LOADOUT] Enter pressed in apply mode - applying\n")
+			// fmt.Printf("[LOADOUT] Enter pressed in apply mode - applying\n")
 			lm.StopLoadoutApplication()
 			return true
 		}
@@ -153,17 +153,17 @@ func (lm *LoadoutManager) Update() bool {
 		// Handle clicks when in apply mode
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 			mx, my := ebiten.CursorPosition()
-			fmt.Printf("[LOADOUT] Click in apply mode at (%d, %d)\n", mx, my)
+			// fmt.Printf("[LOADOUT] Click in apply mode at (%d, %d)\n", mx, my)
 
 			// First check if click is on UI buttons - this must come first!
 			if lm.applyUIVisible && lm.handleApplyModeClick(mx, my) {
-				fmt.Printf("[LOADOUT] Click handled by apply mode button\n")
+				// fmt.Printf("[LOADOUT] Click handled by apply mode button\n")
 				return true
 			}
 
 			// Then check if click is within the banner area to prevent clicking through
 			if lm.applyUIVisible && my <= 140 { // Banner height is 140
-				fmt.Printf("[LOADOUT] Click blocked by banner area\n")
+				// fmt.Printf("[LOADOUT] Click blocked by banner area\n")
 				return true // Consume the click to prevent it from going to the map
 			}
 		}
@@ -178,7 +178,7 @@ func (lm *LoadoutManager) Update() bool {
 
 	// Handle edit side menu updates
 	if lm.editSideMenuVisible && lm.editSideMenu != nil {
-		screenW, screenH := ebiten.WindowSize()
+		screenW, screenH := WebSafeWindowSize()
 		if lm.editSideMenu.Update(screenW, screenH, 1.0/60.0) {
 			// Side menu consumed input
 			return true
@@ -249,7 +249,7 @@ func (lm *LoadoutManager) Update() bool {
 
 // handleClick handles mouse clicks on various UI elements
 func (lm *LoadoutManager) handleClick(mx, my int) {
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	panelWidth := 800
 	panelHeight := 600
 	x := (screenW - panelWidth) / 2
@@ -357,7 +357,7 @@ func (lm *LoadoutManager) handleClick(mx, my int) {
 
 // updateHoverStates updates hover states for UI elements
 func (lm *LoadoutManager) updateHoverStates(mx, my int) {
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	panelWidth := 800
 	panelHeight := 600
 	x := (screenW - panelWidth) / 2
@@ -510,18 +510,18 @@ func (lm *LoadoutManager) editLoadout(index int) {
 	lm.editingIndex = index
 	lm.editingLoadout = &LoadoutData{}
 
-	fmt.Printf("[LOADOUT] About to copy loadout[%d]\n", index)
-	fmt.Printf("[LOADOUT] Source loadout name: %s\n", lm.loadouts[index].Name)
-	fmt.Printf("[LOADOUT] Source loadout upgrades: %+v\n", lm.loadouts[index].Upgrades)
-	fmt.Printf("[LOADOUT] Source loadout bonuses: %+v\n", lm.loadouts[index].Bonuses)
+	// fmt.Printf("[LOADOUT] About to copy loadout[%d]\n", index)
+	// fmt.Printf("[LOADOUT] Source loadout name: %s\n", lm.loadouts[index].Name)
+	// fmt.Printf("[LOADOUT] Source loadout upgrades: %+v\n", lm.loadouts[index].Upgrades)
+	// fmt.Printf("[LOADOUT] Source loadout bonuses: %+v\n", lm.loadouts[index].Bonuses)
 
 	// Create a deep copy of the loadout to avoid modifying the original
 	lm.editingLoadout.Name = lm.loadouts[index].Name
 	lm.editingLoadout.TerritoryOptions = lm.loadouts[index].TerritoryOptions
 
-	fmt.Printf("[LOADOUT] After copy - editingLoadout name: %s\n", lm.editingLoadout.Name)
-	fmt.Printf("[LOADOUT] After copy - editingLoadout upgrades: %+v\n", lm.editingLoadout.Upgrades)
-	fmt.Printf("[LOADOUT] After copy - editingLoadout bonuses: %+v\n", lm.editingLoadout.Bonuses)
+	// fmt.Printf("[LOADOUT] After copy - editingLoadout name: %s\n", lm.editingLoadout.Name)
+	// fmt.Printf("[LOADOUT] After copy - editingLoadout upgrades: %+v\n", lm.editingLoadout.Upgrades)
+	// fmt.Printf("[LOADOUT] After copy - editingLoadout bonuses: %+v\n", lm.editingLoadout.Bonuses)
 
 	// Initialize the fake "loadout" territory with the current loadout values
 	// This allows the UpgradeControl and BonusControl to work with the existing system
@@ -535,9 +535,9 @@ func (lm *LoadoutManager) editLoadout(index int) {
 	}
 	result := eruntime.Set("loadout", opts)
 	if result != nil {
-		fmt.Printf("[LOADOUT] Successfully created fake territory with upgrades: %+v\n", result.Options.Upgrade.Set)
+		// fmt.Printf("[LOADOUT] Successfully created fake territory with upgrades: %+v\n", result.Options.Upgrade.Set)
 	} else {
-		fmt.Printf("[LOADOUT] Failed to create fake territory\n")
+		// fmt.Printf("[LOADOUT] Failed to create fake territory\n")
 	}
 
 	lm.showEditSideMenu()
@@ -579,7 +579,7 @@ func (lm *LoadoutManager) startLoadoutApplication(index int, mode string) {
 		return
 	}
 
-	fmt.Printf("[LOADOUT] Starting loadout application mode for: %s (mode: %s)\n", lm.loadouts[index].Name, mode)
+	// fmt.Printf("[LOADOUT] Starting loadout application mode for: %s (mode: %s)\n", lm.loadouts[index].Name, mode)
 
 	lm.isApplyingLoadout = true
 	lm.applyingLoadoutIndex = index
@@ -633,8 +633,8 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 		return
 	}
 
-	fmt.Printf("[LOADOUT] Stopping loadout application for: %s\n", lm.applyingLoadoutName)
-	fmt.Printf("[LOADOUT] Selected territories: %v\n", lm.selectedTerritories)
+	// fmt.Printf("[LOADOUT] Stopping loadout application for: %s\n", lm.applyingLoadoutName)
+	// fmt.Printf("[LOADOUT] Selected territories: %v\n", lm.selectedTerritories)
 
 	if lm.applyingLoadoutIndex < 0 || lm.applyingLoadoutIndex >= len(lm.loadouts) {
 		lm.CancelLoadoutApplication()
@@ -642,7 +642,7 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 	}
 
 	loadout := lm.loadouts[lm.applyingLoadoutIndex]
-	fmt.Printf("[LOADOUT] Loadout to apply: %+v\n", loadout)
+	// fmt.Printf("[LOADOUT] Loadout to apply: %+v\n", loadout)
 
 	// Pre-validate Multi Attack limits if the loadout has Multi Attack
 	if loadout.Bonuses.TowerMultiAttack > 0 {
@@ -671,15 +671,15 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 	for territoryName := range lm.selectedTerritories {
 		if lm.selectedTerritories[territoryName] {
 			var opts typedef.TerritoryOptions
-			
+
 			if lm.applyingLoadoutMode == "merge" {
 				// Merge mode: combine current territory settings with loadout (only non-zero values from loadout)
 				currentStats := eruntime.GetTerritoryStats(territoryName)
 				if currentStats == nil {
-					fmt.Printf("[LOADOUT] Failed to get current stats for territory: %s\n", territoryName)
+					// fmt.Printf("[LOADOUT] Failed to get current stats for territory: %s\n", territoryName)
 					continue
 				}
-				
+
 				// Start with current territory settings
 				opts = typedef.TerritoryOptions{
 					Upgrades:    currentStats.Upgrades,
@@ -689,7 +689,7 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 					Border:      currentStats.Border,
 					HQ:          false, // Don't change HQ status
 				}
-				
+
 				// Merge non-zero upgrade values from loadout
 				if loadout.Upgrades.Damage > 0 {
 					opts.Upgrades.Damage = loadout.Upgrades.Damage
@@ -703,7 +703,7 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 				if loadout.Upgrades.Defence > 0 {
 					opts.Upgrades.Defence = loadout.Upgrades.Defence
 				}
-				
+
 				// Merge non-zero bonus values from loadout
 				if loadout.Bonuses.StrongerMinions > 0 {
 					opts.Bonuses.StrongerMinions = loadout.Bonuses.StrongerMinions
@@ -756,7 +756,7 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 				if loadout.Bonuses.EmeraldRate > 0 {
 					opts.Bonuses.EmeraldRate = loadout.Bonuses.EmeraldRate
 				}
-				
+
 				// Merge non-default tax values (only if different from 5%)
 				if loadout.Tax.Tax != 0.05 {
 					opts.Tax.Tax = loadout.Tax.Tax
@@ -764,7 +764,7 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 				if loadout.Tax.Ally != 0.05 {
 					opts.Tax.Ally = loadout.Tax.Ally
 				}
-				
+
 				// Merge routing mode and border if they're different from defaults
 				if loadout.RoutingMode != typedef.RoutingCheapest {
 					opts.RoutingMode = loadout.RoutingMode
@@ -772,31 +772,31 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 				if loadout.Border != typedef.BorderOpen {
 					opts.Border = loadout.Border
 				}
-				
-				fmt.Printf("[LOADOUT] Merging loadout with territory: %s\n", territoryName)
+
+				// fmt.Printf("[LOADOUT] Merging loadout with territory: %s\n", territoryName)
 			} else {
 				// Replace mode: completely replace territory settings with loadout (current behavior)
 				opts = loadout.TerritoryOptions
 				opts.HQ = false // Don't change HQ status
-				
-				fmt.Printf("[LOADOUT] Replacing territory settings: %s\n", territoryName)
+
+				// fmt.Printf("[LOADOUT] Replacing territory settings: %s\n", territoryName)
 			}
 
-			fmt.Printf("[LOADOUT] Applying loadout to territory: %s (mode: %s)\n", territoryName, lm.applyingLoadoutMode)
-			fmt.Printf("[LOADOUT] Final upgrades: Damage=%d, Attack=%d, Health=%d, Defence=%d\n",
-				opts.Upgrades.Damage, opts.Upgrades.Attack, opts.Upgrades.Health, opts.Upgrades.Defence)
-			fmt.Printf("[LOADOUT] Final bonuses: MultiAttack=%d, GatheringXP=%d, MobXP=%d, MobDmg=%d, PvPDmg=%d\n",
-				opts.Bonuses.TowerMultiAttack, opts.Bonuses.GatheringExperience,
-				opts.Bonuses.MobExperience, opts.Bonuses.MobDamage, opts.Bonuses.PvPDamage)
-			fmt.Printf("[LOADOUT] Final seeking: XP=%d, Tome=%d, Emerald=%d\n",
-				opts.Bonuses.XPSeeking, opts.Bonuses.TomeSeeking, opts.Bonuses.EmeraldSeeking)
+			// fmt.Printf("[LOADOUT] Applying loadout to territory: %s (mode: %s)\n", territoryName, lm.applyingLoadoutMode)
+			// fmt.Printf("[LOADOUT] Final upgrades: Damage=%d, Attack=%d, Health=%d, Defence=%d\n",
+				// opts.Upgrades.Damage, opts.Upgrades.Attack, opts.Upgrades.Health, opts.Upgrades.Defence)
+			// fmt.Printf("[LOADOUT] Final bonuses: MultiAttack=%d, GatheringXP=%d, MobXP=%d, MobDmg=%d, PvPDmg=%d\n",
+				// opts.Bonuses.TowerMultiAttack, opts.Bonuses.GatheringExperience,
+				// opts.Bonuses.MobExperience, opts.Bonuses.MobDamage, opts.Bonuses.PvPDamage)
+			// fmt.Printf("[LOADOUT] Final seeking: XP=%d, Tome=%d, Emerald=%d\n",
+				// opts.Bonuses.XPSeeking, opts.Bonuses.TomeSeeking, opts.Bonuses.EmeraldSeeking)
 
 			result := eruntime.Set(territoryName, opts)
 			if result != nil {
 				appliedCount++
-				fmt.Printf("[LOADOUT] Successfully applied loadout to territory: %s\n", territoryName)
+				// fmt.Printf("[LOADOUT] Successfully applied loadout to territory: %s\n", territoryName)
 			} else {
-				fmt.Printf("[LOADOUT] Failed to apply loadout to territory: %s (territory not found)\n", territoryName)
+				// fmt.Printf("[LOADOUT] Failed to apply loadout to territory: %s (territory not found)\n", territoryName)
 			}
 		}
 	}
@@ -833,7 +833,7 @@ func (lm *LoadoutManager) CancelLoadoutApplication() {
 		return
 	}
 
-	fmt.Printf("[LOADOUT] Canceling loadout application for: %s\n", lm.applyingLoadoutName)
+	// fmt.Printf("[LOADOUT] Canceling loadout application for: %s\n", lm.applyingLoadoutName)
 
 	// Clear application mode state
 	lm.isApplyingLoadout = false
@@ -1091,9 +1091,9 @@ func contains(slice []string, item string) bool {
 // handleMultiAttackLimitExceeded shows an error dialog and offers solutions when
 // Multi Attack limits would be exceeded
 func (lm *LoadoutManager) handleMultiAttackLimitExceeded(validTerritories []string, invalidTerritories []string) {
-	fmt.Printf("[LOADOUT] Multi Attack limit exceeded!\n")
-	fmt.Printf("[LOADOUT] Valid territories: %v\n", validTerritories)
-	fmt.Printf("[LOADOUT] Invalid territories: %v\n", invalidTerritories)
+	// fmt.Printf("[LOADOUT] Multi Attack limit exceeded!\n")
+	// fmt.Printf("[LOADOUT] Valid territories: %v\n", validTerritories)
+	// fmt.Printf("[LOADOUT] Invalid territories: %v\n", invalidTerritories)
 
 	// Show toast notification with the error
 	NewToast().
@@ -1109,10 +1109,10 @@ func (lm *LoadoutManager) handleMultiAttackLimitExceeded(validTerritories []stri
 
 // handleSeekingLimitExceeded shows an error dialog when seeking limits would be exceeded
 func (lm *LoadoutManager) handleSeekingLimitExceeded(validTerritories []string, invalidTerritories []string, errors []string) {
-	fmt.Printf("[LOADOUT] Seeking bonus limits exceeded!\n")
-	fmt.Printf("[LOADOUT] Valid territories: %v\n", validTerritories)
-	fmt.Printf("[LOADOUT] Invalid territories: %v\n", invalidTerritories)
-	fmt.Printf("[LOADOUT] Errors: %v\n", errors)
+	// fmt.Printf("[LOADOUT] Seeking bonus limits exceeded!\n")
+	// fmt.Printf("[LOADOUT] Valid territories: %v\n", validTerritories)
+	// fmt.Printf("[LOADOUT] Invalid territories: %v\n", invalidTerritories)
+	// fmt.Printf("[LOADOUT] Errors: %v\n", errors)
 
 	// Show toast notification with the errors
 	errorText := "Seeking Limit Exceeded"
@@ -1151,7 +1151,7 @@ func (lm *LoadoutManager) Draw(screen *ebiten.Image) {
 		return
 	}
 
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 
 	// Draw overlay background
 	overlayColor := color.RGBA{0, 0, 0, 150}
@@ -1428,7 +1428,7 @@ func (lm *LoadoutManager) saveToFile() {
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		fmt.Printf("Error marshaling loadouts: %v\n", err)
+		// fmt.Printf("Error marshaling loadouts: %v\n", err)
 		return
 	}
 
@@ -1442,7 +1442,7 @@ func (lm *LoadoutManager) saveToFile() {
 	filename := filepath.Join(loadoutsDir, "loadouts.json")
 	err = os.WriteFile(filename, jsonData, 0644)
 	if err != nil {
-		fmt.Printf("Error saving loadouts: %v\n", err)
+		// fmt.Printf("Error saving loadouts: %v\n", err)
 	}
 }
 
@@ -1459,14 +1459,14 @@ func (lm *LoadoutManager) loadFromFile() {
 	var importData LoadoutImportExport
 	err = json.Unmarshal(data, &importData)
 	if err != nil {
-		fmt.Printf("Error parsing loadouts file: %v\n", err)
+		// fmt.Printf("Error parsing loadouts file: %v\n", err)
 		lm.loadouts = make([]LoadoutData, 0)
 		return
 	}
 
 	// Validate file type
 	if importData.Type != "loadouts" {
-		fmt.Printf("Invalid file type: %s (expected: loadouts)\n", importData.Type)
+		// fmt.Printf("Invalid file type: %s (expected: loadouts)\n", importData.Type)
 		lm.loadouts = make([]LoadoutData, 0)
 		return
 	}
@@ -1475,16 +1475,50 @@ func (lm *LoadoutManager) loadFromFile() {
 }
 
 func (lm *LoadoutManager) importLoadouts() {
-	// For now, we'll implement a simple clipboard-based import
-	// In a full implementation, you'd want a file dialog
+	// Use web-specific file picker in WASM builds
 	if runtime.GOOS == "js" {
-		NewToast().
-			Text("Clipboard import is not supported on this platform", ToastOption{Colour: color.RGBA{255, 150, 100, 255}}).
-			AutoClose(time.Second * 3).
-			Show()
+		go func() {
+			filename, content, err := WebLoadFile()
+			if err != nil {
+				NewToast().
+					Text("Import cancelled", ToastOption{Colour: color.RGBA{255, 200, 100, 255}}).
+					AutoClose(time.Second * 3).
+					Show()
+				return
+			}
+
+			var importData LoadoutImportExport
+			err = json.Unmarshal([]byte(content), &importData)
+			if err != nil {
+				NewToast().
+					Text("Error parsing import file", ToastOption{Colour: color.RGBA{255, 150, 100, 255}}).
+					AutoClose(time.Second * 3).
+					Show()
+				return
+			}
+
+			// Validate file type
+			if importData.Type != "loadouts" {
+				NewToast().
+					Text("Invalid file type (expected: loadouts)", ToastOption{Colour: color.RGBA{255, 150, 100, 255}}).
+					AutoClose(time.Second * 3).
+					Show()
+				return
+			}
+
+			lm.loadouts = append(lm.loadouts, importData.Loadouts...)
+			lm.saveToFile()
+
+			NewToast().
+				Text("Import Complete", ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
+				Text(fmt.Sprintf("Imported %d loadouts from %s", len(importData.Loadouts), filename), ToastOption{Colour: color.RGBA{200, 255, 200, 255}}).
+				AutoClose(time.Second * 4).
+				Show()
+		}()
 		return
 	}
 
+	// Fallback to clipboard for non-web builds
 	clipboardData := clipboard.Read(clipboard.FmtText)
 	if len(clipboardData) == 0 {
 		NewToast().
@@ -1539,14 +1573,6 @@ func (lm *LoadoutManager) importLoadouts() {
 }
 
 func (lm *LoadoutManager) exportLoadouts() {
-	if runtime.GOOS == "js" {
-		NewToast().
-			Text("Clipboard import is not supported on this platform", ToastOption{Colour: color.RGBA{255, 150, 100, 255}}).
-			AutoClose(time.Second * 3).
-			Show()
-		return
-	}
-
 	if len(lm.loadouts) == 0 {
 		NewToast().
 			Text("No loadouts to export", ToastOption{Colour: color.RGBA{255, 200, 100, 255}}).
@@ -1570,7 +1596,28 @@ func (lm *LoadoutManager) exportLoadouts() {
 		return
 	}
 
-	// Copy to clipboard
+	// Use web-specific file download in WASM builds
+	if runtime.GOOS == "js" {
+		go func() {
+			err := WebSaveFile("loadouts.json", jsonData)
+			if err != nil {
+				NewToast().
+					Text("Error downloading file", ToastOption{Colour: color.RGBA{255, 150, 100, 255}}).
+					AutoClose(time.Second * 3).
+					Show()
+				return
+			}
+
+			NewToast().
+				Text("Export Complete", ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
+				Text("Loadouts downloaded as loadouts.json", ToastOption{Colour: color.RGBA{200, 255, 200, 255}}).
+				AutoClose(time.Second * 4).
+				Show()
+		}()
+		return
+	}
+
+	// Fallback to clipboard for non-web builds
 	clipboard.Write(clipboard.FmtText, jsonData)
 	NewToast().
 		Text("Export Complete", ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
@@ -1832,19 +1879,19 @@ func (lm *LoadoutManager) buildEditSideMenuContent() {
 // saveEditChanges saves the changes from the edit side menu
 func (lm *LoadoutManager) saveEditChanges() {
 	if lm.editingIndex < 0 || lm.editingIndex >= len(lm.loadouts) || lm.editingLoadout == nil {
-		fmt.Printf("[LOADOUT] Cannot save: editingIndex=%d, loadouts count=%d, editingLoadout nil=%v\n",
-			lm.editingIndex, len(lm.loadouts), lm.editingLoadout == nil)
+		// fmt.Printf("[LOADOUT] Cannot save: editingIndex=%d, loadouts count=%d, editingLoadout nil=%v\n",
+			// lm.editingIndex, len(lm.loadouts), lm.editingLoadout == nil)
 		return
 	}
 
-	fmt.Printf("[LOADOUT] Saving loadout with upgrades: %+v\n", lm.editingLoadout.Upgrades)
-	fmt.Printf("[LOADOUT] Original loadout upgrades: %+v\n", lm.loadouts[lm.editingIndex].Upgrades)
+	// fmt.Printf("[LOADOUT] Saving loadout with upgrades: %+v\n", lm.editingLoadout.Upgrades)
+	// fmt.Printf("[LOADOUT] Original loadout upgrades: %+v\n", lm.loadouts[lm.editingIndex].Upgrades)
 
 	// Save the edited loadout back to the list (editingLoadout was modified directly by the sliders)
 	lm.loadouts[lm.editingIndex] = *lm.editingLoadout
 	lm.saveToFile()
 
-	fmt.Printf("[LOADOUT] Saved loadout upgrades: %+v\n", lm.loadouts[lm.editingIndex].Upgrades)
+	// fmt.Printf("[LOADOUT] Saved loadout upgrades: %+v\n", lm.loadouts[lm.editingIndex].Upgrades)
 
 	NewToast().
 		Text("Loadout saved successfully", ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
@@ -1859,7 +1906,7 @@ func (lm *LoadoutManager) HasTextInputFocused() bool {
 
 // drawApplyModeUI draws the UI for loadout application mode
 func (lm *LoadoutManager) drawApplyModeUI(screen *ebiten.Image) {
-	screenW, _ := ebiten.WindowSize()
+	screenW, _ := WebSafeWindowSize()
 
 	// Draw overlay banner (similar to claim editing UI)
 	overlayHeight := 140
@@ -1958,7 +2005,7 @@ func (lm *LoadoutManager) drawApplyModeUI(screen *ebiten.Image) {
 
 // handleApplyModeClick handles clicks on buttons in apply mode UI
 func (lm *LoadoutManager) handleApplyModeClick(mx, my int) bool {
-	screenW, _ := ebiten.WindowSize()
+	screenW, _ := WebSafeWindowSize()
 	overlayHeight := 140
 	buttonWidth := 70
 	buttonHeight := 30
@@ -1974,14 +2021,14 @@ func (lm *LoadoutManager) handleApplyModeClick(mx, my int) bool {
 
 	// Check Apply button click
 	if mx >= applyButtonX && mx <= applyButtonX+buttonWidth && my >= applyButtonY && my <= applyButtonY+buttonHeight {
-		fmt.Printf("[LOADOUT] Apply button clicked\n")
+		// fmt.Printf("[LOADOUT] Apply button clicked\n")
 		lm.StopLoadoutApplication()
 		return true
 	}
 
 	// Check Cancel button click
 	if mx >= cancelButtonX && mx <= cancelButtonX+buttonWidth && my >= cancelButtonY && my <= cancelButtonY+buttonHeight {
-		fmt.Printf("[LOADOUT] Cancel button clicked\n")
+		// fmt.Printf("[LOADOUT] Cancel button clicked\n")
 		lm.CancelLoadoutApplication()
 		return true
 	}
@@ -1995,7 +2042,7 @@ func (lm *LoadoutManager) addUpgradeSlider(menu *CollapsibleMenu, label string, 
 	costs := eruntime.GetCost()
 	var maxLevel int
 
-	fmt.Printf("[DEBUG] Creating upgrade slider for %s\n", label)
+	// fmt.Printf("[DEBUG] Creating upgrade slider for %s\n", label)
 
 	switch label {
 	case "Damage":
@@ -2021,7 +2068,7 @@ func (lm *LoadoutManager) addUpgradeSlider(menu *CollapsibleMenu, label string, 
 
 	menu.Slider(label, float64(*value), sliderOptions, func(newValue float64) {
 		*value = int(newValue)
-		fmt.Printf("[LOADOUT] %s upgraded to level %d\n", label, *value)
+		// fmt.Printf("[LOADOUT] %s upgraded to level %d\n", label, *value)
 
 		// Also update the fake territory for cost preview and persistence
 		if lm.editingLoadout != nil {
@@ -2031,9 +2078,9 @@ func (lm *LoadoutManager) addUpgradeSlider(menu *CollapsibleMenu, label string, 
 			// Apply the changes to the fake "loadout" territory for cost calculation
 			result := eruntime.Set("loadout", opts)
 			if result != nil {
-				fmt.Printf("[LOADOUT] Updated fake territory for %s upgrade\n", label)
+				// fmt.Printf("[LOADOUT] Updated fake territory for %s upgrade\n", label)
 			} else {
-				fmt.Printf("[LOADOUT] Failed to update fake territory for %s upgrade\n", label)
+				// fmt.Printf("[LOADOUT] Failed to update fake territory for %s upgrade\n", label)
 			}
 		}
 	})
@@ -2045,7 +2092,7 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 	costs := eruntime.GetCost()
 	var maxLevel int
 
-	fmt.Printf("[DEBUG] Creating slider for %s (%s)\n", label, key)
+	// fmt.Printf("[DEBUG] Creating slider for %s (%s)\n", label, key)
 
 	switch key {
 	case "strongerMinions":
@@ -2086,10 +2133,10 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 		maxLevel = 10 // Default fallback
 	}
 
-	fmt.Printf("[LOADOUT] Creating slider for %s (key: %s) with maxLevel: %d, currentValue: %d\n", label, key, maxLevel, *value)
+	// fmt.Printf("[LOADOUT] Creating slider for %s (key: %s) with maxLevel: %d, currentValue: %d\n", label, key, maxLevel, *value)
 
 	if maxLevel == 0 {
-		fmt.Printf("[ERROR] MaxLevel is 0 for %s! This will cause slider issues.\n", label)
+		// fmt.Printf("[ERROR] MaxLevel is 0 for %s! This will cause slider issues.\n", label)
 		maxLevel = 10 // Force a default to prevent 0-range sliders
 	}
 
@@ -2104,7 +2151,7 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 
 	menu.Slider(label, float64(*value), sliderOptions, func(newValue float64) {
 		*value = int(newValue)
-		fmt.Printf("[LOADOUT] %s bonus set to level %d\n", label, *value)
+		// fmt.Printf("[LOADOUT] %s bonus set to level %d\n", label, *value)
 
 		// Also update the fake territory for cost preview and persistence
 		if lm.editingLoadout != nil {
@@ -2114,9 +2161,9 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 			// Apply the changes to the fake "loadout" territory for cost calculation
 			result := eruntime.Set("loadout", opts)
 			if result != nil {
-				fmt.Printf("[LOADOUT] Updated fake territory for %s bonus\n", label)
+				// fmt.Printf("[LOADOUT] Updated fake territory for %s bonus\n", label)
 			} else {
-				fmt.Printf("[LOADOUT] Failed to update fake territory for %s bonus\n", label)
+				// fmt.Printf("[LOADOUT] Failed to update fake territory for %s bonus\n", label)
 			}
 		}
 	})
@@ -2124,22 +2171,22 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 
 // Debug function to print cost information
 func debugCostInfo() {
-	costs := eruntime.GetCost()
-	fmt.Printf("[DEBUG] Cost info:\n")
-	fmt.Printf("  GatheringExperience MaxLevel: %d, Cost array length: %d\n",
-		costs.Bonuses.GatheringExperience.MaxLevel, len(costs.Bonuses.GatheringExperience.Cost))
-	fmt.Printf("  MobExperience MaxLevel: %d, Cost array length: %d\n",
-		costs.Bonuses.MobExperience.MaxLevel, len(costs.Bonuses.MobExperience.Cost))
-	fmt.Printf("  MobDamage MaxLevel: %d, Cost array length: %d\n",
-		costs.Bonuses.MobDamage.MaxLevel, len(costs.Bonuses.MobDamage.Cost))
-	fmt.Printf("  PvPDamage MaxLevel: %d, Cost array length: %d\n",
-		costs.Bonuses.PvPDamage.MaxLevel, len(costs.Bonuses.PvPDamage.Cost))
-	fmt.Printf("  XPSeeking MaxLevel: %d, Cost array length: %d\n",
-		costs.Bonuses.XPSeeking.MaxLevel, len(costs.Bonuses.XPSeeking.Cost))
-	fmt.Printf("  TomeSeeking MaxLevel: %d, Cost array length: %d\n",
-		costs.Bonuses.TomeSeeking.MaxLevel, len(costs.Bonuses.TomeSeeking.Cost))
-	fmt.Printf("  EmeraldsSeeking MaxLevel: %d, Cost array length: %d\n",
-		costs.Bonuses.EmeraldsSeeking.MaxLevel, len(costs.Bonuses.EmeraldsSeeking.Cost))
+	// costs := eruntime.GetCost()
+	// fmt.Printf("[DEBUG] Cost info:\n")
+	// fmt.Printf("  GatheringExperience MaxLevel: %d, Cost array length: %d\n",
+		// costs.Bonuses.GatheringExperience.MaxLevel, len(costs.Bonuses.GatheringExperience.Cost))
+	// fmt.Printf("  MobExperience MaxLevel: %d, Cost array length: %d\n",
+		// costs.Bonuses.MobExperience.MaxLevel, len(costs.Bonuses.MobExperience.Cost))
+	// fmt.Printf("  MobDamage MaxLevel: %d, Cost array length: %d\n",
+		// costs.Bonuses.MobDamage.MaxLevel, len(costs.Bonuses.MobDamage.Cost))
+	// fmt.Printf("  PvPDamage MaxLevel: %d, Cost array length: %d\n",
+		// costs.Bonuses.PvPDamage.MaxLevel, len(costs.Bonuses.PvPDamage.Cost))
+	// fmt.Printf("  XPSeeking MaxLevel: %d, Cost array length: %d\n",
+		// costs.Bonuses.XPSeeking.MaxLevel, len(costs.Bonuses.XPSeeking.Cost))
+	// fmt.Printf("  TomeSeeking MaxLevel: %d, Cost array length: %d\n",
+		// costs.Bonuses.TomeSeeking.MaxLevel, len(costs.Bonuses.TomeSeeking.Cost))
+	// fmt.Printf("  EmeraldsSeeking MaxLevel: %d, Cost array length: %d\n",
+		// costs.Bonuses.EmeraldsSeeking.MaxLevel, len(costs.Bonuses.EmeraldsSeeking.Cost))
 }
 
 // GetSelectedTerritories returns the currently selected territories for loadout application

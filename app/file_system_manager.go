@@ -23,12 +23,12 @@ func GetFileSystemManager() *FileSystemManager {
 
 // InitializeFileSystemManager creates and initializes the global file system manager
 func InitializeFileSystemManager(inputManager *InputManager) {
-	// fmt.Println("[FILE] InitializeFileSystemManager called")
+	// // fmt.Println("[FILE] InitializeFileSystemManager called")
 	globalFileSystemManager = NewFileSystemManager(inputManager)
 
 	// Set up state save/load callbacks
 	globalFileSystemManager.SetOnFileSaved(func(filepath string, content []byte) error {
-		fmt.Printf("[FILE] onFileSaved callback called for: %s\n", filepath)
+		// fmt.Printf("[FILE] onFileSaved callback called for: %s\n", filepath)
 		// For state saves, ignore content parameter and call SaveState API
 		eruntime.SaveState(filepath)
 
@@ -40,7 +40,7 @@ func InitializeFileSystemManager(inputManager *InputManager) {
 	})
 
 	globalFileSystemManager.SetOnFileOpened(func(filepath string, content []byte) error {
-		fmt.Printf("[FILE] onFileOpened callback called for: %s\n", filepath)
+		// fmt.Printf("[FILE] onFileOpened callback called for: %s\n", filepath)
 		// For state loads, ignore content parameter and call LoadState API
 		eruntime.LoadState(filepath)
 
@@ -192,7 +192,7 @@ func (fsm *FileSystemManager) ShowOpenDialogue() {
 
 // ShowSaveDialogue displays the save file dialogue
 func (fsm *FileSystemManager) ShowSaveDialogue() {
-	// fmt.Println("[FILE] ShowSaveDialogue called")
+	// // fmt.Println("[FILE] ShowSaveDialogue called")
 
 	// Close existing dialogue if open
 	if fsm.saveDialogue != nil {
@@ -208,7 +208,7 @@ func (fsm *FileSystemManager) ShowSaveDialogue() {
 
 	// Set callbacks
 	fsm.saveDialogue.SetOnFileSelected(func(filepath string) {
-		fmt.Printf("[FILE] Save file selected: %s\n", filepath)
+		// fmt.Printf("[FILE] Save file selected: %s\n", filepath)
 		fsm.handleFileSave(filepath)
 	})
 
@@ -254,28 +254,28 @@ func (fsm *FileSystemManager) handleFileOpen(filepath string) {
 
 // handleFileSave processes saving to a selected file
 func (fsm *FileSystemManager) handleFileSave(filepath string) {
-	fmt.Printf("[FILE] handleFileSave called with: %s\n", filepath)
+	// fmt.Printf("[FILE] handleFileSave called with: %s\n", filepath)
 	log.Printf("[FILE] Saving file: %s", filepath)
 
 	// Ensure file has proper extension
 	if !fsm.hasValidExtension(filepath) {
 		filepath = fsm.addDefaultExtension(filepath)
-		fmt.Printf("[FILE] Added default extension, new path: %s\n", filepath)
+		// fmt.Printf("[FILE] Added default extension, new path: %s\n", filepath)
 	}
 
 	// Call the save callback
 	if fsm.onFileSaved != nil {
-		fmt.Printf("[FILE] Calling onFileSaved callback for: %s\n", filepath)
+		// fmt.Printf("[FILE] Calling onFileSaved callback for: %s\n", filepath)
 		content := []byte("") // Placeholder - actual content handled by callback
 
 		if err := fsm.onFileSaved(filepath, content); err != nil {
 			log.Printf("[FILE] Error saving file %s: %v", filepath, err)
-			fmt.Printf("[FILE] Error in save callback: %v\n", err)
+			// fmt.Printf("[FILE] Error in save callback: %v\n", err)
 			return
 		}
-		fmt.Printf("[FILE] Save callback completed successfully\n")
+		// fmt.Printf("[FILE] Save callback completed successfully\n")
 	} else {
-		fmt.Printf("[FILE] No onFileSaved callback set!\n")
+		// fmt.Printf("[FILE] No onFileSaved callback set!\n")
 	}
 
 	// Update current file context

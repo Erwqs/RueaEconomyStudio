@@ -73,7 +73,7 @@ type EnhancedModal struct {
 // NewEnhancedModal creates a new enhanced modal
 func NewEnhancedModal(title string, width, height int) *EnhancedModal {
 	// Center the modal on screen
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	x := (screenW - width) / 2
 	y := (screenH - height) / 2
 
@@ -98,7 +98,7 @@ func (m *EnhancedModal) Show() {
 	m.animPhase = 0
 
 	// Recenter modal when showing (in case window was resized)
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	m.X = (screenW - m.Width) / 2
 	m.Y = (screenH - m.Height) / 2
 }

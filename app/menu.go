@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"os"
 )
 
@@ -23,12 +22,12 @@ func (g *Game) createMenu() *Menu {
 	})
 
 	menu.AddOption("Help", func() {
-		fmt.Println("Help - Coming Soon!")
+		// fmt.Println("Help - Coming Soon!")
 		// TODO: Implement help screen
 	})
 
 	menu.AddOption("Credits", func() {
-		fmt.Println("Credits - Coming Soon!")
+		// fmt.Println("Credits - Coming Soon!")
 		// TODO: Implement credits screen
 	})
 
@@ -37,7 +36,7 @@ func (g *Game) createMenu() *Menu {
 	})
 
 	menu.AddOption("Exit", func() {
-		fmt.Println("Exit selected - close the window to quit")
+		// fmt.Println("Exit selected - close the window to quit")
 		os.Exit(0)
 	})
 
