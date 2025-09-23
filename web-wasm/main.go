@@ -24,7 +24,7 @@ func main() {
 
 	// Configure Ebitengine for web
 	ebiten.SetWindowTitle("Ruea Economy Studio - Web")
-	ebiten.SetTPS(60) // Fixed TPS for consistent web performance
+	ebiten.SetTPS(ebiten.UncappedTPS) // Fixed TPS for consistent web performance
 
 	// Web-specific settings - disable features that don't work in browsers
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)

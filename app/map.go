@@ -504,6 +504,7 @@ func (m *MapView) Update(screenW, screenH int) {
 
 	// Process user input first - always accept wheel input (unless event editor is maximized)
 	_, wheelY := WebSafeWheel()
+	wheelY = wheelY / 2
 	if wheelY != 0 {
 		mx, my := ebiten.CursorPosition()
 
@@ -1691,7 +1692,7 @@ func (m *MapView) handleSmoothZoom(wheelDelta float64, cursorX, cursorY int) {
 
 	// Increased sensitivity for smoother, more responsive zooming
 	// Use exponential zoom for more natural feeling
-	zoomSensitivity := 0.05
+	zoomSensitivity := 0.03
 	zoomFactor := math.Pow(1.1, wheelDelta*zoomSensitivity*20)
 
 	// Calculate new scale with constraints
@@ -1864,7 +1865,7 @@ func (m *MapView) centerOnTerritory(territoryName string) {
 	centerY := (y1 + y2) / 2.0
 
 	// fmt.Printf("Territory %s: borders [%.1f,%.1f] to [%.1f,%.1f], center (%.1f, %.1f)\n",
-		// territoryName, x1, y1, x2, y2, centerX, centerY)
+	// territoryName, x1, y1, x2, y2, centerX, centerY)
 
 	// Calculate target offsets to center this point on the screen
 	// The transformation is: screenPos = worldPos * scale + offset
@@ -1874,7 +1875,7 @@ func (m *MapView) centerOnTerritory(territoryName string) {
 	targetOffsetY := float64(m.screenH)/2.0 - centerY*m.scale
 
 	// fmt.Printf("Current scale: %.3f, screen: %dx%d, target offset: (%.1f, %.1f)\n",
-		// m.scale, m.screenW, m.screenH, targetOffsetX, targetOffsetY)
+	// m.scale, m.screenW, m.screenH, targetOffsetX, targetOffsetY)
 
 	// Animate to the new position (keeping current scale)
 	m.animateToScale(m.scale, targetOffsetX, targetOffsetY)
@@ -3097,7 +3098,7 @@ func (m *MapView) StopClaimEditing() {
 						claimManager.RemoveClaim(territory)
 					} else {
 						// fmt.Printf("  - Skipping removal for territory: %s (belongs to different guild: %s [%s])\n",
-							// territory, existingClaim.GuildName, existingClaim.GuildTag)
+						// territory, existingClaim.GuildName, existingClaim.GuildTag)
 					}
 				}
 			}

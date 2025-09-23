@@ -38,7 +38,7 @@ func WebSafeWheel() (float64, float64) {
 
 	// In WASM, wheel events can be extremely sensitive
 	// Apply dampening to make scrolling more reasonable
-	const webWheelDampening = 0.05 // Reduce sensitivity significantly
+	const webWheelDampening = 0.01 // Reduce sensitivity significantly
 
 	return wheelX * webWheelDampening, wheelY * webWheelDampening
 }
