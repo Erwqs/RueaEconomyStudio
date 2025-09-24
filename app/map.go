@@ -65,20 +65,16 @@ type MapView struct {
 	// Territories manager for handling territory data
 	territoriesManager *TerritoriesManager
 
-	targetScale       float64 // Target scale for animation
-	targetOffsetX     float64 // Target offset X for animation
-	targetOffsetY     float64 // Target offset Y for animation
-	startScale        float64 // Starting scale for animation
-	startOffsetX      float64 // Starting offset X for animation
-	startOffsetY      float64 // Starting offset Y for animation
-	isAnimating       bool    // Whether an animation is in progress
-	animProgress      float64 // Animation progress (0.0 to 1.0)
-	animSpeed         float64 // Animation speed multiplier
-	originalAnimSpeed float64 // Original animation speed to restore after animation
-
-	// Shift+Space tick advancement fields
-	shiftSpaceHoldTimer float64 // Timer for held Shift+Space key
-	shiftSpaceInterval  float64 // Interval between tick advances when holding
+	// Animation fields for smooth zoom transitions
+	targetScale   float64 // Target scale for animation
+	targetOffsetX float64 // Target offset X for animation
+	targetOffsetY float64 // Target offset Y for animation
+	startScale    float64 // Starting scale for animation
+	startOffsetX  float64 // Starting offset X for animation
+	startOffsetY  float64 // Starting offset Y for animation
+	isAnimating   bool    // Whether an animation is in progress
+	animProgress  float64 // Animation progress (0.0 to 1.0)
+	animSpeed     float64 // Animation speed multiplier
 
 	// Context menu for right-click interactions
 	contextMenu *SelectionAnywhere
@@ -642,99 +638,6 @@ func (m *MapView) Update(screenW, screenH int) {
 				m.tributeMenu.Hide()
 			} else {
 				m.tributeMenu.Show()
-			}
-		}
-	}
-
-	// Handle spacebar (halt/resume or add ticks) - only when no text input is focused
-	if !tributeMenuHandledInput {
-		// Check if any text input is currently focused before processing spacebar
-		textInputFocused := false
-
-		// Check if guild manager is open and has text input focused
-		if m.territoriesManager != nil {
-			guildManager := m.territoriesManager.guildManager
-			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
-				textInputFocused = true
-			}
-		}
-
-		// Check if loadout manager is open and has text input focused
-		loadoutManager := GetLoadoutManager()
-		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
-		// Check if transit resource menu is open and has text input focused
-		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
-		// Check if EdgeMenu is open and has text input focused
-		if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
-		// Check if state management menu is open and has text input focused
-		if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() && m.stateManagementMenu.menu.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
-		// Only process spacebar if:
-		// 1. No text input is focused
-		// 2. Event editor is not visible (or in minimal mode)
-		// 3. Territory picker is not active
-		if !textInputFocused &&
-			(!m.IsEventEditorVisible() || (m.IsEventEditorVisible() && m.IsEventEditorInMinimalMode())) &&
-			!m.IsTerritoryPickerActive() {
-
-			// Check for Shift+Space (add ticks when halted)
-			shift := ebiten.IsKeyPressed(ebiten.KeyShift) || ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
-			spacePressed := ebiten.IsKeyPressed(ebiten.KeySpace)
-
-			if shift && spacePressed && eruntime.IsHalted() {
-				// Shift+Space held: Add ticks continuously with timer
-				m.shiftSpaceHoldTimer += deltaTime
-
-				if m.shiftSpaceHoldTimer >= m.shiftSpaceInterval {
-					// Reset timer
-					m.shiftSpaceHoldTimer = 0.0
-
-					// Get tick amount from state management menu
-					ticksToAdd := 60 // Default value
-					if m.stateManagementMenu != nil {
-						ticksToAdd = m.stateManagementMenu.addTickValue
-					}
-
-					// Limit the number of ticks to prevent excessive processing
-					if ticksToAdd > 12000 {
-						ticksToAdd = 12000
-					}
-
-					// Run tick advancement in a separate goroutine to prevent UI blocking
-					go func(ticks int) {
-						for i := 0; i < ticks; i++ {
-							eruntime.NextTick()
-							// Add a small delay every 60 ticks to prevent overwhelming the system
-							if i%60 == 0 {
-								time.Sleep(1 * time.Millisecond)
-							}
-						}
-					}(ticksToAdd)
-				}
-			} else {
-				// Reset timer when not holding Shift+Space
-				m.shiftSpaceHoldTimer = 0.0
-
-				// Handle regular spacebar press (just pressed, not held)
-				if inpututil.IsKeyJustPressed(ebiten.KeySpace) && !shift {
-					// Regular Space: Toggle halt/resume state
-					if eruntime.IsHalted() {
-						eruntime.Resume()
-					} else {
-						eruntime.Halt()
-					}
-				}
 			}
 		}
 	}
@@ -1798,30 +1701,15 @@ func (m *MapView) handleSmoothZoom(wheelDelta float64, cursorX, cursorY int) {
 		currentScale = m.targetScale
 	}
 
-	if currentScale < m.minScale {
-		currentScale = m.minScale
-	} else if currentScale > m.maxScale {
-		currentScale = m.maxScale
-	}
-
 	newScale := currentScale * zoomFactor
-
-	hitMinLimit := newScale < m.minScale
-	hitMaxLimit := newScale > m.maxScale
-
 	if newScale < m.minScale {
 		newScale = m.minScale
 	} else if newScale > m.maxScale {
 		newScale = m.maxScale
 	}
 
-	// Only proceed if scale actually changed OR if we're not already at the limit
-	// This prevents the animation system from breaking when hitting zoom limits
-	scaleChanged := math.Abs(newScale-currentScale) >= 0.001
-	alreadyAtLimit := (hitMinLimit && math.Abs(currentScale-m.minScale) < 0.001) ||
-		(hitMaxLimit && math.Abs(currentScale-m.maxScale) < 0.001)
-
-	if !scaleChanged && alreadyAtLimit {
+	// Only proceed if scale actually changed
+	if math.Abs(newScale-currentScale) < 0.001 {
 		return
 	}
 
@@ -2009,17 +1897,6 @@ func (m *MapView) updateAnimations(deltaTime float64) {
 		m.offsetX = m.targetOffsetX
 		m.offsetY = m.targetOffsetY
 		m.isAnimating = false
-
-		if m.originalAnimSpeed > 0 {
-			m.animSpeed = m.originalAnimSpeed
-			m.originalAnimSpeed = 0 // Reset for next use
-		}
-
-		// CRITICAL FIX: Update start values to match current values
-		// This prevents animation state corruption when chaining animations
-		m.startScale = m.scale
-		m.startOffsetX = m.offsetX
-		m.startOffsetY = m.offsetY
 		return
 	}
 
@@ -2055,25 +1932,9 @@ func (m *MapView) animateToScale(targetScale, targetOffsetX, targetOffsetY float
 	m.targetOffsetX = targetOffsetX
 	m.targetOffsetY = targetOffsetY
 
-	scaleDifference := math.Abs(targetScale - m.scale)
-	offsetXDifference := math.Abs(targetOffsetX - m.offsetX)
-	offsetYDifference := math.Abs(targetOffsetY - m.offsetY)
-
-	// Only skip animation if there's really no change at all
-	if scaleDifference < 0.001 && offsetXDifference < 1.0 && offsetYDifference < 1.0 {
-		// No significant change, just set values directly and ensure consistency
-		m.scale = targetScale
-		m.offsetX = targetOffsetX
-		m.offsetY = targetOffsetY
-		m.startScale = m.scale
-		m.startOffsetX = m.offsetX
-		m.startOffsetY = m.offsetY
-		m.isAnimating = false
-		return
-	}
-
 	// Calculate animation speed based on how big the change is
 	speedAdjustment := 1.0
+	scaleDifference := math.Abs(targetScale - m.scale)
 	if scaleDifference > 0.5 {
 		// For bigger scale changes, make animation faster
 		speedAdjustment = 1.5
@@ -2084,10 +1945,15 @@ func (m *MapView) animateToScale(targetScale, targetOffsetX, targetOffsetY float
 	m.animProgress = 0
 
 	// Remember original speed to restore later if we modify it
-	m.originalAnimSpeed = m.animSpeed
+	originalSpeed := m.animSpeed
 	if speedAdjustment != 1.0 {
-		m.originalAnimSpeed = m.animSpeed
 		m.animSpeed *= speedAdjustment
+
+		// Reset animation speed after animation would be complete
+		go func(view *MapView, speed float64) {
+			time.Sleep(time.Millisecond * 500) // Wait longer than animation takes
+			view.animSpeed = speed
+		}(m, originalSpeed)
 	}
 }
 

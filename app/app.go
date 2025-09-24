@@ -450,15 +450,7 @@ func (s *State) Update() error {
 
 	// Update toast manager
 	GetToastManager().Update()
-	
-	// Handle toast input FIRST - if any toast consumes input, stop all other processing
-	if GetToastManager().HandleInput() {
-		// Toast consumed the input, skip all other input handling
-		return nil
-	}
 
-	// Update pause notification manager
-	GetPauseNotificationManager().Update()
 	// Update file system manager FIRST - if it consumes input, stop all other processing
 	if s.fileSystemManager != nil {
 		if s.fileSystemManager.Update() {

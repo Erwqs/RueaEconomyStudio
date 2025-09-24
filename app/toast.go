@@ -178,7 +178,7 @@ func (tb *ToastBuilder) calculateLayout() {
 	closeButtonSize := 20
 
 	// Get screen width for text wrapping (1/3 of screen width)
-	screenW, _ := ebiten.WindowSize()
+	screenW, _ := WebSafeWindowSize()
 	maxTextWidth := screenW / 3
 	if maxTextWidth < 250 {
 		maxTextWidth = 250 // Minimum width
@@ -273,7 +273,7 @@ func InitToastManager() {
 		return
 	}
 
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	globalToastManager = &ToastManager{
 		toasts:      []*Toast{},
 		nextID:      0,
@@ -308,7 +308,7 @@ func (tm *ToastManager) AddToast(toast *Toast) {
 
 // positionToast calculates the position for a new toast
 func (tm *ToastManager) positionToast(toast *Toast) {
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	tm.screenW = screenW
 	tm.screenH = screenH
 
@@ -330,6 +330,7 @@ func (tm *ToastManager) positionToast(toast *Toast) {
 // Update updates all toasts and handles input
 func (tm *ToastManager) Update() {
 	now := time.Now()
+	mx, my := ebiten.CursorPosition()
 
 	// Remove expired toasts
 	var activeToasts []*Toast
@@ -343,60 +344,43 @@ func (tm *ToastManager) Update() {
 
 	// Reposition toasts if needed
 	tm.repositionToasts()
-}
 
-// HandleInput handles input for all toasts and returns true if input was consumed
-func (tm *ToastManager) HandleInput() bool {
-	mx, my := ebiten.CursorPosition()
-
-	// Handle input for each toast (from top to bottom, so newer toasts get priority)
-	for i := len(tm.toasts) - 1; i >= 0; i-- {
-		toast := tm.toasts[i]
+	// Handle input for each toast
+	for _, toast := range tm.toasts {
 		if !toast.visible {
 			continue
 		}
 
-		// Check if click is anywhere within the toast bounds
+		// Check button clicks
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			if mx >= toast.X && mx <= toast.X+toast.Width &&
-				my >= toast.Y && my <= toast.Y+toast.Height {
+			for _, button := range toast.Buttons {
+				if mx >= toast.X+button.X && mx <= toast.X+button.X+button.Width &&
+					my >= toast.Y+button.Y && my <= toast.Y+button.Y+button.Height {
+					if button.OnClick != nil {
+						button.OnClick()
+					}
+					return
+				}
+			}
 
-				// Check button clicks first
-				for _, button := range toast.Buttons {
-					if mx >= toast.X+button.X && mx <= toast.X+button.X+button.Width &&
-						my >= toast.Y+button.Y && my <= toast.Y+button.Y+button.Height {
-						if button.OnClick != nil {
-							button.OnClick()
-						}
-						return true // Consumed the input
+			// Check text segment clicks
+			for _, segment := range toast.TextSegments {
+				if segment.Options.OnClick != nil {
+					// For multi-line segments, check if click is within the entire segment bounds
+					if mx >= toast.X+segment.Bounds.X && mx <= toast.X+segment.Bounds.X+segment.Bounds.Width &&
+						my >= toast.Y+segment.Bounds.Y-segment.Bounds.Height && my <= toast.Y+segment.Bounds.Y+segment.Bounds.Height {
+						segment.Options.OnClick()
+						return
 					}
 				}
-
-				// Check text segment clicks
-				for _, segment := range toast.TextSegments {
-					if segment.Options.OnClick != nil {
-						// For multi-line segments, check if click is within the entire segment bounds
-						if mx >= toast.X+segment.Bounds.X && mx <= toast.X+segment.Bounds.X+segment.Bounds.Width &&
-							my >= toast.Y+segment.Bounds.Y-segment.Bounds.Height && my <= toast.Y+segment.Bounds.Y+segment.Bounds.Height {
-							segment.Options.OnClick()
-							return true // Consumed the input
-						}
-					}
-				}
-
-				// Click was within toast bounds but didn't hit any interactive element
-				// Still consume the input to prevent click-through
-				return true
 			}
 		}
 	}
-
-	return false // No toast consumed the input
 }
 
 // repositionToasts repositions all toasts after one is removed
 func (tm *ToastManager) repositionToasts() {
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	tm.screenW = screenW
 	tm.screenH = screenH
 
