@@ -238,18 +238,18 @@ func NewMapView() *MapView {
 
 	// Register state change callback to refresh territory colors when state is reset/loaded
 	eruntime.SetStateChangeCallback(func() {
-		// fmt.Println("[MAP] State change callback triggered")
+		fmt.Println("[MAP] State change callback triggered")
 
 		// Get all territories from eruntime and update their guild assignments
 		territories := eruntime.GetTerritories()
 		claimManager := GetGuildClaimManager()
 
 		if claimManager == nil {
-			// fmt.Println("[MAP] Warning: GuildClaimManager is nil")
+			fmt.Println("[MAP] Warning: GuildClaimManager is nil")
 			return
 		}
 
-		// fmt.Printf("[MAP] Updating %d territories with their current guild assignments\n", len(territories))
+		fmt.Printf("[MAP] Updating %d territories with their current guild assignments\n", len(territories))
 
 		// Suspend redraws during batch update
 		claimManager.suspendRedraws = true
@@ -270,7 +270,7 @@ func NewMapView() *MapView {
 					guildTag = "NONE"
 				}
 
-				// fmt.Printf("[MAP] Setting territory %s to guild %s [%s], HQ: %v\n", territory.Name, guildName, guildTag, isHQ)
+				fmt.Printf("[MAP] Setting territory %s to guild %s [%s], HQ: %v\n", territory.Name, guildName, guildTag, isHQ)
 				claims = append(claims, GuildClaim{
 					TerritoryName: territory.Name,
 					GuildName:     guildName,
@@ -289,7 +289,7 @@ func NewMapView() *MapView {
 		claimManager.suspendRedraws = false
 		claimManager.TriggerRedraw()
 
-		// fmt.Println("[MAP] Territory guild assignments updated after state change")
+		fmt.Println("[MAP] Territory guild assignments updated after state change")
 	})
 
 	return mapView
@@ -315,7 +315,7 @@ func (m *MapView) Update(screenW, screenH int) {
 
 	// Reset the ESC key flag at the start of each frame if it's been set
 	if m.justHandledEscKey {
-		// fmt.Printf("[MAP] Resetting ESC key flag\n")
+		fmt.Printf("[MAP] Resetting ESC key flag\n")
 		m.justHandledEscKey = false
 	}
 
@@ -503,8 +503,7 @@ func (m *MapView) Update(screenW, screenH int) {
 	}
 
 	// Process user input first - always accept wheel input (unless event editor is maximized)
-	_, wheelY := WebSafeWheel()
-	wheelY = wheelY / 2
+	_, wheelY := ebiten.Wheel()
 	if wheelY != 0 {
 		mx, my := ebiten.CursorPosition()
 
@@ -1137,24 +1136,24 @@ func (m *MapView) Update(screenW, screenH int) {
 	// Handle right-click for context menu FIRST (before updating existing menu)
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
 		mx, my := ebiten.CursorPosition()
-		// fmt.Printf("Right-click detected at (%d, %d)\n", mx, my)
+		fmt.Printf("Right-click detected at (%d, %d)\n", mx, my)
 
 		// Don't show context menu if we're in claim editing mode (right-click is used for area deselection)
 		if m.isEditingClaims {
-			// fmt.Println("Right-click ignored - in claim editing mode")
+			fmt.Println("Right-click ignored - in claim editing mode")
 			return
 		}
 
 		// Don't show context menu if loadout is being applied
 		if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsApplyingLoadout() {
-			// fmt.Println("Right-click ignored - in loadout application mode")
+			fmt.Println("Right-click ignored - in loadout application mode")
 			return
 		}
 
 		// Check if EdgeMenu is consuming right-click input first
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
 			// EdgeMenu area - don't show context menu
-			// fmt.Println("Right-click in EdgeMenu area, ignoring")
+			fmt.Println("Right-click in EdgeMenu area, ignoring")
 			return
 		}
 
@@ -1165,16 +1164,16 @@ func (m *MapView) Update(screenW, screenH int) {
 
 			if mx >= sidebarX {
 				// Right-click is in sidebar area - don't show context menu
-				// fmt.Println("Right-click in sidebar area, ignoring")
+				fmt.Println("Right-click in sidebar area, ignoring")
 				return
 			}
 		}
 
 		// Setup and show context menu
-		// fmt.Println("Setting up context menu...")
+		fmt.Println("Setting up context menu...")
 		m.setupContextMenu(mx, my)
 		m.contextMenu.Show(mx, my, screenW, screenH)
-		// fmt.Printf("Context menu shown at (%d, %d), visible: %v\n", mx, my, m.contextMenu.IsVisible())
+		fmt.Printf("Context menu shown at (%d, %d), visible: %v\n", mx, my, m.contextMenu.IsVisible())
 		return // Don't update the context menu this frame to avoid hiding it immediately
 	}
 
@@ -1692,7 +1691,7 @@ func (m *MapView) handleSmoothZoom(wheelDelta float64, cursorX, cursorY int) {
 
 	// Increased sensitivity for smoother, more responsive zooming
 	// Use exponential zoom for more natural feeling
-	zoomSensitivity := 0.03
+	zoomSensitivity := 0.05
 	zoomFactor := math.Pow(1.1, wheelDelta*zoomSensitivity*20)
 
 	// Calculate new scale with constraints
@@ -1764,19 +1763,19 @@ func (m *MapView) ResetView() {
 	// Animate to the centered position and scale
 	m.animateToScale(resetScale, centeredOffsetX, centeredOffsetY)
 
-	// fmt.Println("Animating map view to centered position")
+	fmt.Println("Animating map view to centered position")
 }
 
 // ToggleCoordinates toggles the coordinate labels display
 func (m *MapView) ToggleCoordinates() {
 	m.showCoordinates = !m.showCoordinates
-	// fmt.Printf("Coordinate display: %v\n", m.showCoordinates)
+	fmt.Printf("Coordinate display: %v\n", m.showCoordinates)
 }
 
 // ToggleTerritories toggles the display of territory boundaries
 func (m *MapView) ToggleTerritories() {
 	m.showTerritories = !m.showTerritories
-	// fmt.Printf("Territory display: %v\n", m.showTerritories)
+	fmt.Printf("Territory display: %v\n", m.showTerritories)
 }
 
 // AddMarker adds a new marker to the map
@@ -1790,13 +1789,13 @@ func (m *MapView) AddMarker(x, y float64, label string, markerColor color.RGBA, 
 		IsVisible: true,
 	}
 	m.markers = append(m.markers, marker)
-	// fmt.Printf("Added marker '%s' at (%.1f, %.1f)\n", label, x, y)
+	fmt.Printf("Added marker '%s' at (%.1f, %.1f)\n", label, x, y)
 }
 
 // ClearMarkers removes all markers from the map
 func (m *MapView) ClearMarkers() {
 	m.markers = make([]Marker, 0)
-	// fmt.Println("All markers cleared")
+	fmt.Println("All markers cleared")
 }
 
 // GetMapCoordinates converts screen coordinates to world coordinates
@@ -1835,27 +1834,27 @@ func (m *MapView) centerMapView() {
 	m.startOffsetX = m.offsetX
 	m.startOffsetY = m.offsetY
 
-	// fmt.Printf("Map centered: offset (%.1f, %.1f), scale %.2f\n", m.offsetX, m.offsetY, m.scale)
+	fmt.Printf("Map centered: offset (%.1f, %.1f), scale %.2f\n", m.offsetX, m.offsetY, m.scale)
 }
 
 // centerOnTerritory centers the map view on the specified territory
 func (m *MapView) centerOnTerritory(territoryName string) {
 	// Check if we have territory borders data (used for click detection)
 	if m.territoriesManager == nil {
-		// fmt.Printf("TerritoriesManager not available\n")
+		fmt.Printf("TerritoriesManager not available\n")
 		return
 	}
 
 	// Try to get territory borders (this is the coordinate system that works for clicks)
 	borders := m.territoriesManager.TerritoryBorders
 	if borders == nil {
-		// fmt.Printf("Territory borders not available\n")
+		fmt.Printf("Territory borders not available\n")
 		return
 	}
 
 	border, exists := borders[territoryName]
 	if !exists {
-		// fmt.Printf("Territory borders not found for: %s\n", territoryName)
+		fmt.Printf("Territory borders not found for: %s\n", territoryName)
 		return
 	}
 
@@ -1864,8 +1863,8 @@ func (m *MapView) centerOnTerritory(territoryName string) {
 	centerX := (x1 + x2) / 2.0
 	centerY := (y1 + y2) / 2.0
 
-	// fmt.Printf("Territory %s: borders [%.1f,%.1f] to [%.1f,%.1f], center (%.1f, %.1f)\n",
-	// territoryName, x1, y1, x2, y2, centerX, centerY)
+	fmt.Printf("Territory %s: borders [%.1f,%.1f] to [%.1f,%.1f], center (%.1f, %.1f)\n",
+		territoryName, x1, y1, x2, y2, centerX, centerY)
 
 	// Calculate target offsets to center this point on the screen
 	// The transformation is: screenPos = worldPos * scale + offset
@@ -1874,13 +1873,13 @@ func (m *MapView) centerOnTerritory(territoryName string) {
 	targetOffsetX := float64(m.screenW)/2.0 - centerX*m.scale
 	targetOffsetY := float64(m.screenH)/2.0 - centerY*m.scale
 
-	// fmt.Printf("Current scale: %.3f, screen: %dx%d, target offset: (%.1f, %.1f)\n",
-	// m.scale, m.screenW, m.screenH, targetOffsetX, targetOffsetY)
+	fmt.Printf("Current scale: %.3f, screen: %dx%d, target offset: (%.1f, %.1f)\n",
+		m.scale, m.screenW, m.screenH, targetOffsetX, targetOffsetY)
 
 	// Animate to the new position (keeping current scale)
 	m.animateToScale(m.scale, targetOffsetX, targetOffsetY)
 
-	// fmt.Printf("Centering map on territory: %s\n", territoryName)
+	fmt.Printf("Centering map on territory: %s\n", territoryName)
 }
 
 // updateAnimations handles smooth animation transitions
@@ -2031,7 +2030,7 @@ func (m *MapView) onTerritoryChanged(territoryName string) {
 		// Update tower stats and trading routes, don't rebuild the entire menu to avoid breaking sliders
 		m.edgeMenu.UpdateTowerStats(territoryName)
 		m.edgeMenu.UpdateTradingRoutes(territoryName)
-		// fmt.Printf("[DEBUG] Tower stats and trading routes updated for: %s\n", territoryName)
+		fmt.Printf("[DEBUG] Tower stats and trading routes updated for: %s\n", territoryName)
 	}
 }
 
@@ -2322,38 +2321,175 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 
 	// Tower Stats (collapsible) - Shows tower stats with current upgrades
 	towerStatsMenu := m.edgeMenu.CollapsibleMenu("Tower Stats", DefaultCollapsibleMenuOptions())
-	towerStatsMenu.Text(fmt.Sprintf("Damage: %.0f - %.0f", territory.TowerStats.Damage.Low, territory.TowerStats.Damage.High), DefaultTextOptions())
-	towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", territory.TowerStats.Damage.Low*2, territory.TowerStats.Damage.High*2), DefaultTextOptions())
-	towerStatsMenu.Text(fmt.Sprintf("Attack: %.1f/s", territory.TowerStats.Attack), DefaultTextOptions())
-	towerStatsMenu.Text(fmt.Sprintf("Health: %.0f", territory.TowerStats.Health), DefaultTextOptions())
-	towerStatsMenu.Text(fmt.Sprintf("Defence: %.1f%%", territory.TowerStats.Defence*100), DefaultTextOptions())
-	towerStatsMenu.Spacer(DefaultSpacerOptions())
-	// wynn's horrible math
+	// towerStatsMenu.Text(fmt.Sprintf("Damage: %.0f - %.0f", territory.TowerStats.Damage.Low, territory.TowerStats.Damage.High), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", territory.TowerStats.Damage.Low*2, territory.TowerStats.Damage.High*2), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Attack: %.1f/s", territory.TowerStats.Attack), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Health: %.0f", territory.TowerStats.Health), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Defence: %.1f%%", territory.TowerStats.Defence*100), DefaultTextOptions())
+	// towerStatsMenu.Spacer(DefaultSpacerOptions())
+	// // wynn's horrible math
 	averageDPS := territory.TowerStats.Attack * ((float64(territory.TowerStats.Damage.High)) + (float64(territory.TowerStats.Damage.Low))) / 2
-	towerStatsMenu.Text(fmt.Sprintf("Average DPS: %.0f", averageDPS), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Average DPS: %.0f", averageDPS), DefaultTextOptions())
 	averageDPS2 := territory.TowerStats.Attack * ((float64(territory.TowerStats.Damage.High * 2)) + (float64(territory.TowerStats.Damage.Low * 2))) / 2
-	towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", averageDPS2), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", averageDPS2), DefaultTextOptions())
 	ehp := territory.TowerStats.Health / (1.0 - territory.TowerStats.Defence)
-	towerStatsMenu.Text(fmt.Sprintf("Effective HP: %.0f", ehp), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Effective HP: %.0f", ehp), DefaultTextOptions())
 
-	// Level and LevelInt
-	var levelString string
-	var levelColor color.RGBA
+	// Helper function to calculate configured tower stats (using Set values)
+	calculateConfiguredStats := func() typedef.TowerStats {
+		// Get the user-configured upgrade levels (Set values)
+		damageLevel := territory.Options.Upgrade.Set.Damage
+		attackLevel := territory.Options.Upgrade.Set.Attack
+		healthLevel := territory.Options.Upgrade.Set.Health
+		defenceLevel := territory.Options.Upgrade.Set.Defence
+
+		// Get upgrade multipliers from eruntime state
+		costs := eruntime.GetCost()
+		if costs == nil {
+			return typedef.TowerStats{} // Return empty stats if costs not available
+		}
+
+		// Clamp upgrade levels to valid ranges
+		if damageLevel < 0 {
+			damageLevel = 0
+		} else if damageLevel >= len(costs.UpgradeMultiplier.Damage) {
+			damageLevel = len(costs.UpgradeMultiplier.Damage) - 1
+		}
+
+		if attackLevel < 0 {
+			attackLevel = 0
+		} else if attackLevel >= len(costs.UpgradeMultiplier.Attack) {
+			attackLevel = len(costs.UpgradeMultiplier.Attack) - 1
+		}
+
+		if healthLevel < 0 {
+			healthLevel = 0
+		} else if healthLevel >= len(costs.UpgradeMultiplier.Health) {
+			healthLevel = len(costs.UpgradeMultiplier.Health) - 1
+		}
+
+		if defenceLevel < 0 {
+			defenceLevel = 0
+		} else if defenceLevel >= len(costs.UpgradeMultiplier.Defence) {
+			defenceLevel = len(costs.UpgradeMultiplier.Defence) - 1
+		}
+
+		// Base values
+		baseDamageLow := 1000.0
+		baseDamageHigh := 1500.0
+		baseAttack := 0.5
+		baseHealth := 300000.0
+		baseDefence := 0.1
+
+		// Apply upgrade multipliers using configured levels
+		damageMultiplier := costs.UpgradeMultiplier.Damage[damageLevel]
+		attackMultiplier := costs.UpgradeMultiplier.Attack[attackLevel]
+		healthMultiplier := costs.UpgradeMultiplier.Health[healthLevel]
+		defenceMultiplier := costs.UpgradeMultiplier.Defence[defenceLevel]
+
+		newDamageLow := baseDamageLow * damageMultiplier
+		newDamageHigh := baseDamageHigh * damageMultiplier
+		newAttack := baseAttack * attackMultiplier
+		newHealth := baseHealth * healthMultiplier
+		newDefence := baseDefence * defenceMultiplier
+
+		// Calculate link bonus and external connection bonus (same as simulation)
+		linkBonus := 1.0
+		if len(territory.Links.Direct) > 0 {
+			linkBonus = 1.0 + (0.3 * float64(len(territory.Links.Direct)))
+		}
+
+		// HQ external bonus calculation - matches eruntime/calculate1.go
+		externalBonus := 1.0
+		if territory.HQ {
+			if len(territory.Links.Externals) == 0 {
+				externalBonus = 1.5 // HQ base bonus of 50% (1 + 0.5)
+			} else {
+				// Base HQ bonus (50%) + 25% per external territory
+				externalBonus = 1.5 + (0.25 * float64(len(territory.Links.Externals)))
+			}
+		}
+
+		return typedef.TowerStats{
+			Damage: typedef.DamageRange{
+				Low:  newDamageLow * linkBonus * externalBonus,
+				High: newDamageHigh * linkBonus * externalBonus,
+			},
+			Attack:  newAttack,
+			Health:  newHealth * linkBonus * externalBonus,
+			Defence: newDefence,
+		}
+	}
+
+	// Get configured stats
+	configuredStats := calculateConfiguredStats()
+
+	// Configured display what the tower would be like with user-configured levels
+	configuredMenu := towerStatsMenu.CollapsibleMenu("Configured", DefaultCollapsibleMenuOptions())
+	configuredMenu.Text(fmt.Sprintf("Damage: %.0f - %.0f", configuredStats.Damage.Low, configuredStats.Damage.High), DefaultTextOptions())
+	configuredMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", configuredStats.Damage.Low*2, configuredStats.Damage.High*2), DefaultTextOptions())
+	configuredMenu.Text(fmt.Sprintf("Attack: %.1f/s", configuredStats.Attack), DefaultTextOptions())
+	configuredMenu.Text(fmt.Sprintf("Health: %.0f", configuredStats.Health), DefaultTextOptions())
+	configuredMenu.Text(fmt.Sprintf("Defence: %.1f%%", configuredStats.Defence*100), DefaultTextOptions())
+	configuredMenu.Spacer(DefaultSpacerOptions())
+	// Calculate averages for configured stats
+	configuredAvgDPS := configuredStats.Attack * ((configuredStats.Damage.High + configuredStats.Damage.Low) / 2)
+	configuredMenu.Text(fmt.Sprintf("Average DPS: %.0f", configuredAvgDPS), DefaultTextOptions())
+	configuredAvgDPS2 := configuredStats.Attack * ((configuredStats.Damage.High*2 + configuredStats.Damage.Low*2) / 2)
+	configuredMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", configuredAvgDPS2), DefaultTextOptions())
+	configuredEHP := configuredStats.Health / (1.0 - configuredStats.Defence)
+	configuredMenu.Text(fmt.Sprintf("Effective HP: %.0f", configuredEHP), DefaultTextOptions())
+
+	// Add configured territory level (based on Set values)
+	var configuredLevelString string
+	var configuredLevelColor color.RGBA
+	switch territory.SetLevel {
+	case typedef.DefenceLevelVeryHigh:
+		configuredLevelString, configuredLevelColor = "Very High", color.RGBA{255, 0, 0, 255}
+	case typedef.DefenceLevelHigh:
+		configuredLevelString, configuredLevelColor = "High", color.RGBA{255, 128, 0, 255}
+	case typedef.DefenceLevelMedium:
+		configuredLevelString, configuredLevelColor = "Medium", color.RGBA{255, 255, 0, 255}
+	case typedef.DefenceLevelLow:
+		configuredLevelString, configuredLevelColor = "Low", color.RGBA{128, 255, 0, 255}
+	default: // typedef.DefenceLevelVeryLow
+		configuredLevelString, configuredLevelColor = "Very Low", color.RGBA{0, 255, 0, 255}
+	}
+	configuredLevelTextOptions := DefaultTextOptions()
+	configuredLevelTextOptions.Color = configuredLevelColor
+	configuredMenu.Text(fmt.Sprintf("%s (%d)", configuredLevelString, territory.SetLevelInt), configuredLevelTextOptions)
+
+	// Current, in contrast, display the actual stats based on affordability (from simulation)
+	currentMenu := towerStatsMenu.CollapsibleMenu("Current", DefaultCollapsibleMenuOptions())
+	currentMenu.Text(fmt.Sprintf("Damage: %.0f - %.0f", territory.TowerStats.Damage.Low, territory.TowerStats.Damage.High), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", territory.TowerStats.Damage.Low*2, territory.TowerStats.Damage.High*2), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Attack: %.1f/s", territory.TowerStats.Attack), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Health: %.0f", territory.TowerStats.Health), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Defence: %.1f%%", territory.TowerStats.Defence*100), DefaultTextOptions())
+	currentMenu.Spacer(DefaultSpacerOptions())
+	// Use the existing calculated averages for current stats
+	currentMenu.Text(fmt.Sprintf("Average DPS: %.0f", averageDPS), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", averageDPS2), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Effective HP: %.0f", ehp), DefaultTextOptions())
+
+	// Add current territory level (based on At values)
+	var currentLevelString string
+	var currentLevelColor color.RGBA
 	switch territory.Level {
 	case typedef.DefenceLevelVeryHigh:
-		levelString, levelColor = "Very High", color.RGBA{255, 0, 0, 255}
+		currentLevelString, currentLevelColor = "Very High", color.RGBA{255, 0, 0, 255}
 	case typedef.DefenceLevelHigh:
-		levelString, levelColor = "High", color.RGBA{255, 128, 0, 255}
+		currentLevelString, currentLevelColor = "High", color.RGBA{255, 128, 0, 255}
 	case typedef.DefenceLevelMedium:
-		levelString, levelColor = "Medium", color.RGBA{255, 255, 0, 255}
+		currentLevelString, currentLevelColor = "Medium", color.RGBA{255, 255, 0, 255}
 	case typedef.DefenceLevelLow:
-		levelString, levelColor = "Low", color.RGBA{128, 255, 0, 255}
+		currentLevelString, currentLevelColor = "Low", color.RGBA{128, 255, 0, 255}
 	default: // typedef.DefenceLevelVeryLow
-		levelString, levelColor = "Very Low", color.RGBA{0, 255, 0, 255}
+		currentLevelString, currentLevelColor = "Very Low", color.RGBA{0, 255, 0, 255}
 	}
-	levelTextOptions := DefaultTextOptions()
-	levelTextOptions.Color = levelColor
-	towerStatsMenu.Text(fmt.Sprintf("%s (%d)", levelString, territory.LevelInt), levelTextOptions)
+	currentLevelTextOptions := DefaultTextOptions()
+	currentLevelTextOptions.Color = currentLevelColor
+	currentMenu.Text(fmt.Sprintf("%s (%d)", currentLevelString, territory.LevelInt), currentLevelTextOptions)
 
 	// Links (collapsible) - Links to connections and externals
 	totalBonus := 0
@@ -2718,7 +2854,7 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	routingToggleOptions := DefaultToggleSwitchOptions()
 	routingToggleOptions.Options = []string{"Cheapest", "Fastest"}
 	taxesMenu.ToggleSwitch("Routing Mode", routingModeIndex, routingToggleOptions, func(index int, value string) {
-		// fmt.Printf("Routing Mode changed to: %s\n", value)
+		fmt.Printf("Routing Mode changed to: %s\n", value)
 		newRoutingMode := typedef.RoutingCheapest
 		if index == 1 {
 			newRoutingMode = typedef.RoutingFastest
@@ -2749,12 +2885,12 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	borderToggleOptions := DefaultToggleSwitchOptions()
 	borderToggleOptions.Options = []string{"Opened", "Closed"}
 	taxesMenu.ToggleSwitch("Border", borderIndex, borderToggleOptions, func(index int, value string) {
-		// fmt.Printf("Border changed to: %s (index: %d, current border: %d)\n", value, index, territory.Border)
+		fmt.Printf("Border changed to: %s (index: %d, current border: %d)\n", value, index, territory.Border)
 		newBorder := typedef.BorderOpen
 		if index == 1 {
 			newBorder = typedef.BorderClosed
 		}
-		// fmt.Printf("Setting new border to: %d\n", newBorder)
+		fmt.Printf("Setting new border to: %d\n", newBorder)
 
 		// Delay the actual update to allow toggle animation to complete
 		go func() {
@@ -2822,7 +2958,7 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 				taxValue = 70
 			}
 
-			// fmt.Printf("Tax changed to: %d%%\n", taxValue)
+			fmt.Printf("Tax changed to: %d%%\n", taxValue)
 
 			// Create new tax struct with updated Tax field
 			newTax := territory.Tax
@@ -2884,7 +3020,7 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 				allyTaxValue = 70
 			}
 
-			// fmt.Printf("Ally Tax changed to: %d%%\n", allyTaxValue)
+			fmt.Printf("Ally Tax changed to: %d%%\n", allyTaxValue)
 
 			// Create new tax struct with updated Ally field
 			newTax := territory.Tax
@@ -2939,7 +3075,7 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 
 	m.edgeMenu.Button(hqButtonText, hqButtonOptions, func() {
 		if !territory.HQ {
-			// fmt.Printf("Setting %s as HQ\n", territoryName)
+			fmt.Printf("Setting %s as HQ\n", territoryName)
 			// Call the Set function to set this territory as HQ
 			opts := typedef.TerritoryOptions{
 				Upgrades:    territory.Options.Upgrade.Set,
@@ -3021,7 +3157,7 @@ func (m *MapView) GetTerritoriesManager() *TerritoriesManager {
 
 // StartClaimEditing starts the claim editing mode for a specific guild
 func (m *MapView) StartClaimEditing(guildName, guildTag string) {
-	// fmt.Printf("[MAP] Starting claim editing for guild: %s [%s]\n", guildName, guildTag)
+	fmt.Printf("[MAP] Starting claim editing for guild: %s [%s]\n", guildName, guildTag)
 
 	m.isEditingClaims = true
 	m.editingGuildName = guildName
@@ -3032,11 +3168,11 @@ func (m *MapView) StartClaimEditing(guildName, guildTag string) {
 	claimManager := GetGuildClaimManager()
 	if claimManager != nil {
 		m.guildClaims = claimManager.GetClaimsForGuild(guildName, guildTag)
-		// fmt.Printf("[MAP] Loaded %d existing claims for guild %s [%s]\n", len(m.guildClaims), guildName, guildTag)
+		fmt.Printf("[MAP] Loaded %d existing claims for guild %s [%s]\n", len(m.guildClaims), guildName, guildTag)
 	} else {
 		// Fallback to empty map if claim manager is not available
 		m.guildClaims = make(map[string]bool)
-		// fmt.Printf("[MAP] Warning: Could not load existing claims, starting with empty claims\n")
+		fmt.Printf("[MAP] Warning: Could not load existing claims, starting with empty claims\n")
 	}
 
 	// Close any open territory side menu
@@ -3069,7 +3205,7 @@ func (m *MapView) StopClaimEditing() {
 		return
 	}
 
-	// fmt.Printf("[MAP] Stopping claim editing for guild: %s [%s]\n", m.editingGuildName, m.editingGuildTag)
+	fmt.Printf("[MAP] Stopping claim editing for guild: %s [%s]\n", m.editingGuildName, m.editingGuildTag)
 
 	// Get the claim manager
 	claimManager := GetGuildClaimManager()
@@ -3084,7 +3220,7 @@ func (m *MapView) StopClaimEditing() {
 		for territory, claimed := range m.guildClaims {
 			if claimed {
 				claimCount++
-				// fmt.Printf("  - Claimed territory: %s\n", territory)
+				fmt.Printf("  - Claimed territory: %s\n", territory)
 				claims = append(claims, GuildClaim{
 					TerritoryName: territory,
 					GuildName:     m.editingGuildName,
@@ -3094,11 +3230,11 @@ func (m *MapView) StopClaimEditing() {
 				// Only remove claims if this territory was originally claimed by the current guild
 				if existingClaim, exists := claimManager.Claims[territory]; exists {
 					if existingClaim.GuildName == m.editingGuildName && existingClaim.GuildTag == m.editingGuildTag {
-						// fmt.Printf("  - Removing claim for territory: %s (was claimed by current guild)\n", territory)
+						fmt.Printf("  - Removing claim for territory: %s (was claimed by current guild)\n", territory)
 						claimManager.RemoveClaim(territory)
 					} else {
-						// fmt.Printf("  - Skipping removal for territory: %s (belongs to different guild: %s [%s])\n",
-						// territory, existingClaim.GuildName, existingClaim.GuildTag)
+						fmt.Printf("  - Skipping removal for territory: %s (belongs to different guild: %s [%s])\n",
+							territory, existingClaim.GuildName, existingClaim.GuildTag)
 					}
 				}
 			}
@@ -3113,7 +3249,7 @@ func (m *MapView) StopClaimEditing() {
 		claimManager.PrintClaims()
 	}
 
-	// fmt.Printf("  Total territories claimed: %d\n", claimCount)
+	fmt.Printf("  Total territories claimed: %d\n", claimCount)
 
 	// Reset editing state first
 	m.isEditingClaims = false
@@ -3131,7 +3267,7 @@ func (m *MapView) StopClaimEditing() {
 
 	// Now trigger a single comprehensive redraw after all changes are complete
 	if claimManager != nil {
-		// fmt.Printf("[MAP] Triggering final redraw after claim editing completion\n")
+		fmt.Printf("[MAP] Triggering final redraw after claim editing completion\n")
 		claimManager.TriggerRedraw()
 	}
 
@@ -3156,7 +3292,7 @@ func (m *MapView) CancelClaimEditing() {
 		return
 	}
 
-	// fmt.Printf("[MAP] Cancelling claim editing for guild: %s [%s]\n", m.editingGuildName, m.editingGuildTag)
+	fmt.Printf("[MAP] Cancelling claim editing for guild: %s [%s]\n", m.editingGuildName, m.editingGuildTag)
 
 	// We need to restore the territory colors to their original state
 	// This happens automatically because:
@@ -3203,10 +3339,10 @@ func (m *MapView) CancelClaimEditing() {
 		}
 		// Reopen the guild management menu after a slight delay
 		if territoriesManager != nil {
-			// fmt.Printf("[MAP] Reopening guild management menu after claim edit cancellation\n")
+			fmt.Printf("[MAP] Reopening guild management menu after claim edit cancellation\n")
 			territoriesManager.OpenGuildManagement()
 		} else {
-			// fmt.Printf("[MAP] Error: territories manager is nil, can't reopen guild management\n")
+			fmt.Printf("[MAP] Error: territories manager is nil, can't reopen guild management\n")
 		}
 	}()
 
@@ -3269,9 +3405,9 @@ func (m *MapView) ToggleTerritoryClaim(territoryName string) {
 	}
 
 	if !claimed {
-		// fmt.Printf("[MAP] Claimed territory: %s for guild %s\n", territoryName, m.editingGuildName)
+		fmt.Printf("[MAP] Claimed territory: %s for guild %s\n", territoryName, m.editingGuildName)
 	} else {
-		// fmt.Printf("[MAP] Unclaimed territory: %s for guild %s\n", territoryName, m.editingGuildName)
+		fmt.Printf("[MAP] Unclaimed territory: %s for guild %s\n", territoryName, m.editingGuildName)
 	}
 }
 
@@ -3457,7 +3593,7 @@ func (m *MapView) drawAreaSelection(screen *ebiten.Image) {
 
 // startAreaSelection begins area selection mode
 func (m *MapView) startAreaSelection() {
-	// fmt.Println("[MAP] Starting area selection mode")
+	fmt.Println("[MAP] Starting area selection mode")
 	m.isAreaSelecting = true
 	m.areaSelectDragging = false
 	m.areaSelectTempHighlight = make(map[string]bool)
@@ -3469,7 +3605,7 @@ func (m *MapView) startAreaSelection() {
 // endAreaSelection ends area selection mode without applying selections
 // (selections are applied immediately when mouse is released)
 func (m *MapView) endAreaSelection() {
-	// fmt.Println("[MAP] Ending area selection mode")
+	fmt.Println("[MAP] Ending area selection mode")
 
 	// Clear temporary state only - selections were already applied on mouse release
 	m.isAreaSelecting = false
@@ -3489,7 +3625,7 @@ func (m *MapView) updateAreaSelection() {
 		m.areaSelectEndY = my
 		m.areaSelectDragging = true
 		m.areaSelectIsDeselecting = false // Left click is for selection
-		// fmt.Printf("[MAP] Started area selection drag at (%d, %d)\n", mx, my)
+		fmt.Printf("[MAP] Started area selection drag at (%d, %d)\n", mx, my)
 	}
 
 	// Check for right mouse press to start deselection dragging
@@ -3500,7 +3636,7 @@ func (m *MapView) updateAreaSelection() {
 		m.areaSelectEndY = my
 		m.areaSelectDragging = true
 		m.areaSelectIsDeselecting = true // Right click is for deselection
-		// fmt.Printf("[MAP] Started area deselection drag at (%d, %d)\n", mx, my)
+		fmt.Printf("[MAP] Started area deselection drag at (%d, %d)\n", mx, my)
 	}
 
 	// Update drag coordinates and apply real-time selection/deselection
@@ -3517,7 +3653,7 @@ func (m *MapView) updateAreaSelection() {
 		// Apply the current selection when mouse is released
 		m.applyCurrentAreaSelection()
 		m.areaSelectDragging = false
-		// fmt.Printf("[MAP] Ended area selection drag at (%d, %d)\n", mx, my)
+		fmt.Printf("[MAP] Ended area selection drag at (%d, %d)\n", mx, my)
 	}
 
 	// Check for right mouse release to end deselection dragging
@@ -3525,7 +3661,7 @@ func (m *MapView) updateAreaSelection() {
 		// Apply the current deselection when mouse is released
 		m.applyCurrentAreaSelection()
 		m.areaSelectDragging = false
-		// fmt.Printf("[MAP] Ended area deselection drag at (%d, %d)\n", mx, my)
+		fmt.Printf("[MAP] Ended area deselection drag at (%d, %d)\n", mx, my)
 	}
 }
 
@@ -3549,7 +3685,7 @@ func (m *MapView) applyAreaSelection() {
 		y1, y2 = y2, y1
 	}
 
-	// fmt.Printf("[MAP] Applying area selection from (%.0f, %.0f) to (%.0f, %.0f)\n", x1, y1, x2, y2)
+	fmt.Printf("[MAP] Applying area selection from (%.0f, %.0f) to (%.0f, %.0f)\n", x1, y1, x2, y2)
 
 	selectedCount := 0
 	// Check all territories to see if they intersect with the selection rectangle
@@ -3588,12 +3724,12 @@ func (m *MapView) applyAreaSelection() {
 			if coveragePercentage > 0.5 {
 				m.ToggleTerritoryClaim(territoryName)
 				selectedCount++
-				// fmt.Printf("[MAP] Territory %s selected (coverage: %.1f%%)\n", territoryName, coveragePercentage*100)
+				fmt.Printf("[MAP] Territory %s selected (coverage: %.1f%%)\n", territoryName, coveragePercentage*100)
 			}
 		}
 	}
 
-	// fmt.Printf("[MAP] Area selection applied to %d territories\n", selectedCount)
+	fmt.Printf("[MAP] Area selection applied to %d territories\n", selectedCount)
 }
 
 // applyRealtimeAreaSelection updates temporary territory highlights in real-time as the user drags
@@ -3723,7 +3859,7 @@ func (m *MapView) applyCurrentAreaSelection() {
 						// Deselection mode: remove territory from claims
 						if m.guildClaims != nil && m.guildClaims[territoryName] {
 							m.guildClaims[territoryName] = false
-							// fmt.Printf("[MAP] Deselected territory: %s\n", territoryName)
+							fmt.Printf("[MAP] Deselected territory: %s\n", territoryName)
 						}
 					} else {
 						// Selection mode: add territory to claims (only if not already claimed)
@@ -3732,7 +3868,7 @@ func (m *MapView) applyCurrentAreaSelection() {
 						}
 						if !m.guildClaims[territoryName] {
 							m.guildClaims[territoryName] = true
-							// fmt.Printf("[MAP] Selected territory: %s\n", territoryName)
+							fmt.Printf("[MAP] Selected territory: %s\n", territoryName)
 						}
 					}
 				}
