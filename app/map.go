@@ -2321,38 +2321,175 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 
 	// Tower Stats (collapsible) - Shows tower stats with current upgrades
 	towerStatsMenu := m.edgeMenu.CollapsibleMenu("Tower Stats", DefaultCollapsibleMenuOptions())
-	towerStatsMenu.Text(fmt.Sprintf("Damage: %.0f - %.0f", territory.TowerStats.Damage.Low, territory.TowerStats.Damage.High), DefaultTextOptions())
-	towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", territory.TowerStats.Damage.Low*2, territory.TowerStats.Damage.High*2), DefaultTextOptions())
-	towerStatsMenu.Text(fmt.Sprintf("Attack: %.1f/s", territory.TowerStats.Attack), DefaultTextOptions())
-	towerStatsMenu.Text(fmt.Sprintf("Health: %.0f", territory.TowerStats.Health), DefaultTextOptions())
-	towerStatsMenu.Text(fmt.Sprintf("Defence: %.1f%%", territory.TowerStats.Defence*100), DefaultTextOptions())
-	towerStatsMenu.Spacer(DefaultSpacerOptions())
-	// wynn's horrible math
+	// towerStatsMenu.Text(fmt.Sprintf("Damage: %.0f - %.0f", territory.TowerStats.Damage.Low, territory.TowerStats.Damage.High), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", territory.TowerStats.Damage.Low*2, territory.TowerStats.Damage.High*2), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Attack: %.1f/s", territory.TowerStats.Attack), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Health: %.0f", territory.TowerStats.Health), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Defence: %.1f%%", territory.TowerStats.Defence*100), DefaultTextOptions())
+	// towerStatsMenu.Spacer(DefaultSpacerOptions())
+	// // wynn's horrible math
 	averageDPS := territory.TowerStats.Attack * ((float64(territory.TowerStats.Damage.High)) + (float64(territory.TowerStats.Damage.Low))) / 2
-	towerStatsMenu.Text(fmt.Sprintf("Average DPS: %.0f", averageDPS), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Average DPS: %.0f", averageDPS), DefaultTextOptions())
 	averageDPS2 := territory.TowerStats.Attack * ((float64(territory.TowerStats.Damage.High * 2)) + (float64(territory.TowerStats.Damage.Low * 2))) / 2
-	towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", averageDPS2), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", averageDPS2), DefaultTextOptions())
 	ehp := territory.TowerStats.Health / (1.0 - territory.TowerStats.Defence)
-	towerStatsMenu.Text(fmt.Sprintf("Effective HP: %.0f", ehp), DefaultTextOptions())
+	// towerStatsMenu.Text(fmt.Sprintf("Effective HP: %.0f", ehp), DefaultTextOptions())
 
-	// Level and LevelInt
-	var levelString string
-	var levelColor color.RGBA
+	// Helper function to calculate configured tower stats (using Set values)
+	calculateConfiguredStats := func() typedef.TowerStats {
+		// Get the user-configured upgrade levels (Set values)
+		damageLevel := territory.Options.Upgrade.Set.Damage
+		attackLevel := territory.Options.Upgrade.Set.Attack
+		healthLevel := territory.Options.Upgrade.Set.Health
+		defenceLevel := territory.Options.Upgrade.Set.Defence
+
+		// Get upgrade multipliers from eruntime state
+		costs := eruntime.GetCost()
+		if costs == nil {
+			return typedef.TowerStats{} // Return empty stats if costs not available
+		}
+
+		// Clamp upgrade levels to valid ranges
+		if damageLevel < 0 {
+			damageLevel = 0
+		} else if damageLevel >= len(costs.UpgradeMultiplier.Damage) {
+			damageLevel = len(costs.UpgradeMultiplier.Damage) - 1
+		}
+
+		if attackLevel < 0 {
+			attackLevel = 0
+		} else if attackLevel >= len(costs.UpgradeMultiplier.Attack) {
+			attackLevel = len(costs.UpgradeMultiplier.Attack) - 1
+		}
+
+		if healthLevel < 0 {
+			healthLevel = 0
+		} else if healthLevel >= len(costs.UpgradeMultiplier.Health) {
+			healthLevel = len(costs.UpgradeMultiplier.Health) - 1
+		}
+
+		if defenceLevel < 0 {
+			defenceLevel = 0
+		} else if defenceLevel >= len(costs.UpgradeMultiplier.Defence) {
+			defenceLevel = len(costs.UpgradeMultiplier.Defence) - 1
+		}
+
+		// Base values
+		baseDamageLow := 1000.0
+		baseDamageHigh := 1500.0
+		baseAttack := 0.5
+		baseHealth := 300000.0
+		baseDefence := 0.1
+
+		// Apply upgrade multipliers using configured levels
+		damageMultiplier := costs.UpgradeMultiplier.Damage[damageLevel]
+		attackMultiplier := costs.UpgradeMultiplier.Attack[attackLevel]
+		healthMultiplier := costs.UpgradeMultiplier.Health[healthLevel]
+		defenceMultiplier := costs.UpgradeMultiplier.Defence[defenceLevel]
+
+		newDamageLow := baseDamageLow * damageMultiplier
+		newDamageHigh := baseDamageHigh * damageMultiplier
+		newAttack := baseAttack * attackMultiplier
+		newHealth := baseHealth * healthMultiplier
+		newDefence := baseDefence * defenceMultiplier
+
+		// Calculate link bonus and external connection bonus (same as simulation)
+		linkBonus := 1.0
+		if len(territory.Links.Direct) > 0 {
+			linkBonus = 1.0 + (0.3 * float64(len(territory.Links.Direct)))
+		}
+
+		// HQ external bonus calculation - matches eruntime/calculate1.go
+		externalBonus := 1.0
+		if territory.HQ {
+			if len(territory.Links.Externals) == 0 {
+				externalBonus = 1.5 // HQ base bonus of 50% (1 + 0.5)
+			} else {
+				// Base HQ bonus (50%) + 25% per external territory
+				externalBonus = 1.5 + (0.25 * float64(len(territory.Links.Externals)))
+			}
+		}
+
+		return typedef.TowerStats{
+			Damage: typedef.DamageRange{
+				Low:  newDamageLow * linkBonus * externalBonus,
+				High: newDamageHigh * linkBonus * externalBonus,
+			},
+			Attack:  newAttack,
+			Health:  newHealth * linkBonus * externalBonus,
+			Defence: newDefence,
+		}
+	}
+
+	// Get configured stats
+	configuredStats := calculateConfiguredStats()
+
+	// Configured display what the tower would be like with user-configured levels
+	configuredMenu := towerStatsMenu.CollapsibleMenu("Configured", DefaultCollapsibleMenuOptions())
+	configuredMenu.Text(fmt.Sprintf("Damage: %.0f - %.0f", configuredStats.Damage.Low, configuredStats.Damage.High), DefaultTextOptions())
+	configuredMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", configuredStats.Damage.Low*2, configuredStats.Damage.High*2), DefaultTextOptions())
+	configuredMenu.Text(fmt.Sprintf("Attack: %.1f/s", configuredStats.Attack), DefaultTextOptions())
+	configuredMenu.Text(fmt.Sprintf("Health: %.0f", configuredStats.Health), DefaultTextOptions())
+	configuredMenu.Text(fmt.Sprintf("Defence: %.1f%%", configuredStats.Defence*100), DefaultTextOptions())
+	configuredMenu.Spacer(DefaultSpacerOptions())
+	// Calculate averages for configured stats
+	configuredAvgDPS := configuredStats.Attack * ((configuredStats.Damage.High + configuredStats.Damage.Low) / 2)
+	configuredMenu.Text(fmt.Sprintf("Average DPS: %.0f", configuredAvgDPS), DefaultTextOptions())
+	configuredAvgDPS2 := configuredStats.Attack * ((configuredStats.Damage.High*2 + configuredStats.Damage.Low*2) / 2)
+	configuredMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", configuredAvgDPS2), DefaultTextOptions())
+	configuredEHP := configuredStats.Health / (1.0 - configuredStats.Defence)
+	configuredMenu.Text(fmt.Sprintf("Effective HP: %.0f", configuredEHP), DefaultTextOptions())
+	
+	// Add configured territory level (based on Set values)
+	var configuredLevelString string
+	var configuredLevelColor color.RGBA
+	switch territory.SetLevel {
+	case typedef.DefenceLevelVeryHigh:
+		configuredLevelString, configuredLevelColor = "Very High", color.RGBA{255, 0, 0, 255}
+	case typedef.DefenceLevelHigh:
+		configuredLevelString, configuredLevelColor = "High", color.RGBA{255, 128, 0, 255}
+	case typedef.DefenceLevelMedium:
+		configuredLevelString, configuredLevelColor = "Medium", color.RGBA{255, 255, 0, 255}
+	case typedef.DefenceLevelLow:
+		configuredLevelString, configuredLevelColor = "Low", color.RGBA{128, 255, 0, 255}
+	default: // typedef.DefenceLevelVeryLow
+		configuredLevelString, configuredLevelColor = "Very Low", color.RGBA{0, 255, 0, 255}
+	}
+	configuredLevelTextOptions := DefaultTextOptions()
+	configuredLevelTextOptions.Color = configuredLevelColor
+	configuredMenu.Text(fmt.Sprintf("%s (%d)", configuredLevelString, territory.SetLevelInt), configuredLevelTextOptions)
+
+	// Current, in contrast, display the actual stats based on affordability (from simulation)
+	currentMenu := towerStatsMenu.CollapsibleMenu("Current", DefaultCollapsibleMenuOptions())
+	currentMenu.Text(fmt.Sprintf("Damage: %.0f - %.0f", territory.TowerStats.Damage.Low, territory.TowerStats.Damage.High), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Wynn's Math Damage: %.0f - %.0f", territory.TowerStats.Damage.Low*2, territory.TowerStats.Damage.High*2), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Attack: %.1f/s", territory.TowerStats.Attack), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Health: %.0f", territory.TowerStats.Health), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Defence: %.1f%%", territory.TowerStats.Defence*100), DefaultTextOptions())
+	currentMenu.Spacer(DefaultSpacerOptions())
+	// Use the existing calculated averages for current stats
+	currentMenu.Text(fmt.Sprintf("Average DPS: %.0f", averageDPS), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", averageDPS2), DefaultTextOptions())
+	currentMenu.Text(fmt.Sprintf("Effective HP: %.0f", ehp), DefaultTextOptions())
+	
+	// Add current territory level (based on At values)
+	var currentLevelString string
+	var currentLevelColor color.RGBA
 	switch territory.Level {
 	case typedef.DefenceLevelVeryHigh:
-		levelString, levelColor = "Very High", color.RGBA{255, 0, 0, 255}
+		currentLevelString, currentLevelColor = "Very High", color.RGBA{255, 0, 0, 255}
 	case typedef.DefenceLevelHigh:
-		levelString, levelColor = "High", color.RGBA{255, 128, 0, 255}
+		currentLevelString, currentLevelColor = "High", color.RGBA{255, 128, 0, 255}
 	case typedef.DefenceLevelMedium:
-		levelString, levelColor = "Medium", color.RGBA{255, 255, 0, 255}
+		currentLevelString, currentLevelColor = "Medium", color.RGBA{255, 255, 0, 255}
 	case typedef.DefenceLevelLow:
-		levelString, levelColor = "Low", color.RGBA{128, 255, 0, 255}
+		currentLevelString, currentLevelColor = "Low", color.RGBA{128, 255, 0, 255}
 	default: // typedef.DefenceLevelVeryLow
-		levelString, levelColor = "Very Low", color.RGBA{0, 255, 0, 255}
+		currentLevelString, currentLevelColor = "Very Low", color.RGBA{0, 255, 0, 255}
 	}
-	levelTextOptions := DefaultTextOptions()
-	levelTextOptions.Color = levelColor
-	towerStatsMenu.Text(fmt.Sprintf("%s (%d)", levelString, territory.LevelInt), levelTextOptions)
+	currentLevelTextOptions := DefaultTextOptions()
+	currentLevelTextOptions.Color = currentLevelColor
+	currentMenu.Text(fmt.Sprintf("%s (%d)", currentLevelString, territory.LevelInt), currentLevelTextOptions)
 
 	// Links (collapsible) - Links to connections and externals
 	totalBonus := 0
@@ -2503,23 +2640,23 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 
 	// Create interactive resource storage controls
 	resourcesMenu.ResourceStorageControl("Emerald", "emeralds", territoryName,
-		int(territory.Storage.At.Emeralds), int(territory.Storage.Capacity.Emeralds) * 10, int(transitEmeralds), int(territoryStats.CurrentGeneration.Emeralds),
+		int(territory.Storage.At.Emeralds), int(territory.Storage.Capacity.Emeralds)*10, int(transitEmeralds), int(territoryStats.CurrentGeneration.Emeralds),
 		color.RGBA{0, 255, 0, 255}) // Green for emeralds
 
 	resourcesMenu.ResourceStorageControl("Ore", "ores", territoryName,
-		int(territory.Storage.At.Ores), int(territory.Storage.Capacity.Ores) * 10, int(transitOres), int(territoryStats.CurrentGeneration.Ores),
+		int(territory.Storage.At.Ores), int(territory.Storage.Capacity.Ores)*10, int(transitOres), int(territoryStats.CurrentGeneration.Ores),
 		color.RGBA{180, 180, 180, 255}) // Light grey for ores
 
 	resourcesMenu.ResourceStorageControl("Wood", "wood", territoryName,
-		int(territory.Storage.At.Wood), int(territory.Storage.Capacity.Wood) * 10, int(transitWood), int(territoryStats.CurrentGeneration.Wood),
+		int(territory.Storage.At.Wood), int(territory.Storage.Capacity.Wood)*10, int(transitWood), int(territoryStats.CurrentGeneration.Wood),
 		color.RGBA{139, 69, 19, 255}) // Brown for wood
 
 	resourcesMenu.ResourceStorageControl("Fish", "fish", territoryName,
-		int(territory.Storage.At.Fish), int(territory.Storage.Capacity.Fish) * 10, int(transitFish), int(territoryStats.CurrentGeneration.Fish),
+		int(territory.Storage.At.Fish), int(territory.Storage.Capacity.Fish)*10, int(transitFish), int(territoryStats.CurrentGeneration.Fish),
 		color.RGBA{0, 150, 255, 255}) // Blue for fish
 
 	resourcesMenu.ResourceStorageControl("Crop", "crops", territoryName,
-		int(territory.Storage.At.Crops), int(territory.Storage.Capacity.Crops) * 10, int(transitCrops), int(territoryStats.CurrentGeneration.Crops),
+		int(territory.Storage.At.Crops), int(territory.Storage.Capacity.Crops)*10, int(transitCrops), int(territoryStats.CurrentGeneration.Crops),
 		color.RGBA{255, 255, 0, 255}) // Yellow for crops
 
 	// Trading Routes (collapsible)
