@@ -22,22 +22,20 @@ import (
 )
 
 // LoadoutData represents a territory loadout configuration
-type LoadoutData struct {
-	Name                     string `json:"name"`
-	typedef.TerritoryOptions `json:"options"`
-}
+// Note: This is now an alias to typedef.Loadout for consistency
+type LoadoutData = typedef.Loadout
 
 // LoadoutImportExport represents the file format for import/export
 type LoadoutImportExport struct {
-	Type     string        `json:"type"`    // "loadouts"
-	Version  string        `json:"version"` // "1.0"
-	Loadouts []LoadoutData `json:"loadouts"`
+	Type     string            `json:"type"`    // "loadouts"
+	Version  string            `json:"version"` // "1.0"
+	Loadouts []typedef.Loadout `json:"loadouts"`
 }
 
 // LoadoutManager manages territory loadouts similar to guild management
 type LoadoutManager struct {
 	visible             bool
-	loadouts            []LoadoutData
+	loadouts            []typedef.Loadout
 	selectedIndex       int
 	nameInput           *EnhancedTextInput
 	scrollOffset        int
@@ -45,7 +43,8 @@ type LoadoutManager struct {
 	showColorPicker     bool
 	editSideMenuVisible bool
 	editSideMenu        *EdgeMenu
-	editingLoadout      *LoadoutData // Copy of loadout being edited
+	editingLoadout      *typedef.Loadout // Copy of loadout being edited
+	editNameInput       string           // Current value of the name input in the edit side menu
 
 	// Loadout application mode
 	isApplyingLoadout    bool
@@ -70,7 +69,7 @@ type LoadoutManager struct {
 func NewLoadoutManager() *LoadoutManager {
 	lm := &LoadoutManager{
 		visible:              false,
-		loadouts:             make([]LoadoutData, 0),
+		loadouts:             make([]typedef.Loadout, 0),
 		selectedIndex:        -1,
 		editingIndex:         -1,
 		showColorPicker:      false,
@@ -508,7 +507,7 @@ func (lm *LoadoutManager) editLoadout(index int) {
 	}
 
 	lm.editingIndex = index
-	lm.editingLoadout = &LoadoutData{}
+	lm.editingLoadout = &typedef.Loadout{}
 
 	// fmt.Printf("[LOADOUT] About to copy loadout[%d]\n", index)
 	// fmt.Printf("[LOADOUT] Source loadout name: %s\n", lm.loadouts[index].Name)
@@ -784,12 +783,12 @@ func (lm *LoadoutManager) StopLoadoutApplication() {
 
 			// fmt.Printf("[LOADOUT] Applying loadout to territory: %s (mode: %s)\n", territoryName, lm.applyingLoadoutMode)
 			// fmt.Printf("[LOADOUT] Final upgrades: Damage=%d, Attack=%d, Health=%d, Defence=%d\n",
-				// opts.Upgrades.Damage, opts.Upgrades.Attack, opts.Upgrades.Health, opts.Upgrades.Defence)
+			// opts.Upgrades.Damage, opts.Upgrades.Attack, opts.Upgrades.Health, opts.Upgrades.Defence)
 			// fmt.Printf("[LOADOUT] Final bonuses: MultiAttack=%d, GatheringXP=%d, MobXP=%d, MobDmg=%d, PvPDmg=%d\n",
-				// opts.Bonuses.TowerMultiAttack, opts.Bonuses.GatheringExperience,
-				// opts.Bonuses.MobExperience, opts.Bonuses.MobDamage, opts.Bonuses.PvPDamage)
+			// opts.Bonuses.TowerMultiAttack, opts.Bonuses.GatheringExperience,
+			// opts.Bonuses.MobExperience, opts.Bonuses.MobDamage, opts.Bonuses.PvPDamage)
 			// fmt.Printf("[LOADOUT] Final seeking: XP=%d, Tome=%d, Emerald=%d\n",
-				// opts.Bonuses.XPSeeking, opts.Bonuses.TomeSeeking, opts.Bonuses.EmeraldSeeking)
+			// opts.Bonuses.XPSeeking, opts.Bonuses.TomeSeeking, opts.Bonuses.EmeraldSeeking)
 
 			result := eruntime.Set(territoryName, opts)
 			if result != nil {
@@ -1452,22 +1451,22 @@ func (lm *LoadoutManager) loadFromFile() {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		// File doesn't exist or can't be read, start with empty loadouts
-		lm.loadouts = make([]LoadoutData, 0)
+		lm.loadouts = make([]typedef.Loadout, 0)
 		return
 	}
 
 	var importData LoadoutImportExport
 	err = json.Unmarshal(data, &importData)
 	if err != nil {
-		// fmt.Printf("Error parsing loadouts file: %v\n", err)
-		lm.loadouts = make([]LoadoutData, 0)
+		fmt.Printf("Error parsing loadouts file: %v\n", err)
+		lm.loadouts = make([]typedef.Loadout, 0)
 		return
 	}
 
 	// Validate file type
 	if importData.Type != "loadouts" {
-		// fmt.Printf("Invalid file type: %s (expected: loadouts)\n", importData.Type)
-		lm.loadouts = make([]LoadoutData, 0)
+		fmt.Printf("Invalid file type: %s (expected: loadouts)\n", importData.Type)
+		lm.loadouts = make([]typedef.Loadout, 0)
 		return
 	}
 
@@ -1651,6 +1650,9 @@ func (lm *LoadoutManager) showEditSideMenu() {
 
 	lm.editSideMenuVisible = true
 
+	// Initialize the name input with current loadout name
+	lm.editNameInput = lm.editingLoadout.Name
+
 	// Create a new EdgeMenu for editing - positioned on the RIGHT like territory menu
 	options := DefaultEdgeMenuOptions()
 	options.Width = 400                              // Same as territory menu
@@ -1670,12 +1672,21 @@ func (lm *LoadoutManager) showEditSideMenu() {
 
 // hideEditSideMenu hides the edit side menu
 func (lm *LoadoutManager) hideEditSideMenu() {
+	// Sync any final changes before hiding
+	if lm.editingLoadout != nil && lm.editingIndex >= 0 && lm.editingIndex < len(lm.loadouts) {
+		// Ensure the main loadout slice has all the latest changes
+		lm.loadouts[lm.editingIndex] = *lm.editingLoadout
+		// Save to file one final time
+		lm.saveToFile()
+	}
+
 	if lm.editSideMenu != nil {
 		lm.editSideMenu.Hide()
 	}
 	lm.editSideMenuVisible = false
 	lm.editingIndex = -1
 	lm.editingLoadout = nil
+	lm.editNameInput = ""
 
 	// Clean up the fake "loadout" territory
 	// Note: eruntime.Remove() or similar might not exist, so we could just leave it
@@ -1701,6 +1712,37 @@ func (lm *LoadoutManager) buildEditSideMenuContent() {
 	instructionOptions := DefaultTextOptions()
 	instructionOptions.Color = color.RGBA{200, 200, 200, 255}
 	lm.editSideMenu.Text("Configure the settings for this loadout:", instructionOptions)
+
+	// Add loadout name input field
+	nameInputOptions := DefaultTextInputOptions()
+	nameInputOptions.Width = 300
+	nameInputOptions.Placeholder = "Enter loadout name"
+	nameInputOptions.MaxLength = 50
+	lm.editSideMenu.TextInput("Loadout Name", lm.editNameInput, nameInputOptions, func(value string) {
+		// Update the name input value
+		lm.editNameInput = strings.TrimSpace(value)
+
+		// Update the loadout name if not empty
+		if lm.editNameInput != "" {
+			lm.editingLoadout.Name = lm.editNameInput
+
+			// Update the corresponding loadout in the main slice
+			if lm.editingIndex >= 0 && lm.editingIndex < len(lm.loadouts) {
+				lm.loadouts[lm.editingIndex].Name = lm.editNameInput
+			}
+
+			// Update the menu title to reflect the new name
+			lm.editSideMenu.SetTitle(fmt.Sprintf("Loadout: %s", lm.editingLoadout.Name))
+
+			// Save the changes immediately
+			lm.saveToFile()
+		}
+	})
+
+	// Add a spacer between name input and upgrades
+	nameSpacerOptions := DefaultSpacerOptions()
+	nameSpacerOptions.Height = 10
+	lm.editSideMenu.Spacer(nameSpacerOptions)
 
 	// Upgrades (collapsible) - Custom controls that directly update loadout
 	upgradesMenu := lm.editSideMenu.CollapsibleMenu("Upgrades", DefaultCollapsibleMenuOptions())
@@ -1880,7 +1922,7 @@ func (lm *LoadoutManager) buildEditSideMenuContent() {
 func (lm *LoadoutManager) saveEditChanges() {
 	if lm.editingIndex < 0 || lm.editingIndex >= len(lm.loadouts) || lm.editingLoadout == nil {
 		// fmt.Printf("[LOADOUT] Cannot save: editingIndex=%d, loadouts count=%d, editingLoadout nil=%v\n",
-			// lm.editingIndex, len(lm.loadouts), lm.editingLoadout == nil)
+		// lm.editingIndex, len(lm.loadouts), lm.editingLoadout == nil)
 		return
 	}
 
@@ -2174,19 +2216,19 @@ func debugCostInfo() {
 	// costs := eruntime.GetCost()
 	// fmt.Printf("[DEBUG] Cost info:\n")
 	// fmt.Printf("  GatheringExperience MaxLevel: %d, Cost array length: %d\n",
-		// costs.Bonuses.GatheringExperience.MaxLevel, len(costs.Bonuses.GatheringExperience.Cost))
+	// costs.Bonuses.GatheringExperience.MaxLevel, len(costs.Bonuses.GatheringExperience.Cost))
 	// fmt.Printf("  MobExperience MaxLevel: %d, Cost array length: %d\n",
-		// costs.Bonuses.MobExperience.MaxLevel, len(costs.Bonuses.MobExperience.Cost))
+	// costs.Bonuses.MobExperience.MaxLevel, len(costs.Bonuses.MobExperience.Cost))
 	// fmt.Printf("  MobDamage MaxLevel: %d, Cost array length: %d\n",
-		// costs.Bonuses.MobDamage.MaxLevel, len(costs.Bonuses.MobDamage.Cost))
+	// costs.Bonuses.MobDamage.MaxLevel, len(costs.Bonuses.MobDamage.Cost))
 	// fmt.Printf("  PvPDamage MaxLevel: %d, Cost array length: %d\n",
-		// costs.Bonuses.PvPDamage.MaxLevel, len(costs.Bonuses.PvPDamage.Cost))
+	// costs.Bonuses.PvPDamage.MaxLevel, len(costs.Bonuses.PvPDamage.Cost))
 	// fmt.Printf("  XPSeeking MaxLevel: %d, Cost array length: %d\n",
-		// costs.Bonuses.XPSeeking.MaxLevel, len(costs.Bonuses.XPSeeking.Cost))
+	// costs.Bonuses.XPSeeking.MaxLevel, len(costs.Bonuses.XPSeeking.Cost))
 	// fmt.Printf("  TomeSeeking MaxLevel: %d, Cost array length: %d\n",
-		// costs.Bonuses.TomeSeeking.MaxLevel, len(costs.Bonuses.TomeSeeking.Cost))
+	// costs.Bonuses.TomeSeeking.MaxLevel, len(costs.Bonuses.TomeSeeking.Cost))
 	// fmt.Printf("  EmeraldsSeeking MaxLevel: %d, Cost array length: %d\n",
-		// costs.Bonuses.EmeraldsSeeking.MaxLevel, len(costs.Bonuses.EmeraldsSeeking.Cost))
+	// costs.Bonuses.EmeraldsSeeking.MaxLevel, len(costs.Bonuses.EmeraldsSeeking.Cost))
 }
 
 // GetSelectedTerritories returns the currently selected territories for loadout application
@@ -2225,4 +2267,48 @@ func (lm *LoadoutManager) AddTerritorySelection(territoryName string) {
 		lm.selectedTerritories = make(map[string]bool)
 	}
 	lm.selectedTerritories[territoryName] = true
+}
+
+// GetLoadouts returns a copy of the current loadouts for state saving
+func (lm *LoadoutManager) GetLoadouts() []typedef.Loadout {
+	return append([]typedef.Loadout(nil), lm.loadouts...)
+}
+
+// SetLoadouts sets the loadouts from state loading
+func (lm *LoadoutManager) SetLoadouts(loadouts []typedef.Loadout) {
+	if loadouts != nil {
+		lm.loadouts = append([]typedef.Loadout(nil), loadouts...)
+	} else {
+		lm.loadouts = make([]typedef.Loadout, 0)
+	}
+}
+
+// MergeLoadouts merges loadouts from state file, preserving existing ones with same names
+func (lm *LoadoutManager) MergeLoadouts(incomingLoadouts []typedef.Loadout) {
+	if incomingLoadouts == nil {
+		return
+	}
+
+	// Create a map of existing loadout names for fast lookup
+	existingNames := make(map[string]bool)
+	for _, existingLoadout := range lm.loadouts {
+		existingNames[existingLoadout.Name] = true
+	}
+
+	// Add only new loadouts (ones that don't exist with the same name)
+	newLoadouts := make([]typedef.Loadout, 0)
+	for _, incomingLoadout := range incomingLoadouts {
+		if !existingNames[incomingLoadout.Name] {
+			newLoadouts = append(newLoadouts, incomingLoadout)
+		}
+	}
+
+	// Append new loadouts to existing ones
+	lm.loadouts = append(lm.loadouts, newLoadouts...)
+
+	// Save the merged loadouts to file
+	lm.saveToFile()
+
+	fmt.Printf("[LOADOUT] Merged %d new loadouts, kept %d existing loadouts\n",
+		len(newLoadouts), len(lm.loadouts)-len(newLoadouts))
 }
