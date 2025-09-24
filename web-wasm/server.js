@@ -3,9 +3,31 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const path = require('path');
 const cors = require('cors');
 const https = require('https');
+const compression = require('compression');
 
 const app = express();
 const PORT = 8099;
+
+// Enable compression for all responses
+app.use(compression({
+    filter: (req, res) => {
+        // Always compress WASM files and other static assets
+        if (req.url.endsWith('.wasm')) {
+            return true;
+        }
+        // Use default compression filter for other files
+        return compression.filter(req, res);
+    },
+    // Compression level (1-9, where 9 is best compression but slowest)
+    level: 3,
+    // Minimum size threshold for compression (bytes)
+    threshold: 1024,
+    // Enable brotli compression if client supports it
+    brotli: {
+        enabled: true,
+        quality: 6 // Brotli quality (0-11, where 11 is best compression)
+    }
+}));
 
 // Enable CORS for all routes
 app.use(cors({
@@ -27,6 +49,17 @@ app.use((req, res, next) => {
     } else {
         next();
     }
+});
+
+// Add middleware to handle conditional requests for better caching
+app.use((req, res, next) => {
+    // Log cache-related headers for debugging
+    if (req.headers['if-modified-since'] || req.headers['if-none-match']) {
+        console.log(`🔄 Cache validation request for: ${req.path}`);
+        console.log(`   If-Modified-Since: ${req.headers['if-modified-since'] || 'none'}`);
+        console.log(`   If-None-Match: ${req.headers['if-none-match'] || 'none'}`);
+    }
+    next();
 });
 
 // Set up proxy routes BEFORE static file serving to ensure they take precedence
@@ -155,27 +188,45 @@ app.use('/api/athena', createProxyMiddleware({
     },
 }));
 
-// MIME type mapping with explicit WASM support
+// MIME type mapping with explicit WASM support and caching
 app.use(express.static('.', {
     setHeaders: (res, path, stat) => {
         if (path.endsWith('.wasm')) {
             res.set('Content-Type', 'application/wasm');
-            // Stronger cache-busting for WASM files during development
-            res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
-            res.set('Pragma', 'no-cache');
-            res.set('Expires', '0');
-            res.set('Last-Modified', new Date().toUTCString());
+            // Cache WASM files for 1 hour in production, allow revalidation
+            res.set('Cache-Control', 'public, max-age=3600, must-revalidate');
+            // Set ETag for cache validation based on file modification time and size
+            const etag = `"${stat.mtime.getTime().toString(16)}-${stat.size.toString(16)}"`;
+            res.set('ETag', etag);
+            // Set Last-Modified header for conditional requests
+            res.set('Last-Modified', stat.mtime.toUTCString());
+        } else if (path.endsWith('.js') || path.endsWith('.css')) {
+            // Cache JS/CSS files for 30 minutes
+            res.set('Cache-Control', 'public, max-age=1800, must-revalidate');
+            const etag = `"${stat.mtime.getTime().toString(16)}-${stat.size.toString(16)}"`;
+            res.set('ETag', etag);
+            res.set('Last-Modified', stat.mtime.toUTCString());
+        } else if (path.match(/\.(png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/)) {
+            // Cache static assets for 24 hours
+            res.set('Cache-Control', 'public, max-age=86400, immutable');
+            const etag = `"${stat.mtime.getTime().toString(16)}-${stat.size.toString(16)}"`;
+            res.set('ETag', etag);
+            res.set('Last-Modified', stat.mtime.toUTCString());
+        } else {
+            // Default: cache HTML and other files for 5 minutes
+            res.set('Cache-Control', 'public, max-age=300, must-revalidate');
+            const etag = `"${stat.mtime.getTime().toString(16)}-${stat.size.toString(16)}"`;
+            res.set('ETag', etag);
+            res.set('Last-Modified', stat.mtime.toUTCString());
         }
-        // Set CORS and security headers
+        
+        // Set CORS and security headers for all files
         res.set('Cross-Origin-Embedder-Policy', 'require-corp');
         res.set('Cross-Origin-Opener-Policy', 'same-origin');
-        // Default cache control for other files
-        if (!path.endsWith('.wasm')) {
-            res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-            res.set('Pragma', 'no-cache');
-            res.set('Expires', '0');
-        }
-    }
+    },
+    // Enable conditional requests (If-Modified-Since, If-None-Match)
+    lastModified: true,
+    etag: true
 }));
 
 // Generic API proxy for other API-like paths (fallback)
@@ -219,6 +270,14 @@ app.listen(PORT, () => {
     console.log(`🌍 Direct domain proxies:`);
     console.log(`   - /v3/* -> https://api.wynncraft.com/v3/*`);
     console.log(`   - /cache/* -> https://athena.wynntils.com/cache/*`);
+    console.log('');
+    console.log('🗜️  Compression: Enabled (gzip/brotli)');
+    console.log('💾 Caching strategy:');
+    console.log('   - WASM files: 1 hour (3600s)');
+    console.log('   - JS/CSS files: 30 minutes (1800s)');
+    console.log('   - Static assets: 24 hours (86400s)');
+    console.log('   - HTML/Other: 5 minutes (300s)');
+    console.log('   - ETags enabled for cache validation');
     console.log('');
     
     console.log('🎮 Open http://localhost:8099 in your browser');
