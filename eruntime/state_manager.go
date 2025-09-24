@@ -14,7 +14,21 @@ import (
 	"github.com/pierrec/lz4"
 )
 
-var supportedStateVersion = []string{"1.0", "1.1", "1.2"}
+var supportedStateVersion = []string{"1.0", "1.1", "1.2", "1.3"}
+
+// Callback functions for user data that persists through resets
+var (
+	getLoadoutsCallback   func() []typedef.Loadout
+	setLoadoutsCallback   func([]typedef.Loadout)
+	mergeLoadoutsCallback func([]typedef.Loadout) // Merges loadouts, keeping existing ones with same names
+)
+
+// SetLoadoutCallbacks sets the callback functions for loadout persistence
+func SetLoadoutCallbacks(getFunc func() []typedef.Loadout, setFunc func([]typedef.Loadout), mergeFunc func([]typedef.Loadout)) {
+	getLoadoutsCallback = getFunc
+	setLoadoutsCallback = setFunc
+	mergeLoadoutsCallback = mergeFunc
+}
 
 // StateData represents the complete state that can be saved/loaded
 type StateData struct {
@@ -33,6 +47,9 @@ type StateData struct {
 	// Additional metadata
 	TotalTerritories int `json:"totalTerritories"`
 	TotalGuilds      int `json:"totalGuilds"`
+
+	// Persistent user data (version 1.3+)
+	Loadouts []typedef.Loadout `json:"loadouts,omitempty"` // Loadouts persist through resets
 }
 
 // SaveStateToFile saves the current state to a file with LZ4 compression
@@ -46,7 +63,7 @@ func SaveStateToFile(filepath string) error {
 
 	// Quick copy of basic state data (no deep copying yet)
 	stateData.Type = "state_save"
-	stateData.Version = "1.2"
+	stateData.Version = "1.3"
 	stateData.Timestamp = time.Now()
 	stateData.Tick = st.tick
 	stateData.RuntimeOptions = st.runtimeOptions
@@ -181,6 +198,12 @@ func SaveStateToFile(filepath string) error {
 		}
 	}
 
+	// Copy user loadouts (version 1.3+) - these persist through resets
+	if getLoadoutsCallback != nil {
+		stateData.Loadouts = getLoadoutsCallback()
+		fmt.Printf("[STATE] Saved %d loadouts to state\n", len(stateData.Loadouts))
+	}
+
 	// All the expensive operations (JSON marshal, compression, file write) happen
 	// without holding any locks, so users can continue working
 
@@ -311,7 +334,6 @@ func LoadStateFromFile(filepath string) error {
 	st.activeTributes = stateData.ActiveTributes
 	st.runtimeOptions = stateData.RuntimeOptions
 
-
 	// Rebuild territory map for fast lookups
 	TerritoryMap = make(map[string]*typedef.Territory)
 	st.territoryMap = make(map[string]*typedef.Territory)
@@ -358,6 +380,13 @@ func LoadStateFromFile(filepath string) error {
 		NotifyTerritoryColorsUpdate()
 		fmt.Printf("[STATE] State loading completed, notifications sent\n")
 	}()
+
+	// Load persistent user data (loadouts) - version 1.3+
+	// Use merge strategy to preserve existing user loadouts with same names
+	if mergeLoadoutsCallback != nil && stateData.Loadouts != nil {
+		mergeLoadoutsCallback(stateData.Loadouts)
+		fmt.Printf("[STATE] Merged %d loadouts from state\n", len(stateData.Loadouts))
+	}
 
 	fmt.Printf("[STATE] Monitoring HQ status for the next few seconds after state load...\n")
 	go func() {

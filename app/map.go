@@ -2503,23 +2503,23 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 
 	// Create interactive resource storage controls
 	resourcesMenu.ResourceStorageControl("Emerald", "emeralds", territoryName,
-		int(territory.Storage.At.Emeralds), int(territory.Storage.Capacity.Emeralds), int(transitEmeralds), int(territoryStats.CurrentGeneration.Emeralds),
+		int(territory.Storage.At.Emeralds), int(territory.Storage.Capacity.Emeralds) * 10, int(transitEmeralds), int(territoryStats.CurrentGeneration.Emeralds),
 		color.RGBA{0, 255, 0, 255}) // Green for emeralds
 
 	resourcesMenu.ResourceStorageControl("Ore", "ores", territoryName,
-		int(territory.Storage.At.Ores), int(territory.Storage.Capacity.Ores), int(transitOres), int(territoryStats.CurrentGeneration.Ores),
+		int(territory.Storage.At.Ores), int(territory.Storage.Capacity.Ores) * 10, int(transitOres), int(territoryStats.CurrentGeneration.Ores),
 		color.RGBA{180, 180, 180, 255}) // Light grey for ores
 
 	resourcesMenu.ResourceStorageControl("Wood", "wood", territoryName,
-		int(territory.Storage.At.Wood), int(territory.Storage.Capacity.Wood), int(transitWood), int(territoryStats.CurrentGeneration.Wood),
+		int(territory.Storage.At.Wood), int(territory.Storage.Capacity.Wood) * 10, int(transitWood), int(territoryStats.CurrentGeneration.Wood),
 		color.RGBA{139, 69, 19, 255}) // Brown for wood
 
 	resourcesMenu.ResourceStorageControl("Fish", "fish", territoryName,
-		int(territory.Storage.At.Fish), int(territory.Storage.Capacity.Fish), int(transitFish), int(territoryStats.CurrentGeneration.Fish),
+		int(territory.Storage.At.Fish), int(territory.Storage.Capacity.Fish) * 10, int(transitFish), int(territoryStats.CurrentGeneration.Fish),
 		color.RGBA{0, 150, 255, 255}) // Blue for fish
 
 	resourcesMenu.ResourceStorageControl("Crop", "crops", territoryName,
-		int(territory.Storage.At.Crops), int(territory.Storage.Capacity.Crops), int(transitCrops), int(territoryStats.CurrentGeneration.Crops),
+		int(territory.Storage.At.Crops), int(territory.Storage.Capacity.Crops) * 10, int(transitCrops), int(territoryStats.CurrentGeneration.Crops),
 		color.RGBA{255, 255, 0, 255}) // Yellow for crops
 
 	// Trading Routes (collapsible)

@@ -12,6 +12,7 @@ import (
 	"etools/assets"
 	"etools/eruntime"
 	"etools/fonts"
+	"etools/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -635,6 +636,19 @@ func New() *Game {
 
 	// Initialize global file system manager for state save/load
 	InitializeFileSystemManager(inputManager)
+
+	// Initialize loadout persistence callbacks
+	eruntime.SetLoadoutCallbacks(
+		func() []typedef.Loadout {
+			return GetLoadoutManager().GetLoadouts()
+		},
+		func(loadouts []typedef.Loadout) {
+			GetLoadoutManager().SetLoadouts(loadouts)
+		},
+		func(loadouts []typedef.Loadout) {
+			GetLoadoutManager().MergeLoadouts(loadouts)
+		},
+	)
 
 	game := &Game{
 		state: &State{

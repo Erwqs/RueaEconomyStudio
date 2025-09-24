@@ -2,7 +2,6 @@ package eruntime
 
 import (
 	"etools/typedef"
-	"runtime"
 )
 
 // ResourceTraversalAndTax is called every 60 ticks from update2()
@@ -130,26 +129,23 @@ func handleDeficit(territory *typedef.Territory, hqs []*typedef.Territory) {
 		return // No valid route
 	}
 	// Calculate how much is needed at destination (deficit)
-	// Send 60 ticks worth of deficit resources
-	if territory.Name == "Detlas" {
-		runtime.Breakpoint()
-	}
+	// Send 59 ticks worth of deficit resources
 
 	deficit := typedef.BasicResources{}
 	if territory.Net.Emeralds < 0 {
-		deficit.Emeralds = -territory.Net.Emeralds * 60 // 60 ticks worth
+		deficit.Emeralds = -territory.Net.Emeralds * 59 // 60 ticks worth
 	}
 	if territory.Net.Ores < 0 {
-		deficit.Ores = -territory.Net.Ores * 60
+		deficit.Ores = -territory.Net.Ores * 59
 	}
 	if territory.Net.Wood < 0 {
-		deficit.Wood = -territory.Net.Wood * 60
+		deficit.Wood = -territory.Net.Wood * 59
 	}
 	if territory.Net.Fish < 0 {
-		deficit.Fish = -territory.Net.Fish * 60
+		deficit.Fish = -territory.Net.Fish * 59
 	}
 	if territory.Net.Crops < 0 {
-		deficit.Crops = -territory.Net.Crops * 60
+		deficit.Crops = -territory.Net.Crops * 59
 	}
 	// Calculate total tax along the route
 	totalTax := 1.0

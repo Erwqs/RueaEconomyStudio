@@ -446,8 +446,11 @@ type EnhancedGuildManager struct {
 	lastClickIndex int
 
 	// Territory listing modal
-	territoryModalVisible      bool
-	territoryModalGuild        *EnhancedGuildData
+	territoryModalVisible bool
+	territoryModalGuild   *EnhancedGuildData
+
+	// Guild filtering options
+	showOnMapGuildsOnly        bool // Toggle to show only guilds that have territories
 	territoryList              []string
 	territoryScrollOffset      int
 	territoryHoveredIndex      int
@@ -507,14 +510,17 @@ func NewEnhancedGuildManager() *EnhancedGuildManager {
 		lastClickTime:  time.Time{},
 		lastClickIndex: -1,
 		// Initialize territory modal
-		territoryModalVisible:      false,
-		territoryModalGuild:        nil,
-		territoryList:              []string{},
-		territoryScrollOffset:      0,
-		territoryHoveredIndex:      -1,
-		territorySelectedIndex:     -1,
-		territoryModalWidth:        500,
-		territoryModalHeight:       400,
+		territoryModalVisible:  false,
+		territoryModalGuild:    nil,
+		territoryList:          []string{},
+		territoryScrollOffset:  0,
+		territoryHoveredIndex:  -1,
+		territorySelectedIndex: -1,
+		territoryModalWidth:    500,
+		territoryModalHeight:   400,
+
+		// Initialize guild filtering
+		showOnMapGuildsOnly:        false, // Start with showing all guilds
 		territoryScrollbarDragging: false,
 		territoryDragStartY:        0,
 		territoryDragStartOffset:   0,
@@ -658,7 +664,7 @@ func (gm *EnhancedGuildManager) Update() bool {
 		// Only scroll if mouse is in modal and not dragging scrollbar
 		if inModal && !gm.scrollbarDragging {
 			// Check if scrollbar is needed
-			maxVisibleItems := (gm.modalHeight - 180) / 35
+			maxVisibleItems := (gm.modalHeight - 215) / 35
 			if len(gm.filteredGuilds) > maxVisibleItems {
 				// Handle scrollbar interaction first
 				scrollbarX := gm.modalX + gm.modalWidth - 15
@@ -688,9 +694,9 @@ func (gm *EnhancedGuildManager) Update() bool {
 
 	// Handle scrollbar dragging
 	if gm.scrollbarDragging && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		maxVisibleItems := (gm.modalHeight - 180) / 35
+		maxVisibleItems := (gm.modalHeight - 215) / 35
 		if len(gm.filteredGuilds) > maxVisibleItems {
-			scrollbarHeight := gm.modalHeight - 160
+			scrollbarHeight := gm.modalHeight - 195
 			deltaY := my - gm.dragStartY
 
 			// Calculate scroll change based on drag distance
@@ -735,12 +741,12 @@ func (gm *EnhancedGuildManager) Update() bool {
 		}
 
 		// Handle scrollbar clicks (high priority)
-		maxVisibleItems := (gm.modalHeight - 180) / 35
+		maxVisibleItems := (gm.modalHeight - 215) / 35
 		if len(gm.filteredGuilds) > maxVisibleItems {
 			scrollbarX := gm.modalX + gm.modalWidth - 15
 			scrollbarWidth := 8
-			scrollbarHeight := gm.modalHeight - 160
-			scrollbarY := gm.modalY + 140
+			scrollbarHeight := gm.modalHeight - 195
+			scrollbarY := gm.modalY + 175
 
 			if mx >= scrollbarX && mx <= scrollbarX+scrollbarWidth &&
 				my >= scrollbarY && my <= scrollbarY+scrollbarHeight {
@@ -900,10 +906,10 @@ keyEventsProcessed:
 		// Check for hovering/clicking on guild items
 		if len(gm.filteredGuilds) > 0 {
 			itemHeight := 35
-			listStartY := gm.modalY + 140
+			listStartY := gm.modalY + 175
 
 			// Calculate which items are visible based on scroll offset
-			maxVisibleItems := (gm.modalHeight - 180) / itemHeight
+			maxVisibleItems := (gm.modalHeight - 215) / itemHeight
 
 			for i := 0; i < len(gm.filteredGuilds) && i < maxVisibleItems; i++ {
 				itemIndex := i + gm.scrollOffset
@@ -1053,6 +1059,25 @@ keyEventsProcessed:
 			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && !gm.apiImportInProgress {
 				// Add guild only if not importing
 				gm.addGuild(gm.nameInput.Value, gm.tagInput.Value)
+				return true
+			}
+		}
+
+		// Handle toggle button click
+		toggleButtonRect := Rect{
+			X:      gm.modalX + 30,
+			Y:      gm.modalY + 125,
+			Width:  120,
+			Height: 25,
+		}
+
+		if mx >= toggleButtonRect.X && mx < toggleButtonRect.X+toggleButtonRect.Width &&
+			my >= toggleButtonRect.Y && my < toggleButtonRect.Y+toggleButtonRect.Height {
+			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+				// Toggle the filter
+				gm.showOnMapGuildsOnly = !gm.showOnMapGuildsOnly
+				// Re-filter the guilds with the new setting
+				gm.filterGuilds()
 				return true
 			}
 		}
@@ -1218,17 +1243,55 @@ func (gm *EnhancedGuildManager) Draw(screen *ebiten.Image) {
 		addButtonRect.Y+(addButtonRect.Height+addTextBounds.Dy())/2-2,
 		addTextColor)
 
+	// Draw On Map Only toggle button
+	toggleButtonRect := Rect{
+		X:      gm.modalX + 30,
+		Y:      gm.modalY + 125,
+		Width:  120,
+		Height: 25,
+	}
+
+	toggleButtonColor := color.RGBA{70, 70, 80, 255} // Default grey
+	toggleTextColor := EnhancedUIColors.Text
+	toggleText := "Showing All Guilds"
+
+	if gm.showOnMapGuildsOnly {
+		toggleButtonColor = color.RGBA{80, 192, 80, 255} // Green when active
+		toggleText = "Zinnig Mode On"
+	}
+
+	if mx >= toggleButtonRect.X && mx < toggleButtonRect.X+toggleButtonRect.Width &&
+		my >= toggleButtonRect.Y && my < toggleButtonRect.Y+toggleButtonRect.Height {
+		if gm.showOnMapGuildsOnly {
+			toggleButtonColor = color.RGBA{100, 227, 100, 255} // Lighter green on hover
+		} else {
+			toggleButtonColor = color.RGBA{90, 90, 100, 255} // Lighter grey on hover
+		}
+	}
+
+	vector.DrawFilledRect(screen, float32(toggleButtonRect.X), float32(toggleButtonRect.Y),
+		float32(toggleButtonRect.Width), float32(toggleButtonRect.Height), toggleButtonColor, false)
+
+	vector.StrokeRect(screen, float32(toggleButtonRect.X), float32(toggleButtonRect.Y),
+		float32(toggleButtonRect.Width), float32(toggleButtonRect.Height), 2, EnhancedUIColors.Border, false)
+
+	toggleTextBounds := text.BoundString(contentFont, toggleText)
+	text.Draw(screen, toggleText, contentFont,
+		toggleButtonRect.X+(toggleButtonRect.Width-toggleTextBounds.Dx())/2,
+		toggleButtonRect.Y+(toggleButtonRect.Height+toggleTextBounds.Dy())/2-2,
+		toggleTextColor)
+
 	// Draw guild list heading
 	listHeading := fmt.Sprintf("Guilds (%d)", len(gm.filteredGuilds))
-	text.Draw(screen, listHeading, contentFont, gm.modalX+30, gm.modalY+130+contentOffset, EnhancedUIColors.Text)
+	text.Draw(screen, listHeading, contentFont, gm.modalX+30, gm.modalY+165+contentOffset, EnhancedUIColors.Text)
 
 	// Draw guild list
 	if len(gm.filteredGuilds) > 0 {
 		itemHeight := 35
-		listStartY := gm.modalY + 140
+		listStartY := gm.modalY + 175
 
 		// Calculate which items are visible based on scroll offset
-		maxVisibleItems := (gm.modalHeight - 180) / itemHeight
+		maxVisibleItems := (gm.modalHeight - 215) / itemHeight
 		//fmt.Printf("[GUILD_RENDER] Rendering guild list: %d filtered guilds, offset=%d, maxVisible=%d\n",
 		//	len(gm.filteredGuilds), gm.scrollOffset, maxVisibleItems)
 
@@ -1348,14 +1411,14 @@ func (gm *EnhancedGuildManager) Draw(screen *ebiten.Image) {
 
 		// Draw scrollbar if needed
 		if len(gm.filteredGuilds) > maxVisibleItems {
-			scrollbarHeight := gm.modalHeight - 160
+			scrollbarHeight := gm.modalHeight - 195
 			thumbHeight := scrollbarHeight * maxVisibleItems / len(gm.filteredGuilds)
-			thumbY := gm.modalY + 140 + (scrollbarHeight-thumbHeight)*gm.scrollOffset/(len(gm.filteredGuilds)-maxVisibleItems)
+			thumbY := gm.modalY + 175 + (scrollbarHeight-thumbHeight)*gm.scrollOffset/(len(gm.filteredGuilds)-maxVisibleItems)
 
 			// Draw scrollbar track
 			vector.DrawFilledRect(screen,
 				float32(gm.modalX+gm.modalWidth-15),
-				float32(gm.modalY+140),
+				float32(gm.modalY+175),
 				float32(8),
 				float32(scrollbarHeight),
 				EnhancedUIColors.Border, false)
@@ -1434,6 +1497,19 @@ func (sm *StatusMessageManager) Draw(screen *ebiten.Image, x, y int, font font.F
 	}
 }
 
+// guildHasTerritories checks if a guild has any territories on the map
+func (gm *EnhancedGuildManager) guildHasTerritories(guildName, guildTag string) bool {
+	territories := eruntime.GetTerritories()
+	for _, territory := range territories {
+		if territory != nil &&
+			(strings.EqualFold(territory.Guild.Name, guildName) ||
+				strings.EqualFold(territory.Guild.Tag, guildTag)) {
+			return true
+		}
+	}
+	return false
+}
+
 // filterGuilds filters the guild list based on search criteria
 func (gm *EnhancedGuildManager) filterGuilds() {
 	gm.filteredGuilds = []EnhancedGuildData{}
@@ -1446,8 +1522,9 @@ func (gm *EnhancedGuildManager) filterGuilds() {
 	for _, guild := range gm.guilds {
 		nameMatch := nameFilter == "" || strings.Contains(strings.ToLower(guild.Name), nameFilter)
 		tagMatch := tagFilter == "" || strings.Contains(strings.ToLower(guild.Tag), tagFilter)
+		onMapMatch := !gm.showOnMapGuildsOnly || gm.guildHasTerritories(guild.Name, guild.Tag)
 
-		if nameMatch && tagMatch {
+		if nameMatch && tagMatch && onMapMatch {
 			gm.filteredGuilds = append(gm.filteredGuilds, guild)
 		}
 	}

@@ -18,6 +18,7 @@ type TerritoryViewType int
 const (
 	ViewGuild TerritoryViewType = iota
 	ViewResource
+	ViewProduction
 	ViewSetDefence
 	ViewAtDefence
 	ViewTreasury
@@ -57,6 +58,7 @@ func NewTerritoryViewSwitcher() *TerritoryViewSwitcher {
 		views: []TerritoryViewInfo{
 			{Name: "Guild", Description: "Guild territory view", HiddenGuild: "__VIEW_GUILD__"},
 			{Name: "Resource", Description: "Resource type view", HiddenGuild: "__VIEW_RESOURCE__"},
+			{Name: "Production", Description: "Production efficiency view", HiddenGuild: "__VIEW_PRODUCTION__"},
 			{Name: "Set Defence", Description: "Set defence level view", HiddenGuild: "__VIEW_SET_DEFENCE__"},
 			{Name: "At Defence", Description: "At defence level view", HiddenGuild: "__VIEW_AT_DEFENCE__"},
 			{Name: "Treasury", Description: "Treasury level view", HiddenGuild: "__VIEW_TREASURY__"},
@@ -83,10 +85,10 @@ func (tvs *TerritoryViewSwitcher) initializeHiddenGuilds() {
 	tvs.color["__RESOURCE_MULTI__"] = color.RGBA{R: 255, G: 255, B: 255, A: 255} // White for multiple resources
 
 	// Resource colors (double production - 7200+ base) - lighter variants
-	tvs.color["__RESOURCE_WOOD_DOUBLE__"] = color.RGBA{R: 34, G: 139, B: 34, A: 255}   // Forest green (darker)
-	tvs.color["__RESOURCE_CROP_DOUBLE__"] = color.RGBA{R: 218, G: 165, B: 32, A: 255}  // Goldenrod (darker)
-	tvs.color["__RESOURCE_FISH_DOUBLE__"] = color.RGBA{R: 70, G: 130, B: 180, A: 255}  // Steel blue (darker)
-	tvs.color["__RESOURCE_ORE_DOUBLE__"] = color.RGBA{R: 199, G: 21, B: 133, A: 255}   // Medium violet red (darker)
+	tvs.color["__RESOURCE_WOOD_DOUBLE__"] = color.RGBA{R: 34, G: 139, B: 34, A: 255}  // Forest green (darker)
+	tvs.color["__RESOURCE_CROP_DOUBLE__"] = color.RGBA{R: 218, G: 165, B: 32, A: 255} // Goldenrod (darker)
+	tvs.color["__RESOURCE_FISH_DOUBLE__"] = color.RGBA{R: 70, G: 130, B: 180, A: 255} // Steel blue (darker)
+	tvs.color["__RESOURCE_ORE_DOUBLE__"] = color.RGBA{R: 199, G: 21, B: 133, A: 255}  // Medium violet red (darker)
 
 	// Defence level colors (very low to very high)
 	tvs.color["__DEFENCE_VERY_LOW__"] = color.RGBA{R: 0, G: 128, B: 0, A: 255}  // Dark green
@@ -123,6 +125,16 @@ func (tvs *TerritoryViewSwitcher) initializeHiddenGuilds() {
 	tvs.color["__TAX_VERY_HIGH__"] = color.RGBA{R: 255, G: 69, B: 0, A: 255}  // Orange-red for very high tax
 	tvs.color["__TAX_EXTREME__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255}     // Red for extreme tax
 	tvs.color["__TAX_CUT_OFF__"] = color.RGBA{R: 128, G: 128, B: 128, A: 255} // Gray for cut off territories
+
+	// Production colors - these are base colors that will be mixed and scaled
+	// Green for emerald production
+	tvs.color["__PRODUCTION_EMERALD__"] = color.RGBA{R: 0, G: 255, B: 0, A: 255} // Pure green
+	// Blue for resource production
+	tvs.color["__PRODUCTION_RESOURCE__"] = color.RGBA{R: 0, G: 0, B: 255, A: 255} // Pure blue
+	// Red for production errors (cannot afford upgrades)
+	tvs.color["__PRODUCTION_ERROR__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Pure red
+	// Default dark grey for no production
+	tvs.color["__PRODUCTION_NONE__"] = color.RGBA{R: 64, G: 64, B: 64, A: 255} // Dark grey
 }
 
 // Update handles input and modal visibility logic
@@ -220,6 +232,9 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorForCurrentView(territoryName 
 	case ViewTax:
 		return tvs.getTaxColor(territory), true
 
+	case ViewProduction:
+		return tvs.getProductionColor(territory), true
+
 	default:
 		return color.RGBA{}, false
 	}
@@ -274,6 +289,9 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorsForCurrentView(territoryName
 			hasColor = true
 		case ViewTax:
 			territoryColor = tvs.getTaxColor(territory)
+			hasColor = true
+		case ViewProduction:
+			territoryColor = tvs.getProductionColor(territory)
 			hasColor = true
 		}
 
@@ -505,6 +523,110 @@ func (tvs *TerritoryViewSwitcher) calculateTaxLevel(territory *typedef.Territory
 	} else {
 		return 6 // Extreme tax (70%+) - red
 	}
+}
+
+// getProductionColor calculates the production color for a territory
+func (tvs *TerritoryViewSwitcher) getProductionColor(territory *typedef.Territory) color.RGBA {
+	// Get production data
+	emeraldProduction := territory.Options.Bonus.At.EfficientEmerald + territory.Options.Bonus.At.EmeraldRate
+	resourceProduction := territory.Options.Bonus.At.EfficientResource + territory.Options.Bonus.At.ResourceRate
+
+	// Get max possible production (assuming max level is 6 for each)
+	maxEmeraldProduction := 12  // EfficientEmerald(6) + EmeraldRate(6)
+	maxResourceProduction := 12 // EfficientResource(6) + ResourceRate(6)
+
+	// Check for production errors (cannot afford upgrades)
+	emeraldError := (territory.Options.Bonus.Set.EfficientEmerald > territory.Options.Bonus.At.EfficientEmerald) ||
+		(territory.Options.Bonus.Set.EmeraldRate > territory.Options.Bonus.At.EmeraldRate)
+	resourceError := (territory.Options.Bonus.Set.EfficientResource > territory.Options.Bonus.At.EfficientResource) ||
+		(territory.Options.Bonus.Set.ResourceRate > territory.Options.Bonus.At.ResourceRate)
+
+	// If no production at all, return dark grey
+	if emeraldProduction == 0 && resourceProduction == 0 {
+		return tvs.color["__PRODUCTION_NONE__"]
+	}
+
+	// Calculate color intensity based on production levels (0.0 to 1.0)
+	emeraldIntensity := float64(emeraldProduction) / float64(maxEmeraldProduction)
+	resourceIntensity := float64(resourceProduction) / float64(maxResourceProduction)
+
+	// Start with black (no color)
+	r, g, b := 0.0, 0.0, 0.0
+
+	// Use more vibrant base colors (start at 128 for minimum intensity, scale up to 255)
+	minIntensity := 128.0
+	maxIntensity := 255.0
+
+	// Add emerald production (green) if no emerald error
+	if emeraldProduction > 0 && !emeraldError {
+		g = minIntensity + (emeraldIntensity * (maxIntensity - minIntensity))
+	}
+
+	// Add resource production (blue) if no resource error
+	if resourceProduction > 0 && !resourceError {
+		b = minIntensity + (resourceIntensity * (maxIntensity - minIntensity))
+	}
+
+	// Add red component for errors
+	errorIntensity := 0.0
+	if emeraldError && emeraldProduction > 0 {
+		errorIntensity += emeraldIntensity
+	}
+	if resourceError && resourceProduction > 0 {
+		errorIntensity += resourceIntensity
+	}
+	if errorIntensity > 0 {
+		r = minIntensity + ((errorIntensity / 2) * (maxIntensity - minIntensity))
+	}
+
+	// When mixing colors, ensure they don't exceed 255 by normalizing
+	totalComponents := 0
+	if r > 0 {
+		totalComponents++
+	}
+	if g > 0 {
+		totalComponents++
+	}
+	if b > 0 {
+		totalComponents++
+	}
+
+	// If we have multiple color components, normalize to prevent oversaturation
+	if totalComponents > 1 {
+		maxComponent := r
+		if g > maxComponent {
+			maxComponent = g
+		}
+		if b > maxComponent {
+			maxComponent = b
+		}
+
+		// If the brightest component would cause oversaturation when mixed, scale down
+		if maxComponent > 200 { // Leave room for mixing
+			scale := 200.0 / maxComponent
+			r *= scale
+			g *= scale
+			b *= scale
+		}
+	}
+
+	// Final clamp to ensure we never exceed 255
+	if r > 255 {
+		r = 255
+	}
+	if g > 255 {
+		g = 255
+	}
+	if b > 255 {
+		b = 255
+	}
+
+	// If we have no color components (all errors but no actual production), return dark grey
+	if r == 0 && g == 0 && b == 0 {
+		return tvs.color["__PRODUCTION_NONE__"]
+	}
+
+	return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
 }
 
 // Draw renders the modal switcher UI
