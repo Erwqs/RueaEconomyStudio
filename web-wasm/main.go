@@ -21,6 +21,7 @@ func main() {
 	// Initialize panic notification system (web compatible)
 	app.InitPanicNotifier()
 	app.InitToastManager()
+	app.InitPauseNotificationManager()
 
 	// Configure Ebitengine for web
 	ebiten.SetWindowTitle("Ruea Economy Studio - Web")
