@@ -58,7 +58,7 @@ func NewTerritoryViewSwitcher() *TerritoryViewSwitcher {
 		views: []TerritoryViewInfo{
 			{Name: "Guild", Description: "Guild territory view", HiddenGuild: "__VIEW_GUILD__"},
 			{Name: "Resource", Description: "Resource type view", HiddenGuild: "__VIEW_RESOURCE__"},
-			{Name: "Production", Description: "Production efficiency view", HiddenGuild: "__VIEW_PRODUCTION__"},
+			{Name: "Production", Description: "Production level, type and issues view", HiddenGuild: "__VIEW_PRODUCTION__"},
 			{Name: "Set Defence", Description: "Set defence level view", HiddenGuild: "__VIEW_SET_DEFENCE__"},
 			{Name: "At Defence", Description: "At defence level view", HiddenGuild: "__VIEW_AT_DEFENCE__"},
 			{Name: "Treasury", Description: "Treasury level view", HiddenGuild: "__VIEW_TREASURY__"},
