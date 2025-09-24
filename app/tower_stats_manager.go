@@ -18,7 +18,7 @@ func (m *EdgeMenu) UpdateTowerStats(territoryName string) {
 
 	// Calculate configured stats based on Set upgrades/bonuses
 	configuredStats := m.calculateConfiguredStats(territory)
-	
+
 	// Calculate territory levels
 	configuredLevel, configuredLevelString := m.calculateConfiguredTerritoryLevel(territory)
 	currentLevel, currentLevelString := m.calculateCurrentTerritoryLevel(territory)
@@ -142,7 +142,7 @@ func (m *EdgeMenu) updateStatsElementsWithLevelAndColor(statsMenu *CollapsibleMe
 func (m *EdgeMenu) calculateConfiguredStats(territory *typedef.Territory) typedef.TowerStats {
 	// Get costs for calculations
 	costs := eruntime.GetCost()
-	
+
 	// Get the configured upgrade levels
 	damageLevel := territory.Options.Upgrade.Set.Damage
 	attackLevel := territory.Options.Upgrade.Set.Attack

@@ -2439,7 +2439,7 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	configuredMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", configuredAvgDPS2), DefaultTextOptions())
 	configuredEHP := configuredStats.Health / (1.0 - configuredStats.Defence)
 	configuredMenu.Text(fmt.Sprintf("Effective HP: %.0f", configuredEHP), DefaultTextOptions())
-	
+
 	// Add configured territory level (based on Set values)
 	var configuredLevelString string
 	var configuredLevelColor color.RGBA
@@ -2471,7 +2471,7 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	currentMenu.Text(fmt.Sprintf("Average DPS: %.0f", averageDPS), DefaultTextOptions())
 	currentMenu.Text(fmt.Sprintf("Wynn's Math Average DPS: %.0f", averageDPS2), DefaultTextOptions())
 	currentMenu.Text(fmt.Sprintf("Effective HP: %.0f", ehp), DefaultTextOptions())
-	
+
 	// Add current territory level (based on At values)
 	var currentLevelString string
 	var currentLevelColor color.RGBA
