@@ -66,7 +66,7 @@ func (c *Container) Update(mx, my int, deltaTime float64) bool {
 	c.updateAnimation(deltaTime)
 
 	// Handle horizontal wheel scroll when mouse is over container
-	wheelX, wheelY := ebiten.Wheel()
+	wheelX, wheelY := WebSafeWheel()
 	if (wheelX != 0 || wheelY != 0) && mx >= c.rect.Min.X && mx < c.rect.Max.X && my >= c.rect.Min.Y && my < c.rect.Max.Y {
 		// Use horizontal wheel if available, otherwise use vertical wheel for horizontal scrolling
 		scrollAmount := 0.0

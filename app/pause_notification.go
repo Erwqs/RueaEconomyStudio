@@ -63,13 +63,16 @@ func (pnm *PauseNotificationManager) Update() {
 func (pnm *PauseNotificationManager) showPauseNotification() {
 	// Hide any existing pause notification first
 	pnm.hidePauseNotification()
+	// fmt.Println("call 1")
 
 	// Ensure toast manager is initialized
 	if globalToastManager == nil {
 		InitToastManager()
+		// fmt.Println("call 2")
 	}
 
 	// Create toast notification with resume button
+	// fmt.Println("call 3")
 	toast := NewToast().
 		Text("State Halted", ToastOption{
 			Colour: color.RGBA{255, 255, 100, 255}, // Yellow text

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"runtime"
 
@@ -19,6 +20,7 @@ func main() {
 	// fmt.Println("Starting Ruea Economy Studio - Web Version")
 
 	// Initialize panic notification system (web compatible)
+	fmt.Println("initializing stuff")
 	app.InitPanicNotifier()
 	app.InitToastManager()
 	app.InitPauseNotificationManager()

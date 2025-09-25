@@ -134,7 +134,9 @@ func (tb *ToastBuilder) Border(border color.RGBA) *ToastBuilder {
 
 // Show displays the toast by adding it to the global toast manager
 func (tb *ToastBuilder) Show() {
+	// fmt.Println("called show()")
 	if globalToastManager == nil {
+		// fmt.Println("calling init toast manager")
 		InitToastManager()
 	}
 
@@ -178,7 +180,7 @@ func (tb *ToastBuilder) calculateLayout() {
 	closeButtonSize := 20
 
 	// Get screen width for text wrapping (1/3 of screen width)
-	screenW, _ := ebiten.WindowSize()
+	screenW, _ := WebSafeWindowSize()
 	maxTextWidth := screenW / 3
 	if maxTextWidth < 250 {
 		maxTextWidth = 250 // Minimum width
@@ -273,7 +275,7 @@ func InitToastManager() {
 		return
 	}
 
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	globalToastManager = &ToastManager{
 		toasts:      []*Toast{},
 		nextID:      0,
@@ -308,7 +310,7 @@ func (tm *ToastManager) AddToast(toast *Toast) {
 
 // positionToast calculates the position for a new toast
 func (tm *ToastManager) positionToast(toast *Toast) {
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	tm.screenW = screenW
 	tm.screenH = screenH
 
@@ -396,7 +398,7 @@ func (tm *ToastManager) HandleInput() bool {
 
 // repositionToasts repositions all toasts after one is removed
 func (tm *ToastManager) repositionToasts() {
-	screenW, screenH := ebiten.WindowSize()
+	screenW, screenH := WebSafeWindowSize()
 	tm.screenW = screenW
 	tm.screenH = screenH
 

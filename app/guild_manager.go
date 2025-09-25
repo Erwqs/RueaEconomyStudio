@@ -203,7 +203,7 @@ func (gm *GuildManager) Update() {
 	}
 
 	// Handle mouse wheel for scrolling
-	_, wheelY := ebiten.Wheel()
+	_, wheelY := WebSafeWheel()
 	if wheelY != 0 {
 		gm.scrollOffset -= int(wheelY * 3)
 		if gm.scrollOffset < 0 {

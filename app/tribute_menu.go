@@ -277,7 +277,7 @@ func (tm *TributeMenu) Update() bool {
 	}
 
 	// Consume mouse wheel to prevent scroll-through
-	scrollX, scrollY := ebiten.Wheel()
+	scrollX, scrollY := WebSafeWheel()
 	if scrollX != 0 || scrollY != 0 {
 		return true // Consume wheel input
 	}

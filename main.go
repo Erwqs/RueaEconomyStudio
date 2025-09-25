@@ -143,6 +143,7 @@ func runWithGUI() {
 	// Initialize panic notification system
 	app.InitPanicNotifier()
 	app.InitToastManager()
+	app.InitPauseNotificationManager()
 
 	ebiten.SetWindowTitle("Ruea Economy Studio")
 	ebiten.SetTPS(ebiten.SyncWithFPS) // Restore normal TPS since the issue is graphics, not game logic

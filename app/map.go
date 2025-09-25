@@ -242,18 +242,18 @@ func NewMapView() *MapView {
 
 	// Register state change callback to refresh territory colors when state is reset/loaded
 	eruntime.SetStateChangeCallback(func() {
-		fmt.Println("[MAP] State change callback triggered")
+		// fmt.Println("[MAP] State change callback triggered")
 
 		// Get all territories from eruntime and update their guild assignments
 		territories := eruntime.GetTerritories()
 		claimManager := GetGuildClaimManager()
 
 		if claimManager == nil {
-			fmt.Println("[MAP] Warning: GuildClaimManager is nil")
+			// fmt.Println("[MAP] Warning: GuildClaimManager is nil")
 			return
 		}
 
-		fmt.Printf("[MAP] Updating %d territories with their current guild assignments\n", len(territories))
+		// fmt.Printf("[MAP] Updating %d territories with their current guild assignments\n", len(territories))
 
 		// Suspend redraws during batch update
 		claimManager.suspendRedraws = true
@@ -293,7 +293,7 @@ func NewMapView() *MapView {
 		claimManager.suspendRedraws = false
 		claimManager.TriggerRedraw()
 
-		fmt.Println("[MAP] Territory guild assignments updated after state change")
+		// fmt.Println("[MAP] Territory guild assignments updated after state change")
 	})
 
 	return mapView
@@ -507,7 +507,7 @@ func (m *MapView) Update(screenW, screenH int) {
 	}
 
 	// Process user input first - always accept wheel input (unless event editor is maximized)
-	_, wheelY := ebiten.Wheel()
+	_, wheelY := WebSafeWheel()
 	if wheelY != 0 {
 		mx, my := ebiten.CursorPosition()
 
@@ -1237,20 +1237,20 @@ func (m *MapView) Update(screenW, screenH int) {
 
 		// Don't show context menu if we're in claim editing mode (right-click is used for area deselection)
 		if m.isEditingClaims {
-			fmt.Println("Right-click ignored - in claim editing mode")
+			// fmt.Println("Right-click ignored - in claim editing mode")
 			return
 		}
 
 		// Don't show context menu if loadout is being applied
 		if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsApplyingLoadout() {
-			fmt.Println("Right-click ignored - in loadout application mode")
+			// fmt.Println("Right-click ignored - in loadout application mode")
 			return
 		}
 
 		// Check if EdgeMenu is consuming right-click input first
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
 			// EdgeMenu area - don't show context menu
-			fmt.Println("Right-click in EdgeMenu area, ignoring")
+			// fmt.Println("Right-click in EdgeMenu area, ignoring")
 			return
 		}
 
@@ -1261,16 +1261,16 @@ func (m *MapView) Update(screenW, screenH int) {
 
 			if mx >= sidebarX {
 				// Right-click is in sidebar area - don't show context menu
-				fmt.Println("Right-click in sidebar area, ignoring")
+				// fmt.Println("Right-click in sidebar area, ignoring")
 				return
 			}
 		}
 
 		// Setup and show context menu
-		fmt.Println("Setting up context menu...")
+		// fmt.Println("Setting up context menu...")
 		m.setupContextMenu(mx, my)
 		m.contextMenu.Show(mx, my, screenW, screenH)
-		fmt.Printf("Context menu shown at (%d, %d), visible: %v\n", mx, my, m.contextMenu.IsVisible())
+		// fmt.Printf("Context menu shown at (%d, %d), visible: %v\n", mx, my, m.contextMenu.IsVisible())
 		return // Don't update the context menu this frame to avoid hiding it immediately
 	}
 
@@ -1875,7 +1875,7 @@ func (m *MapView) ResetView() {
 	// Animate to the centered position and scale
 	m.animateToScale(resetScale, centeredOffsetX, centeredOffsetY)
 
-	fmt.Println("Animating map view to centered position")
+	// fmt.Println("Animating map view to centered position")
 }
 
 // ToggleCoordinates toggles the coordinate labels display
@@ -1907,7 +1907,7 @@ func (m *MapView) AddMarker(x, y float64, label string, markerColor color.RGBA, 
 // ClearMarkers removes all markers from the map
 func (m *MapView) ClearMarkers() {
 	m.markers = make([]Marker, 0)
-	fmt.Println("All markers cleared")
+	// fmt.Println("All markers cleared")
 }
 
 // GetMapCoordinates converts screen coordinates to world coordinates
@@ -3727,7 +3727,7 @@ func (m *MapView) drawAreaSelection(screen *ebiten.Image) {
 
 // startAreaSelection begins area selection mode
 func (m *MapView) startAreaSelection() {
-	fmt.Println("[MAP] Starting area selection mode")
+	// fmt.Println("[MAP] Starting area selection mode")
 	m.isAreaSelecting = true
 	m.areaSelectDragging = false
 	m.areaSelectTempHighlight = make(map[string]bool)
@@ -3739,7 +3739,7 @@ func (m *MapView) startAreaSelection() {
 // endAreaSelection ends area selection mode without applying selections
 // (selections are applied immediately when mouse is released)
 func (m *MapView) endAreaSelection() {
-	fmt.Println("[MAP] Ending area selection mode")
+	// fmt.Println("[MAP] Ending area selection mode")
 
 	// Clear temporary state only - selections were already applied on mouse release
 	m.isAreaSelecting = false

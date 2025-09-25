@@ -205,7 +205,7 @@ func (lm *LoadoutManager) Update() bool {
 	}
 
 	// Handle scrolling (like guild manager)
-	_, dy := ebiten.Wheel()
+	_, dy := WebSafeWheel()
 	if dy != 0 {
 		// Calculate max visible items and scroll bounds like guild manager
 		itemHeight := 60

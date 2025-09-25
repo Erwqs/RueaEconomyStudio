@@ -460,7 +460,7 @@ func (fd *FilterableDropdown) Update(mx, my int) bool {
 
 	// Handle scroll wheel when open
 	if fd.IsOpen && len(fd.filteredOptions) > fd.maxVisibleItems {
-		_, scrollY := ebiten.Wheel()
+		_, scrollY := WebSafeWheel()
 		if scrollY > 0 && fd.scrollOffset > 0 {
 			fd.scrollOffset--
 		} else if scrollY < 0 && fd.scrollOffset < len(fd.filteredOptions)-fd.maxVisibleItems {

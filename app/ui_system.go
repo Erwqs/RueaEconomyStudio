@@ -838,7 +838,7 @@ func (sl *UIScrollableList) Update(mx, my int) bool {
 	}
 
 	// Handle scrolling
-	_, scrollY := ebiten.Wheel()
+	_, scrollY := WebSafeWheel()
 	if scrollY != 0 {
 		sl.ScrollY -= int(scrollY * 30) // Scroll speed
 		maxScroll := len(sl.Items)*sl.ItemHeight - sl.Height

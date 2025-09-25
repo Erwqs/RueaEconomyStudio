@@ -399,7 +399,7 @@ func (pn *PanicNotifier) Update() bool {
 			mx >= contentArea.X && mx <= contentArea.X+contentArea.Width &&
 			my >= contentArea.Y && my <= contentArea.Y+contentArea.Height {
 
-			_, wheelY := ebiten.Wheel()
+			_, wheelY := WebSafeWheel()
 			if wheelY != 0 {
 				pn.scrollOffset -= int(wheelY * 20) // Scroll speed
 				if pn.scrollOffset < 0 {
