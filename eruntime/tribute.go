@@ -123,6 +123,14 @@ func AddTribute(tribute *typedef.ActiveTribute) error {
 		return fmt.Errorf("tribute cannot be nil")
 	}
 
+	if tribute.AmountPerHour.Crops < 0 ||
+		tribute.AmountPerHour.Fish < 0 ||
+		tribute.AmountPerHour.Ores < 0 ||
+		tribute.AmountPerHour.Wood < 0 ||
+		tribute.AmountPerHour.Emeralds < 0 {
+			return fmt.Errorf("tribute amounts cannot be negative")
+	}
+
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
