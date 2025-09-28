@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"image/color"
 
-	"etools/eruntime"
+	"RueaES/eruntime"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text"

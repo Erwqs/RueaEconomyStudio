@@ -9,10 +9,10 @@ import (
 	"runtime"
 	"sync"
 
-	"etools/assets"
-	"etools/eruntime"
-	"etools/fonts"
-	"etools/typedef"
+	"RueaES/assets"
+	"RueaES/eruntime"
+	"RueaES/fonts"
+	"RueaES/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -267,7 +267,7 @@ func (m *Menu) Draw(screen *ebiten.Image) {
 	scaledFont := m.getScaledFont(scaleInfo.FontSize)
 
 	// Draw title with a semi-transparent background for better readability
-	title := "Wynncraft ETools"
+	title := "Wynncraft RueaES"
 	titleWidth := font.MeasureString(scaledFont, title).Ceil()
 	titleX := (scaleInfo.ScreenW - titleWidth) / 2
 

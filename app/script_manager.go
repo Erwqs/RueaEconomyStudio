@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"etools/javascript"
+	"RueaES/javascript"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"

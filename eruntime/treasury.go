@@ -1,6 +1,6 @@
 package eruntime
 
-import "etools/typedef"
+import "RueaES/typedef"
 
 func calculateTreasury(territory *typedef.Territory) float64 {
 	bonusMultiplier := 1.0

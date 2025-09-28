@@ -1,6 +1,6 @@
 package eruntime
 
-import "etools/typedef"
+import "RueaES/typedef"
 
 func SetRuntimeOptions(options typedef.RuntimeOptions) {
 	st.runtimeOptions = options

@@ -1,7 +1,7 @@
 package pathfinder
 
 import (
-	"etools/typedef"
+	"RueaES/typedef"
 )
 
 // BFS finds the shortest path between two territories disregarding tax

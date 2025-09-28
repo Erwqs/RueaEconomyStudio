@@ -1,8 +1,8 @@
 package eventeditor
 
 import (
-	"etools/eruntime"
-	"etools/typedef"
+	"RueaES/eruntime"
+	"RueaES/typedef"
 )
 
 func Run() {

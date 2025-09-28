@@ -1,7 +1,8 @@
 package app
 
 import (
-	"etools/eruntime"
+	"RueaES/eruntime"
+	"RueaES/typedef"
 	"image/color"
 )
 
@@ -69,6 +70,11 @@ func (pnm *PauseNotificationManager) showPauseNotification() {
 		InitToastManager()
 	}
 
+	if eruntime.GetRuntimeOptions().NoHaltedMessages {
+		// User has opted out of halted messages
+		return
+	}
+
 	// Create toast notification with resume button
 	toast := NewToast().
 		Text("State Halted", ToastOption{
@@ -89,6 +95,20 @@ func (pnm *PauseNotificationManager) showPauseNotification() {
 			pnm.hidePauseNotification()
 		}, 0, 0, ToastOption{
 			Colour: color.RGBA{64, 192, 64, 255}, // Green button text
+		}).
+		Button("Dismiss", func() {
+			eruntime.SetRuntimeOptions(typedef.RuntimeOptions{
+				NoHaltedMessages:         true,
+				TreasuryEnabled:          eruntime.GetRuntimeOptions().TreasuryEnabled,
+				EncodeInTransitResources: eruntime.GetRuntimeOptions().EncodeInTransitResources,
+				NoKSPrompt:               eruntime.GetRuntimeOptions().NoKSPrompt,
+				EnableShm:                eruntime.GetRuntimeOptions().EnableShm,
+			})
+
+			pnm.hidePauseNotification()
+
+		}, 0, 0, ToastOption{
+			Colour: color.RGBA{200, 64, 64, 255}, // Red button text			
 		}).
 		Background(color.RGBA{60, 60, 60, 240}).
 		Border(color.RGBA{255, 200, 100, 255}) // Orange border

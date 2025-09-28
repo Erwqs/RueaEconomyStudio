@@ -1,7 +1,7 @@
 package eruntime
 
 import (
-	"etools/typedef"
+	"RueaES/typedef"
 	"fmt"
 	"sync"
 	"time"
@@ -83,7 +83,7 @@ func init() {
 		hqMap:                 make(map[string]*typedef.Territory),
 		territoryMap:          make(map[string]*typedef.Territory),
 		tickQueue:             make(chan struct{}, 50000),
-		useParallelProcessing: true,                       // Enable parallel processing by default for better performance
+		useParallelProcessing: true, // Enable parallel processing by default for better performance
 	}
 
 	// Start the tick processing goroutine

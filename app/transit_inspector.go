@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"etools/eruntime"
-	"etools/typedef"
+	"RueaES/eruntime"
+	"RueaES/typedef"
 )
 
 // populateTransitResourceMenu populates the transit resource menu with current transit information

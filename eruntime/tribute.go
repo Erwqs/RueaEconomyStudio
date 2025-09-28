@@ -32,9 +32,9 @@ TIMING EXAMPLES:
 package eruntime
 
 import (
+	"RueaES/typedef"
 	"crypto/rand"
 	"encoding/hex"
-	"etools/typedef"
 	"fmt"
 	"strings"
 )
@@ -128,7 +128,7 @@ func AddTribute(tribute *typedef.ActiveTribute) error {
 		tribute.AmountPerHour.Ores < 0 ||
 		tribute.AmountPerHour.Wood < 0 ||
 		tribute.AmountPerHour.Emeralds < 0 {
-			return fmt.Errorf("tribute amounts cannot be negative")
+		return fmt.Errorf("tribute amounts cannot be negative")
 	}
 
 	st.mu.Lock()

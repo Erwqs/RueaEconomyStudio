@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"etools/typedef"
+	"RueaES/typedef"
 
 	"github.com/gookit/goutil/arrutil"
 	"github.com/pierrec/lz4"

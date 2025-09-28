@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"image/color"
 
-	"etools/eruntime"
+	"RueaES/eruntime"
 )
 
 // UpdateTradingRoutes updates only the Trading Routes section with new territory data

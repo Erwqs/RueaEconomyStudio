@@ -1,7 +1,7 @@
 package eruntime
 
 import (
-	"etools/typedef"
+	"RueaES/typedef"
 )
 
 // ResourceTraversalAndTax is called every 60 ticks from update2()

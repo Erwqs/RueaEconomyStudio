@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"etools/eruntime" // Add eruntime import
-	"etools/typedef"
+	"RueaES/eruntime" // Add eruntime import
+	"RueaES/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"

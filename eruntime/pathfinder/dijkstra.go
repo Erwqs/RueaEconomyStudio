@@ -1,8 +1,8 @@
 package pathfinder
 
 import (
+	"RueaES/typedef"
 	"container/heap"
-	"etools/typedef"
 )
 
 // Dijkstra finds the cheapest path between two territories considering tax and guild preferences

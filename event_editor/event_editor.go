@@ -1,7 +1,7 @@
 package eventeditor
 
 import (
-	"etools/typedef"
+	"RueaES/typedef"
 )
 
 // State tick to event mapping

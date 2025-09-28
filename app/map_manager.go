@@ -6,7 +6,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 
-	"etools/assets"
+	"RueaES/assets"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

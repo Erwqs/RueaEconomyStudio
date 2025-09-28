@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"etools/assets"
-	"etools/eruntime" // Add eruntime import
-	"etools/typedef"
+	"RueaES/assets"
+	"RueaES/eruntime" // Add eruntime import
+	"RueaES/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
