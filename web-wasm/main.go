@@ -5,8 +5,8 @@ import (
 	"log"
 	"runtime"
 
-	"etools/app"
-	_ "etools/eruntime"
+	"RueaES/app"
+	_ "RueaES/eruntime"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

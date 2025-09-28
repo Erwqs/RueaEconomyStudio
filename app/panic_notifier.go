@@ -515,7 +515,7 @@ func (pn *PanicNotifier) drawScrollableText(screen *ebiten.Image, contentArea st
 		textColor := color.RGBA{220, 220, 220, 255} // Default light gray
 		if strings.Contains(line, "panic:") || strings.Contains(line, "CRITICAL ERROR") {
 			textColor = color.RGBA{255, 100, 100, 255} // Red for critical
-		} else if strings.Contains(line, "etools/") {
+		} else if strings.Contains(line, "RueaES/") {
 			textColor = color.RGBA{100, 200, 255, 255} // Blue for our code
 		} else if strings.Contains(line, ".go:") {
 			textColor = color.RGBA{255, 200, 100, 255} // Orange for file references

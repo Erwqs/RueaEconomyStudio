@@ -1,8 +1,8 @@
 package app
 
 import (
-	eventeditor "etools/event_editor"
-	"etools/typedef"
+	eventeditor "RueaES/event_editor"
+	"RueaES/typedef"
 	"fmt"
 	"image/color"
 	"runtime"

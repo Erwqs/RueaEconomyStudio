@@ -1,8 +1,8 @@
 package pathfinder
 
 import (
+	"RueaES/typedef"
 	"errors"
-	"etools/typedef"
 )
 
 var (

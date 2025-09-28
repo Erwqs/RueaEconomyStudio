@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"strings"
 
-	"etools/eruntime"
-	"etools/typedef"
+	"RueaES/eruntime"
+	"RueaES/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -396,7 +396,7 @@ func (gcm *GuildClaimManager) AddClaim(territoryName, guildName, guildTag string
 	updatedTerritory := eruntime.SetGuild(territoryName, guild)
 	if updatedTerritory != nil {
 		// fmt.Printf("[GUILD_MANAGER] Successfully updated eruntime for territory %s -> guild %s [%s]\n",
-			// territoryName, guildName, guildTag)
+		// territoryName, guildName, guildTag)
 	} else {
 		// fmt.Printf("[GUILD_MANAGER] Warning: Failed to update eruntime for territory %s\n", territoryName)
 	}
@@ -621,7 +621,7 @@ func (gcm *GuildClaimManager) AddClaimsBatch(claims []GuildClaim) {
 		_ = eruntime.SetGuildBatch(guildUpdates)
 		// successCount := len(updatedTerritories)
 		// fmt.Printf("[GUILD_MANAGER] Batch synchronized %d/%d claims with eruntime\n",
-			// successCount, len(guildUpdates))
+		// successCount, len(guildUpdates))
 	}
 
 	gcm.SaveClaimsToFile()

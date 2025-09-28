@@ -1,9 +1,9 @@
 package eruntime
 
 import (
+	"RueaES/assets"
+	"RueaES/typedef"
 	"encoding/json"
-	"etools/assets"
-	"etools/typedef"
 	"os"
 	"runtime"
 )

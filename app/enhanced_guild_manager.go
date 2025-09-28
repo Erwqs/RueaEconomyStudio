@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"etools/eruntime"
+	"RueaES/eruntime"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"

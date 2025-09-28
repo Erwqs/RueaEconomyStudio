@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"syscall"
 
-	"etools/api"
-	"etools/app"
-	_ "etools/eruntime"
+	"RueaES/api"
+	"RueaES/app"
+	_ "RueaES/eruntime"
 
 	"net/http"
 	_ "net/http/pprof"
@@ -66,7 +66,7 @@ func main() {
 }
 
 func runHeadless() {
-	// fmt.Println("Starting Wynncraft ETools in headless mode...")
+	// fmt.Println("Starting Wynncraft RueaES in headless mode...")
 
 	// Start WebSocket API server
 	go func() {
@@ -79,7 +79,7 @@ func runHeadless() {
 	// 	log.Fatalf("Failed to initialize shared memory server: %v", err)
 	// }
 
-	// fmt.Println("Shared memory server started. ETools is ready for external connections.")
+	// fmt.Println("Shared memory server started. RueaES is ready for external connections.")
 	// fmt.Println("WebSocket API is available at ws://localhost:42069/ws")
 
 	// Set up signal handling for graceful shutdown

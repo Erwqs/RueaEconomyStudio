@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"etools/eruntime"
-	"etools/typedef"
+	"RueaES/eruntime"
+	"RueaES/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"

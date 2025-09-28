@@ -1,7 +1,7 @@
 package app
 
 import (
-	"etools/typedef"
+	"RueaES/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"

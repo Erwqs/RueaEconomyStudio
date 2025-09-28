@@ -1,4 +1,4 @@
-// Toggle switch implementation for Wynncraft ETools
+// Toggle switch implementation for Wynncraft RueaES
 package app
 
 import (

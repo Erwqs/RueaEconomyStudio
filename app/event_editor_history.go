@@ -1,7 +1,7 @@
 package app
 
 import (
-	eventeditor "etools/event_editor"
+	eventeditor "RueaES/event_editor"
 	"sync"
 )
 

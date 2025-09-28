@@ -36,7 +36,7 @@ NEW SYSTEM OVERVIEW:
 */
 
 import (
-	"etools/typedef"
+	"RueaES/typedef"
 	"fmt"
 	"sync"
 )

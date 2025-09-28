@@ -1,6 +1,6 @@
 package tml
 
-import "etools/typedef"
+import "RueaES/typedef"
 
 type Restult struct {
 	Success   bool

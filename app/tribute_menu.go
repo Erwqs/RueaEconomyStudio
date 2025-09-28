@@ -1,8 +1,8 @@
 package app
 
 import (
-	"etools/eruntime"
-	"etools/typedef"
+	"RueaES/eruntime"
+	"RueaES/typedef"
 	"fmt"
 	"image"
 	"image/color"
