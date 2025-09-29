@@ -728,6 +728,8 @@ type RuntimeOptions struct {
 	EnableShm bool `json:"EnableShm"` //
 
 	EncodeInTransitResources bool `json:"EncodeTreasury"` // If true, the treasury will be encoded in the JSON format for easier storage and retrieval
+
+	NoHaltedMessages bool `json:"NoHaltedMessages"` // If true, the user will not receive messages when the app is halted due to errors or other issues
 }
 
 func _round_down4(x float64) float64 {
