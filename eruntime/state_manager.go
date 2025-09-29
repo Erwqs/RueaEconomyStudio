@@ -416,6 +416,8 @@ func LoadStateFromFile(filepath string) error {
 func compressLZ4(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	writer := lz4.NewWriter(&buf)
+	writer.CompressionLevel = 4
+	writer.WithConcurrency(-1)
 
 	_, err := writer.Write(data)
 	if err != nil {
