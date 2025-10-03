@@ -659,6 +659,26 @@ func New() *Game {
 		},
 	)
 
+	// Initialize guild color persistence callbacks
+	eruntime.SetGuildColorCallbacks(
+		func() map[string]map[string]string {
+			if gameplayModule != nil && gameplayModule.mapView != nil && gameplayModule.mapView.territoriesManager != nil && gameplayModule.mapView.territoriesManager.guildManager != nil {
+				return gameplayModule.mapView.territoriesManager.guildManager.GetAllGuildColors()
+			}
+			return make(map[string]map[string]string)
+		},
+		func(guildColors map[string]map[string]string) {
+			if gameplayModule != nil && gameplayModule.mapView != nil && gameplayModule.mapView.territoriesManager != nil && gameplayModule.mapView.territoriesManager.guildManager != nil {
+				gameplayModule.mapView.territoriesManager.guildManager.SetAllGuildColors(guildColors)
+			}
+		},
+		func(guildColors map[string]map[string]string) {
+			if gameplayModule != nil && gameplayModule.mapView != nil && gameplayModule.mapView.territoriesManager != nil && gameplayModule.mapView.territoriesManager.guildManager != nil {
+				gameplayModule.mapView.territoriesManager.guildManager.MergeGuildColors(guildColors)
+			}
+		},
+	)
+
 	game := &Game{
 		state: &State{
 			gameState: StateSession, // Skip main menu, go straight to game

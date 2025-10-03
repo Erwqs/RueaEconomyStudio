@@ -77,7 +77,8 @@ func init() {
 		savedSnapshots: make([][]*typedef.Territory, 0),
 		tick:           0,
 		runtimeOptions: typedef.RuntimeOptions{
-			TreasuryEnabled: true,
+			TreasuryEnabled:      true,
+			PathfindingAlgorithm: typedef.PathfindingDijkstra, // Default to Dijkstra (cheapest route)
 		},
 		transitManager:        NewTransitManager(),
 		hqMap:                 make(map[string]*typedef.Territory),

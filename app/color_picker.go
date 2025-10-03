@@ -58,10 +58,10 @@ func NewColorPicker(x, y, width, height int) *ColorPicker {
 	}
 
 	// Create input fields - position them correctly
-	cp.hexInput = NewEnhancedTextInput("#FF0000", x+80, y+390, 100, 25, 7) // Positioned near hex label
-	cp.rInput = NewEnhancedTextInput("255", x+width-70, y+305, 50, 25, 3)  // Next to R slider, bigger height
-	cp.gInput = NewEnhancedTextInput("0", x+width-70, y+330, 50, 25, 3)    // Next to G slider, bigger height
-	cp.bInput = NewEnhancedTextInput("0", x+width-70, y+355, 50, 25, 3)    // Next to B slider, bigger height
+	cp.hexInput = TextInput("#FF0000", x+80, y+390, 100, 25, 7) // Positioned near hex label
+	cp.rInput = TextInput("255", x+width-70, y+305, 50, 25, 3)  // Next to R slider, bigger height
+	cp.gInput = TextInput("0", x+width-70, y+330, 50, 25, 3)    // Next to G slider, bigger height
+	cp.bInput = TextInput("0", x+width-70, y+355, 50, 25, 3)    // Next to B slider, bigger height
 
 	cp.updateFromRGB()
 	return cp

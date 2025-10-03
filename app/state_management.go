@@ -2,6 +2,7 @@ package app
 
 import (
 	"RueaES/eruntime"
+	"RueaES/typedef"
 	"fmt"
 	"image/color"
 	"math"
@@ -313,6 +314,44 @@ func (smm *StateManagementMenu) Show() {
 	optionsSection.Text("Encoding In-Transit Resources", DefaultTextOptions())
 	optionsSection.Text("may increase impact load time.", DefaultTextOptions())
 	optionsSection.ToggleSwitch("Encode In-Transit Resources", 0, encodeTreasuryToggleOpts, encodeTreasuryToggleCBFunc)
+
+	optionsSection.Spacer(DefaultSpacerOptions())
+
+	// Pathfinding Algorithm toggle switch
+	pathfindingOptions := []string{"Dijkstra", "A*", "FloodFill"}
+	pathfindingToggleOpts := DefaultToggleSwitchOptions()
+	pathfindingToggleOpts.Options = pathfindingOptions
+	pathfindingToggleOpts.Width = 210 // Wider to accommodate 3 options
+	pathfindingToggleOpts.FontSize = 12
+	pathfindingToggleCBFunc := func(index int, value string) {
+		currOpts := eruntime.GetRuntimeOptions()
+		switch value {
+		case "Dijkstra":
+			currOpts.PathfindingAlgorithm = typedef.PathfindingDijkstra
+		case "A*":
+			currOpts.PathfindingAlgorithm = typedef.PathfindingAstar
+		case "FloodFill":
+			currOpts.PathfindingAlgorithm = typedef.PathfindingFloodFill
+		}
+		eruntime.SetRuntimeOptions(currOpts)
+	}
+
+	optionsSection.Text("Pathfinding Alg for Cheapest", DefaultTextOptions())
+
+	currentOpts := eruntime.GetRuntimeOptions()
+	var currentPathfindingIndex int
+	switch currentOpts.PathfindingAlgorithm {
+	case typedef.PathfindingDijkstra:
+		currentPathfindingIndex = 0
+	case typedef.PathfindingAstar:
+		currentPathfindingIndex = 1
+	case typedef.PathfindingFloodFill:
+		currentPathfindingIndex = 2
+	default:
+		currentPathfindingIndex = 0 // default when something doesnt work
+	}
+
+	optionsSection.ToggleSwitch("Algorithm", currentPathfindingIndex, pathfindingToggleOpts, pathfindingToggleCBFunc)
 
 	// --- Credits ---
 	creditsSection := smm.menu.CollapsibleMenu("Credits", DefaultCollapsibleMenuOptions())

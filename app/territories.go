@@ -379,6 +379,9 @@ type TerritoriesManager struct {
 	// Data refresh timer for real-time updates
 	dataRefreshTimer    time.Time
 	dataRefreshInterval time.Duration
+
+	// Route highlighting configuration
+	showHoveredRoutes bool // Enable/disable white route highlighting for hovered territories
 }
 
 // NewTerritoriesManager creates a new territories manager
@@ -472,6 +475,9 @@ func NewTerritoriesManager() *TerritoriesManager {
 		// Initialize performance caches
 		guildColorCache: make(map[string][3]float32),
 		cacheLastFrame:  0,
+
+		// Initialize route highlighting
+		showHoveredRoutes: true, // Enable by default
 	}
 
 	// Initialize territory renderer
@@ -602,6 +608,40 @@ func (tm *TerritoriesManager) getActualGuildForTerritory(territoryName string) (
 		return claim.GuildName, claim.GuildTag
 	}
 	return "", ""
+}
+
+// getRouteToHQForTerritory returns the trading route from a territory to its HQ
+// Returns nil if territory has no route to HQ, is an HQ itself, or has no guild
+func (tm *TerritoriesManager) getRouteToHQForTerritory(territoryName string) []string {
+	// Get territory from eruntime
+	territory := eruntime.GetTerritory(territoryName)
+	if territory == nil {
+		return nil
+	}
+
+	territory.Mu.RLock()
+	defer territory.Mu.RUnlock()
+
+	// Skip if territory is an HQ or has no guild
+	if territory.HQ || territory.Guild.Tag == "" || territory.Guild.Tag == "NONE" {
+		return nil
+	}
+
+	// Skip if territory has no trading routes
+	if len(territory.TradingRoutes) == 0 {
+		return nil
+	}
+
+	// Return the first route (there should only be one route from territory to HQ)
+	route := territory.TradingRoutes[0]
+	routeNames := make([]string, len(route))
+	for i, t := range route {
+		if t != nil {
+			routeNames[i] = t.Name
+		}
+	}
+
+	return routeNames
 }
 
 // LoadTerritoriesAsync loads territory data asynchronously
@@ -1057,6 +1097,22 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 	// but we only do it once here instead of multiple times
 	sort.Strings(territoryNames)
 
+	// Get routes to highlight if feature is enabled and there's a hovered territory
+	var routesToHighlight map[string]bool
+	if tm.showHoveredRoutes && hoveredTerritory != "" {
+		routesToHQ := tm.getRouteToHQForTerritory(hoveredTerritory)
+		if len(routesToHQ) > 1 { // Must have at least origin and destination
+			routesToHighlight = make(map[string]bool)
+			// Mark route segments for highlighting
+			for i := 0; i < len(routesToHQ)-1; i++ {
+				routeKey := routesToHQ[i] + "->" + routesToHQ[i+1]
+				routesToHighlight[routeKey] = true
+			}
+			// Debug: print route highlighting info (can be removed later)
+			fmt.Printf("[ROUTE_HIGHLIGHT] Highlighting %d route segments for territory %s to HQ\n", len(routesToHighlight), hoveredTerritory)
+		}
+	}
+
 	// First pass: Add trading routes as line polygons so they render behind territories
 	// Skip routes in low detail mode for better performance
 	if !lowDetail {
@@ -1118,13 +1174,34 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 					{centerX1 - perpX, centerY1 - perpY},
 				}
 
+				// Check if this route segment should be highlighted
+				routeKey := name + "->" + routeName
+				isHighlighted := routesToHighlight != nil && routesToHighlight[routeKey]
+
+				// Determine route color and state
+				var routeColor [3]float32
+				var routeState OverlayState
+				var borderColor [3]float32
+
+				if isHighlighted {
+					// White for highlighted routes to HQ
+					routeColor = [3]float32{1.0, 1.0, 1.0}
+					routeState = OverlayRouteHighlighted
+					borderColor = [3]float32{0.8, 0.8, 0.8} // Light gray border for highlighted routes
+				} else {
+					// Black for normal routes
+					routeColor = [3]float32{0.0, 0.0, 0.0}
+					routeState = OverlayNormal
+					borderColor = [3]float32{0.2, 0.2, 0.2} // Dark gray border
+				}
+
 				routePoly := OverlayPolygon{
 					Points:      routePts,
-					Color:       [3]float32{0.0, 0.0, 0.0}, // Black routes (was red, pink functionality preserved for future)
-					State:       OverlayNormal,
+					Color:       routeColor,
+					State:       routeState,
 					BlinkPhase:  blinkPhase,
-					BorderWidth: 1.0,                       // Thin borders for routes
-					BorderColor: [3]float32{0.2, 0.2, 0.2}, // Dark gray border
+					BorderWidth: 1.0,
+					BorderColor: borderColor,
 				}
 				polygons = append(polygons, routePoly)
 			}
@@ -1293,6 +1370,17 @@ func (tm *TerritoriesManager) IsLoaded() bool {
 // GetLoadError returns any error that occurred during loading
 func (tm *TerritoriesManager) GetLoadError() error {
 	return tm.loadError
+}
+
+// SetShowHoveredRoutes enables or disables the white route highlighting for hovered territories
+func (tm *TerritoriesManager) SetShowHoveredRoutes(enabled bool) {
+	tm.showHoveredRoutes = enabled
+	tm.bufferNeedsUpdate = true // Trigger buffer update
+}
+
+// GetShowHoveredRoutes returns whether route highlighting is enabled
+func (tm *TerritoriesManager) GetShowHoveredRoutes() bool {
+	return tm.showHoveredRoutes
 }
 
 // GetPendingRoute returns and clears the pending territory selection from clicked items

@@ -45,8 +45,8 @@ type EnhancedTextInput struct {
 	deleteTimer    time.Time // Timer for continuous delete
 }
 
-// NewEnhancedTextInput creates a new enhanced text input
-func NewEnhancedTextInput(placeholder string, x, y, width, height, maxLength int) *EnhancedTextInput {
+// TextInput creates a new enhanced text input
+func TextInput(placeholder string, x, y, width, height, maxLength int) *EnhancedTextInput {
 	return &EnhancedTextInput{
 		Value:          "",
 		Placeholder:    placeholder,
@@ -484,8 +484,8 @@ func NewEnhancedGuildManager() *EnhancedGuildManager {
 	modalY := (screenH - modalHeight) / 2
 
 	// Tag input has max length 4 for tag validation (3-4 chars)
-	nameInput := NewEnhancedTextInput("Enter guild name...", modalX+30, modalY+70, 200, 35, 50)
-	tagInput := NewEnhancedTextInput("Tag...", modalX+240, modalY+70, 50, 35, 4)
+	nameInput := TextInput("Enter guild name...", modalX+30, modalY+70, 200, 35, 50)
+	tagInput := TextInput("Tag...", modalX+240, modalY+70, 50, 35, 4)
 
 	gm := &EnhancedGuildManager{
 		visible:         false,
@@ -2179,6 +2179,77 @@ func (gm *EnhancedGuildManager) GetGuildByTag(tag string) (*EnhancedGuildData, b
 		}
 	}
 	return nil, false
+}
+
+// GetAllGuildColors returns all guild colors in a format suitable for state saving
+func (gm *EnhancedGuildManager) GetAllGuildColors() map[string]map[string]string {
+	gm.ensureCachesValid()
+	result := make(map[string]map[string]string)
+
+	for _, guild := range gm.guilds {
+		result[guild.Name] = map[string]string{
+			"tag":   guild.Tag,
+			"color": guild.Color,
+		}
+	}
+
+	return result
+}
+
+// SetAllGuildColors sets guild colors from a state load operation
+func (gm *EnhancedGuildManager) SetAllGuildColors(guildColors map[string]map[string]string) {
+	// Clear existing guilds
+	gm.guilds = []EnhancedGuildData{}
+
+	// Add guilds from color data
+	for name, data := range guildColors {
+		tag := data["tag"]
+		color := data["color"]
+
+		gm.guilds = append(gm.guilds, EnhancedGuildData{
+			Name:  name,
+			Tag:   tag,
+			Color: color,
+		})
+	}
+
+	gm.cachesDirty = true
+	gm.saveGuildsToFile()
+}
+
+// MergeGuildColors merges guild colors from a state load operation
+func (gm *EnhancedGuildManager) MergeGuildColors(guildColors map[string]map[string]string) {
+	gm.ensureCachesValid()
+
+	for name, data := range guildColors {
+		tag := data["tag"]
+		color := data["color"]
+
+		// Check if guild already exists
+		existing := false
+		for i, guild := range gm.guilds {
+			if guild.Name == name || guild.Tag == tag {
+				// Update existing guild
+				gm.guilds[i].Name = name
+				gm.guilds[i].Tag = tag
+				gm.guilds[i].Color = color
+				existing = true
+				break
+			}
+		}
+
+		// Add new guild if it doesn't exist
+		if !existing {
+			gm.guilds = append(gm.guilds, EnhancedGuildData{
+				Name:  name,
+				Tag:   tag,
+				Color: color,
+			})
+		}
+	}
+
+	gm.cachesDirty = true
+	gm.saveGuildsToFile()
 }
 
 // GetGuildColor returns the color for a guild by name and tag

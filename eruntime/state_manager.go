@@ -18,9 +18,12 @@ var supportedStateVersion = []string{"1.0", "1.1", "1.2", "1.3"}
 
 // Callback functions for user data that persists through resets
 var (
-	getLoadoutsCallback   func() []typedef.Loadout
-	setLoadoutsCallback   func([]typedef.Loadout)
-	mergeLoadoutsCallback func([]typedef.Loadout) // Merges loadouts, keeping existing ones with same names
+	getLoadoutsCallback      func() []typedef.Loadout
+	setLoadoutsCallback      func([]typedef.Loadout)
+	mergeLoadoutsCallback    func([]typedef.Loadout) // Merges loadouts, keeping existing ones with same names
+	getGuildColorsCallback   func() map[string]map[string]string
+	setGuildColorsCallback   func(map[string]map[string]string)
+	mergeGuildColorsCallback func(map[string]map[string]string) // Merges guild colors
 )
 
 // SetLoadoutCallbacks sets the callback functions for loadout persistence
@@ -28,6 +31,13 @@ func SetLoadoutCallbacks(getFunc func() []typedef.Loadout, setFunc func([]typede
 	getLoadoutsCallback = getFunc
 	setLoadoutsCallback = setFunc
 	mergeLoadoutsCallback = mergeFunc
+}
+
+// SetGuildColorCallbacks sets the callback functions for guild color persistence
+func SetGuildColorCallbacks(getFunc func() map[string]map[string]string, setFunc func(map[string]map[string]string), mergeFunc func(map[string]map[string]string)) {
+	getGuildColorsCallback = getFunc
+	setGuildColorsCallback = setFunc
+	mergeGuildColorsCallback = mergeFunc
 }
 
 // StateData represents the complete state that can be saved/loaded
@@ -49,7 +59,8 @@ type StateData struct {
 	TotalGuilds      int `json:"totalGuilds"`
 
 	// Persistent user data (version 1.3+)
-	Loadouts []typedef.Loadout `json:"loadouts,omitempty"` // Loadouts persist through resets
+	Loadouts    []typedef.Loadout            `json:"loadouts,omitempty"`    // Loadouts persist through resets
+	GuildColors map[string]map[string]string `json:"guildColors,omitempty"` // Guild colors: guildName -> {tag, color}
 }
 
 // SaveStateToFile saves the current state to a file with LZ4 compression
@@ -204,6 +215,12 @@ func SaveStateToFile(filepath string) error {
 		fmt.Printf("[STATE] Saved %d loadouts to state\n", len(stateData.Loadouts))
 	}
 
+	// Copy guild colors (version 1.3+) - these persist through resets
+	if getGuildColorsCallback != nil {
+		stateData.GuildColors = getGuildColorsCallback()
+		fmt.Printf("[STATE] Saved %d guild colors to state\n", len(stateData.GuildColors))
+	}
+
 	// All the expensive operations (JSON marshal, compression, file write) happen
 	// without holding any locks, so users can continue working
 
@@ -231,8 +248,73 @@ func SaveStateToFile(filepath string) error {
 	return nil
 }
 
-// LoadStateFromFile loads state from a file with LZ4 decompression
+// ValidateStateFile checks if a state file is valid without actually loading it
+func ValidateStateFile(filepath string) error {
+	// Read compressed file
+	compressedData, err := os.ReadFile(filepath)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %v", err)
+	}
+
+	// Check if file is empty
+	if len(compressedData) == 0 {
+		return fmt.Errorf("file is empty")
+	}
+
+	// Decompress LZ4
+	jsonData, err := decompressLZ4(compressedData)
+	if err != nil {
+		return fmt.Errorf("failed to decompress data (corrupted or not a valid LZ4 file): %v", err)
+	}
+
+	// Check if decompressed data is empty
+	if len(jsonData) == 0 {
+		return fmt.Errorf("decompressed data is empty")
+	}
+
+	// Try to unmarshal JSON
+	var stateData StateData
+	err = json.Unmarshal(jsonData, &stateData)
+	if err != nil {
+		return fmt.Errorf("failed to parse JSON data (corrupted state file): %v", err)
+	}
+
+	// Validate state data
+	if stateData.Type != "state_save" {
+		return fmt.Errorf("invalid file type: expected 'state_save', got '%s'", stateData.Type)
+	}
+
+	if !arrutil.Contains(supportedStateVersion, stateData.Version) {
+		return fmt.Errorf("unsupported state version '%s'. Supported versions: %v", stateData.Version, supportedStateVersion)
+	}
+
+	// File is valid
+	return nil
+}
+
+// LoadStateFromFileSelective loads state from a file with selective import options
+func LoadStateFromFileSelective(filepath string, importOptions map[string]bool) error {
+	return loadStateFromFileInternal(filepath, importOptions)
+}
+
+// LoadStateFromFile loads state from a file with LZ4 decompression (imports everything)
 func LoadStateFromFile(filepath string) error {
+	// Default: import everything
+	importOptions := map[string]bool{
+		"core":             true,
+		"guilds":           true,
+		"territories":      true,
+		"territory_config": true,
+		"territory_data":   true,
+		"in_transit":       true,
+		"tributes":         true,
+		"loadouts":         true,
+	}
+	return loadStateFromFileInternal(filepath, importOptions)
+}
+
+// loadStateFromFileInternal is the internal implementation that handles selective loading
+func loadStateFromFileInternal(filepath string, importOptions map[string]bool) error {
 	// Halt the runtime during state loading to prevent flickering
 	wasHalted := st.halted
 	if !wasHalted {
@@ -287,14 +369,30 @@ func LoadStateFromFile(filepath string) error {
 		return fmt.Errorf("unsupported version: %s", stateData.Version)
 	}
 
-	// Merge guilds from state file with existing guilds and update guilds.json
-	err = mergeGuildsFromState(stateData.Guilds)
-	if err != nil {
-		// Restore runtime state if we halted it
-		if !wasHalted {
-			st.start()
+	// Import core runtime data (if requested)
+	if importOptions["core"] {
+		st.mu.Lock()
+		st.tick = stateData.Tick
+		st.runtimeOptions = stateData.RuntimeOptions
+		st.mu.Unlock()
+		fmt.Printf("[STATE] Imported core data (tick: %d)\n", stateData.Tick)
+	} else {
+		fmt.Printf("[STATE] Skipped importing core data\n")
+	}
+
+	// Merge guilds from state file with existing guilds and update guilds.json (if requested)
+	if importOptions["guilds"] {
+		err = mergeGuildsFromState(stateData.Guilds)
+		if err != nil {
+			// Restore runtime state if we halted it
+			if !wasHalted {
+				st.start()
+			}
+			return fmt.Errorf("failed to merge guilds from state: %v", err)
 		}
-		return fmt.Errorf("failed to merge guilds from state: %v", err)
+		fmt.Printf("[STATE] Imported %d guilds from state\n", len(stateData.Guilds))
+	} else {
+		fmt.Printf("[STATE] Skipped importing guilds\n")
 	}
 
 	hasTransitFields := false
@@ -322,35 +420,100 @@ func LoadStateFromFile(filepath string) error {
 	st.mu.Lock()
 	st.stateLoading = true
 
-	// Clear existing territories
-	for _, territory := range st.territories {
-		if territory != nil && territory.CloseCh != nil {
-			territory.CloseCh()
+	// Import territories and related data based on options
+	if importOptions["territories"] || importOptions["territory_config"] || importOptions["territory_data"] || importOptions["in_transit"] {
+		// Clear existing territories
+		for _, territory := range st.territories {
+			if territory != nil && territory.CloseCh != nil {
+				territory.CloseCh()
+			}
 		}
-	}
 
-	st.tick = stateData.Tick
-	st.territories = stateData.Territories
-	st.activeTributes = stateData.ActiveTributes
-	st.runtimeOptions = stateData.RuntimeOptions
+		st.tick = stateData.Tick
+		st.territories = stateData.Territories
 
-	// Rebuild territory map for fast lookups
-	TerritoryMap = make(map[string]*typedef.Territory)
-	st.territoryMap = make(map[string]*typedef.Territory)
-	for _, territory := range st.territories {
-		if territory != nil {
-			TerritoryMap[territory.Name] = territory
-			st.territoryMap[territory.ID] = territory
-			setCh := make(chan typedef.TerritoryOptions, 1)
-			territory.SetCh = setCh
-			territory.CloseCh = func() { close(setCh) }
+		// Only import territory configurations if requested
+		if !importOptions["territory_config"] {
+			// Reset territory configurations to defaults but keep ownership
+			for _, territory := range st.territories {
+				if territory != nil {
+					// Keep guild ownership but reset configs
+					guild := territory.Guild
+					*territory = typedef.Territory{
+						ID:    territory.ID,
+						Name:  territory.Name,
+						Guild: guild,
+					}
+					// Apply default values here if needed
+				}
+			}
+			fmt.Printf("[STATE] Imported territories but skipped configurations\n")
+		} else {
+			fmt.Printf("[STATE] Imported territories with configurations\n")
 		}
+
+		// Only import territory data if requested
+		if !importOptions["territory_data"] {
+			// Clear resource data
+			for _, territory := range st.territories {
+				if territory != nil {
+					territory.Storage = typedef.TerritoryStorage{}
+					territory.ResourceGeneration = typedef.ResourceGeneration{}
+				}
+			}
+			fmt.Printf("[STATE] Cleared territory resource data\n")
+		} else {
+			fmt.Printf("[STATE] Imported territory resource data\n")
+		}
+
+		// Only import in-transit resources if requested
+		if !importOptions["in_transit"] {
+			// Clear transit resources
+			for _, territory := range st.territories {
+				if territory != nil {
+					territory.TransitResource = []typedef.InTransitResources{}
+					territory.TradingRoutesJSON = [][]string{}
+				}
+			}
+			fmt.Printf("[STATE] Cleared in-transit resources\n")
+		} else {
+			fmt.Printf("[STATE] Imported in-transit resources\n")
+		}
+
+		// Import runtime options only if core is not being imported separately
+		if !importOptions["core"] {
+			st.runtimeOptions = stateData.RuntimeOptions
+		}
+
+		// Rebuild territory map for fast lookups
+		TerritoryMap = make(map[string]*typedef.Territory)
+		st.territoryMap = make(map[string]*typedef.Territory)
+		for _, territory := range st.territories {
+			if territory != nil {
+				TerritoryMap[territory.Name] = territory
+				st.territoryMap[territory.ID] = territory
+				setCh := make(chan typedef.TerritoryOptions, 1)
+				territory.SetCh = setCh
+				territory.CloseCh = func() { close(setCh) }
+			}
+		}
+	} else {
+		fmt.Printf("[STATE] Skipped importing territories and related data\n")
 	}
 
 	rebuildHQMap()
 
-	// Rebuild guild pointers in tributes
-	rebuildTributeGuildPointers()
+	// Import tributes (if requested)
+	if importOptions["tributes"] {
+		st.activeTributes = stateData.ActiveTributes
+		// Rebuild guild pointers in tributes
+		rebuildTributeGuildPointers()
+		fmt.Printf("[STATE] Imported tributes data\n")
+	} else {
+		fmt.Printf("[STATE] Skipped importing tributes\n")
+		// Still need to rebuild pointers for existing tributes
+		rebuildTributeGuildPointers()
+	}
 
 	// Only recalculate routes if new fields are missing
 	if !hasTransitFields {
@@ -381,11 +544,20 @@ func LoadStateFromFile(filepath string) error {
 		fmt.Printf("[STATE] State loading completed, notifications sent\n")
 	}()
 
-	// Load persistent user data (loadouts) - version 1.3+
-	// Use merge strategy to preserve existing user loadouts with same names
-	if mergeLoadoutsCallback != nil && stateData.Loadouts != nil {
+	// Load persistent user data (loadouts) - version 1.3+ (if requested)
+	if importOptions["loadouts"] && mergeLoadoutsCallback != nil && stateData.Loadouts != nil {
 		mergeLoadoutsCallback(stateData.Loadouts)
 		fmt.Printf("[STATE] Merged %d loadouts from state\n", len(stateData.Loadouts))
+	} else if !importOptions["loadouts"] {
+		fmt.Printf("[STATE] Skipped importing loadouts\n")
+	}
+
+	// Load guild colors - version 1.3+ (if guilds are imported)
+	if importOptions["guilds"] && mergeGuildColorsCallback != nil && stateData.GuildColors != nil {
+		mergeGuildColorsCallback(stateData.GuildColors)
+		fmt.Printf("[STATE] Merged %d guild colors from state\n", len(stateData.GuildColors))
+	} else if !importOptions["guilds"] {
+		fmt.Printf("[STATE] Skipped importing guild colors\n")
 	}
 
 	fmt.Printf("[STATE] Monitoring HQ status for the next few seconds after state load...\n")

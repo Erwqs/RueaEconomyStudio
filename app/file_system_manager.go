@@ -15,6 +15,7 @@ import (
 
 // Global file system manager instance
 var globalFileSystemManager *FileSystemManager
+var globalStateImportModal *StateImportModal
 
 // GetFileSystemManager returns the global file system manager instance
 func GetFileSystemManager() *FileSystemManager {
@@ -25,6 +26,32 @@ func GetFileSystemManager() *FileSystemManager {
 func InitializeFileSystemManager(inputManager *InputManager) {
 	// fmt.Println("[FILE] InitializeFileSystemManager called")
 	globalFileSystemManager = NewFileSystemManager(inputManager)
+
+	// Initialize the state import modal
+	titleFont := GetDefaultFont(24)       // Increased from 16 for high DPI
+	contentFont := GetDefaultFont(18)     // Increased from 14 for high DPI
+	descriptionFont := GetDefaultFont(14) // Smaller font for descriptions
+	globalStateImportModal = NewStateImportModal(titleFont, contentFont, descriptionFont)
+
+	// Set up import modal callbacks
+	globalStateImportModal.SetCallbacks(
+		func(selectedOptions map[string]bool, filePath string) {
+			// Handle import
+			fmt.Printf("[STATE] Importing state with options: %+v\n", selectedOptions)
+			// Use the public API (it handles errors internally with logging)
+			eruntime.LoadStateSelective(filePath, selectedOptions)
+
+			// Show success toast
+			NewToast().
+				Text("State import initiated", ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
+				AutoClose(time.Second * 3).
+				Show()
+		},
+		func() {
+			// Handle cancel
+			fmt.Printf("[STATE] Import cancelled\n")
+		},
+	)
 
 	// Set up state save/load callbacks
 	globalFileSystemManager.SetOnFileSaved(func(filepath string, content []byte) error {
@@ -41,13 +68,19 @@ func InitializeFileSystemManager(inputManager *InputManager) {
 
 	globalFileSystemManager.SetOnFileOpened(func(filepath string, content []byte) error {
 		fmt.Printf("[FILE] onFileOpened callback called for: %s\n", filepath)
-		// For state loads, ignore content parameter and call LoadState API
-		eruntime.LoadState(filepath)
 
-		NewToast().
-			Text("Loading state data from "+filepath, ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
-			AutoClose(time.Second * 3).
-			Show()
+		// Check if this is a state file (has .lz4 extension)
+		if filepath != "" && (strings.HasSuffix(filepath, ".lz4") || strings.Contains(filepath, "state")) {
+			// Show import modal for state files
+			ShowStateImportModal(filepath)
+		} else {
+			// For other files, load directly
+			eruntime.LoadState(filepath)
+			NewToast().
+				Text("Loading state data from "+filepath, ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
+				AutoClose(time.Second * 3).
+				Show()
+		}
 		return nil
 	})
 }
@@ -116,6 +149,12 @@ func (fsm *FileSystemManager) Update() bool {
 		if fsm.saveDialogue.Update() {
 			inputConsumed = true
 		}
+	}
+
+	// Update state import modal
+	if globalStateImportModal != nil && globalStateImportModal.IsVisible() {
+		globalStateImportModal.Update()
+		inputConsumed = true
 	}
 
 	// Handle auto-save if enabled
@@ -339,6 +378,11 @@ func (fsm *FileSystemManager) Draw(screen *ebiten.Image) {
 	if fsm.saveDialogue != nil && fsm.saveDialogue.IsVisible() {
 		fsm.saveDialogue.Draw(screen)
 	}
+
+	// Draw state import modal
+	if globalStateImportModal != nil && globalStateImportModal.IsVisible() {
+		globalStateImportModal.Draw(screen)
+	}
 }
 
 // SetOnFileOpened sets the callback for when a file is opened
@@ -441,5 +485,41 @@ func (fsm *FileSystemManager) Cleanup() {
 	if fsm.saveDialogue != nil {
 		fsm.saveDialogue.Hide()
 		fsm.saveDialogue = nil
+	}
+}
+
+// ShowStateImportModal displays the state import modal for the given file
+func ShowStateImportModal(filePath string) {
+	if globalStateImportModal == nil {
+		return
+	}
+
+	// Validate the state file before showing the modal
+	err := eruntime.ValidateStateFileAPI(filePath)
+	if err != nil {
+		// Show error toast for invalid/corrupted state files
+		NewToast().
+			Text("Invalid State File", ToastOption{Colour: color.RGBA{255, 100, 100, 255}}).
+			Text(err.Error(), ToastOption{Colour: color.RGBA{255, 200, 200, 255}}).
+			Button("Dismiss", func() {}, 0, 0, ToastOption{Colour: color.RGBA{255, 120, 120, 255}}).
+			Show()
+		return
+	}
+
+	// File is valid, show the import modal
+	globalStateImportModal.Show(filePath)
+}
+
+// UpdateStateImportModal updates the state import modal if it's visible
+func UpdateStateImportModal() {
+	if globalStateImportModal != nil && globalStateImportModal.IsVisible() {
+		globalStateImportModal.Update()
+	}
+}
+
+// DrawStateImportModal draws the state import modal if it's visible
+func DrawStateImportModal(screen *ebiten.Image) {
+	if globalStateImportModal != nil && globalStateImportModal.IsVisible() {
+		globalStateImportModal.Draw(screen)
 	}
 }

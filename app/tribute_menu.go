@@ -1021,11 +1021,11 @@ func (tm *TributeMenu) initializeInputs() {
 	})
 
 	// Resource input fields
-	tm.emeraldInput = NewEnhancedTextInput("0", 0, 0, 100, 25, 10)
-	tm.oreInput = NewEnhancedTextInput("0", 0, 0, 100, 25, 10)
-	tm.woodInput = NewEnhancedTextInput("0", 0, 0, 100, 25, 10)
-	tm.fishInput = NewEnhancedTextInput("0", 0, 0, 100, 25, 10)
-	tm.cropInput = NewEnhancedTextInput("0", 0, 0, 100, 25, 10)
+	tm.emeraldInput = TextInput("0", 0, 0, 100, 25, 10)
+	tm.oreInput = TextInput("0", 0, 0, 100, 25, 10)
+	tm.woodInput = TextInput("0", 0, 0, 100, 25, 10)
+	tm.fishInput = TextInput("0", 0, 0, 100, 25, 10)
+	tm.cropInput = TextInput("0", 0, 0, 100, 25, 10)
 }
 
 // updateDropdownOptions updates the dropdown options with current guild data

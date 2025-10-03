@@ -115,7 +115,7 @@ func (fsd *FileSystemDialogue) initializeUI() {
 	// Create path input (combines path display and editing) - moved down more
 	pathY := modalBounds.Min.Y + 40     // Moved down from 25 to 40
 	pathWidth := modalBounds.Dx() - 220 // Leave space for buttons
-	fsd.pathInput = NewEnhancedTextInput("", modalBounds.Min.X+15, pathY, pathWidth, 35, 200)
+	fsd.pathInput = TextInput("", modalBounds.Min.X+15, pathY, pathWidth, 35, 200)
 	fsd.pathInput.SetText(fsd.currentPath)
 
 	// Create smaller navigation buttons on the right - moved down with path input
@@ -145,7 +145,7 @@ func (fsd *FileSystemDialogue) initializeUI() {
 	// Create filename input (for save dialogue) with better positioning
 	if fsd.dialogueType == FileDialogueSave {
 		filenameY := modalBounds.Max.Y - fsd.footerHeight + 15
-		fsd.filenameInput = NewEnhancedTextInput("Enter filename...", modalBounds.Min.X+15, filenameY, 400, 40, 100)
+		fsd.filenameInput = TextInput("Enter filename...", modalBounds.Min.X+15, filenameY, 400, 40, 100)
 
 		// Create extension filter dropdown beside filename input if extensions are specified
 		// Make it compact for extension names (extensions are only 3-4 characters)

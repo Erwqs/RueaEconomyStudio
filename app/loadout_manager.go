@@ -84,7 +84,7 @@ func NewLoadoutManager() *LoadoutManager {
 	}
 
 	// Initialize text input
-	lm.nameInput = NewEnhancedTextInput("Enter loadout name", 120, 150, 200, 25, 50)
+	lm.nameInput = TextInput("Enter loadout name", 120, 150, 200, 25, 50)
 
 	// Load existing loadouts from file
 	lm.loadFromFile()

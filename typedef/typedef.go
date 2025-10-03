@@ -65,6 +65,14 @@ const (
 	RoutingFastest                 // Route with the lowest time
 )
 
+type PathfindingAlgorithm int8
+
+const (
+	PathfindingDijkstra      PathfindingAlgorithm = iota // Breadth-First Search (fastest, ignores cost)
+	PathfindingAstar                             // Dijkstra's algorithm (cheapest route)
+	PathfindingFloodFill
+)
+
 type Warning int8
 
 // Bitfields for warnings
@@ -730,6 +738,8 @@ type RuntimeOptions struct {
 	EncodeInTransitResources bool `json:"EncodeTreasury"` // If true, the treasury will be encoded in the JSON format for easier storage and retrieval
 
 	NoHaltedMessages bool `json:"NoHaltedMessages"` // If true, the user will not receive messages when the app is halted due to errors or other issues
+
+	PathfindingAlgorithm PathfindingAlgorithm `json:"PathfindingAlgorithm"` // Pathfinding algorithm to use for routing
 }
 
 func _round_down4(x float64) float64 {

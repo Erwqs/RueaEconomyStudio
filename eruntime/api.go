@@ -2,6 +2,7 @@ package eruntime
 
 import (
 	"RueaES/typedef"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -798,9 +799,10 @@ func Reset() {
 
 	// Reset runtime options to defaults
 	st.runtimeOptions = typedef.RuntimeOptions{
-		TreasuryEnabled: true,
-		NoKSPrompt:      false,
-		EnableShm:       false,
+		TreasuryEnabled:      true,
+		NoKSPrompt:           false,
+		EnableShm:            false,
+		PathfindingAlgorithm: typedef.PathfindingDijkstra,
 	}
 
 	// Recreate transit manager
@@ -880,6 +882,32 @@ func LoadState(path string) {
 	} else {
 		fmt.Printf("[STATE] Successfully loaded state from: %s\n", path)
 	}
+}
+
+func LoadStateSelective(path string, importOptions map[string]bool) {
+	fmt.Printf("[STATE] LoadStateSelective called with path: '%s' and options: %+v\n", path, importOptions)
+	if path == "" {
+		fmt.Println("[STATE] LoadStateSelective called with empty path")
+		return
+	}
+
+	fmt.Printf("[STATE] Calling LoadStateFromFileSelective with path: %s\n", path)
+	err := LoadStateFromFileSelective(path, importOptions)
+	if err != nil {
+		fmt.Printf("[STATE] Error loading state selectively: %v\n", err)
+	} else {
+		fmt.Printf("[STATE] Successfully loaded state selectively from: %s\n", path)
+	}
+}
+
+// ValidateStateFileAPI checks if a state file is valid without loading it
+func ValidateStateFileAPI(path string) error {
+	fmt.Printf("[STATE] ValidateStateFileAPI called with path: '%s'\n", path)
+	if path == "" {
+		return fmt.Errorf("empty file path")
+	}
+
+	return ValidateStateFile(path)
 }
 
 func Elapsed() uint64 {
@@ -1339,4 +1367,29 @@ func NotifyGuildSpecificUpdate(guildName string) {
 		guildSpecificChangeCallback(guildName)
 		fmt.Printf("[ERUNTIME] Guild-specific update notification sent for guild: %s\n", guildName)
 	}
+}
+
+// GetStateFileInfo extracts basic information from a state file without fully loading it
+func GetStateFileInfo(filePath string) (version string, err error) {
+	// Read the file
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Decompress LZ4 data using existing helper function
+	jsonData, err := decompressLZ4(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to decompress LZ4 data: %w", err)
+	}
+
+	// Parse JSON to extract just the version
+	var stateInfo struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(jsonData, &stateInfo); err != nil {
+		return "", fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	return stateInfo.Version, nil
 }

@@ -16,7 +16,8 @@ const (
 	OverlayNormal OverlayState = iota
 	OverlayHovered
 	OverlaySelected
-	OverlayDimmed // For territories not belonging to the currently editing guild
+	OverlayDimmed           // For territories not belonging to the currently editing guild
+	OverlayRouteHighlighted // For trading routes to HQ when territory is hovered
 )
 
 // OverlayPolygon represents a polygon overlay (territory or route).
@@ -217,6 +218,8 @@ func overlayAlphaForState(state OverlayState, blinkPhase float32) float32 {
 		}
 	case OverlayDimmed:
 		return 0.10 // Very low opacity for territories not being edited
+	case OverlayRouteHighlighted:
+		return 0.90 // High opacity for highlighted trading routes
 	default:
 		return 0.33
 	}
@@ -256,7 +259,6 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
 	if overlay.a == 0.0 {
 		return mapColor
 	}
-	// Blinking for selected (alpha in [0.54, 0.8])
 	blink := 1.0
 	if overlay.a > 0.54 && overlay.a < 0.8 {
 		blink = 0.7 + 0.3 * sin(Time * 6.2831)
