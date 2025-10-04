@@ -126,17 +126,15 @@ func (sim *StateImportModal) Show(filePath string) {
 	sim.filePath = filePath
 	sim.visible = true
 
-	// Get file version (WASM doesn't have file system access)
-	sim.fileVersion = "WASM"
+	sim.fileVersion = "Not Applicable"
 
-	// Calculate modal dimensions and position
 	screenW, screenH := WebSafeWindowSize()
 	sim.modalW = 600
 	sim.modalH = 500
 	sim.modalX = (screenW - sim.modalW) / 2
 	sim.modalY = (screenH - sim.modalH) / 2
 
-	// Initialize checkboxes
+
 	sim.initializeCheckboxes()
 
 	// Calculate button positions (now with 3 buttons)
