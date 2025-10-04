@@ -143,7 +143,6 @@ func (sim *StateImportModal) Show(filePath string) {
 	sim.modalX = (screenW - sim.modalW) / 2
 	sim.modalY = (screenH - sim.modalH) / 2
 
-
 	sim.initializeCheckboxes()
 
 	// Calculate button positions (now with 3 buttons)

@@ -580,7 +580,7 @@ func LoadStateFromFileSelective(filepath string, importOptions map[string]bool) 
 func LoadStateFromBytesSelective(data []byte, importOptions map[string]bool) error {
 	// Use the same logic as LoadStateFromBytes but with selective import options
 	// fmt.Printf("[STATE] LoadStateFromBytesSelective called with %d bytes and options: %+v\n", len(data), importOptions)
-	
+
 	// Halt the runtime during state loading to prevent flickering
 	wasHalted := st.halted
 	if !wasHalted {
@@ -635,7 +635,7 @@ func LoadStateFromBytesSelective(data []byte, importOptions map[string]bool) err
 	} else {
 		fmt.Printf("[STATE] Skipped importing core data\n")
 	}
-	
+
 	// Merge guilds from state file with existing guilds and update guilds.json (if requested)
 	if importOptions["guilds"] {
 		err = mergeGuildsFromState(stateData.Guilds)
@@ -675,7 +675,7 @@ func LoadStateFromBytesSelective(data []byte, importOptions map[string]bool) err
 	// Apply state under write lock
 	st.mu.Lock()
 	st.stateLoading = true
-	
+
 	// Import territories and related data based on options
 	if importOptions["territories"] || importOptions["territory_config"] || importOptions["territory_data"] || importOptions["in_transit"] {
 		// Clear existing territories
@@ -684,10 +684,10 @@ func LoadStateFromBytesSelective(data []byte, importOptions map[string]bool) err
 				territory.CloseCh()
 			}
 		}
-		
+
 		st.tick = stateData.Tick
 		st.territories = stateData.Territories
-		
+
 		// Only import territory configurations if requested
 		if !importOptions["territory_config"] {
 			// Reset territory configurations to defaults but keep ownership
@@ -737,7 +737,7 @@ func LoadStateFromBytesSelective(data []byte, importOptions map[string]bool) err
 			fmt.Printf("[STATE] Imported in-transit resources\n")
 		}
 	}
-	
+
 	// Import active tributes (if requested)
 	if importOptions["tributes"] {
 		st.activeTributes = stateData.ActiveTributes
@@ -765,21 +765,21 @@ func LoadStateFromBytesSelective(data []byte, importOptions map[string]bool) err
 		// Restore in-memory pointers from JSON-safe IDs
 		RestorePointersFromIDs(st.territories)
 	}
-	
+
 	loadCosts(&st)
 
 	// fmt.Printf("[STATE] Successfully loaded state from bytes (Territories: %d, Guilds: %d, Tick: %d)\n",
 	// len(st.territories), len(st.guilds), st.tick)
-	
+
 	st.mu.Unlock()
 	st.mu.Lock()
 	st.stateLoading = false
 	st.mu.Unlock()
-	
+
 	if !wasHalted {
 		st.start()
 	}
-	
+
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		NotifyTerritoryColorsUpdate()

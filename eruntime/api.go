@@ -898,8 +898,6 @@ func LoadStateSelective(path string, importOptions map[string]bool) {
 	}
 }
 
-
-
 func Elapsed() uint64 {
 	return st.tick
 }
