@@ -213,11 +213,12 @@ func (s *state) updateRoute() {
 
 			var route []*typedef.Territory
 			var err error
+			pathfindingAlgorithm := st.runtimeOptions.PathfindingAlgorithm
 			switch t.RoutingMode {
 			case typedef.RoutingCheapest:
-				route, err = pathfinder.Dijkstra(t, hq, TerritoryMap, TradingRoutesMap, t.Guild.Tag, allies)
+				route, err = pathfinder.FindPathCheapest(pathfindingAlgorithm, t, hq, TerritoryMap, TradingRoutesMap, t.Guild.Tag, allies)
 			case typedef.RoutingFastest:
-				route, err = pathfinder.BFS(t, hq, TerritoryMap, TradingRoutesMap, t.Guild.Tag)
+				route, err = pathfinder.FindPathFastest(t, hq, TerritoryMap, TradingRoutesMap, t.Guild.Tag)
 			}
 			// Store in cache
 			pathCache[cacheKey] = struct {
@@ -435,8 +436,9 @@ func updateHQRoutes(hq *typedef.Territory, allies []string) {
 
 // findAllRoutesWithSameTax finds all routes with the same minimum tax
 func findAllRoutesWithSameTax(start, target *typedef.Territory, sourceTag string, allies []string, useCheapest bool) ([][]*typedef.Territory, error) {
-	// First find the best route using Dijkstra
-	bestRoute, err := pathfinder.Dijkstra(start, target, TerritoryMap, TradingRoutesMap, sourceTag, allies)
+	// First find the best route using the configured pathfinding algorithm
+	pathfindingAlgorithm := st.runtimeOptions.PathfindingAlgorithm
+	bestRoute, err := pathfinder.FindPathCheapest(pathfindingAlgorithm, start, target, TerritoryMap, TradingRoutesMap, sourceTag, allies)
 	if err != nil || len(bestRoute) == 0 {
 		return nil, err
 	}
@@ -452,8 +454,8 @@ func findAllRoutesWithSameTax(start, target *typedef.Territory, sourceTag string
 
 // findAllRoutesWithSameLength finds all routes with the same minimum length
 func findAllRoutesWithSameLength(start, target *typedef.Territory, sourceTag string) ([][]*typedef.Territory, error) {
-	// First find the shortest route using BFS
-	bestRoute, err := pathfinder.BFS(start, target, TerritoryMap, TradingRoutesMap, sourceTag)
+	// First find the shortest route using BFS (always fastest)
+	bestRoute, err := pathfinder.FindPathFastest(start, target, TerritoryMap, TradingRoutesMap, sourceTag)
 	if err != nil || len(bestRoute) == 0 {
 		return nil, err
 	}
@@ -675,21 +677,22 @@ func FindTributeRoute(fromHQ, toHQ *typedef.Territory) ([]string, error) {
 	var bestCost float64 = -1
 	var err error
 
-	// Try cheapest route first (Dijkstra with tax consideration)
-	route, err := pathfinder.Dijkstra(fromHQ, toHQ, TerritoryMap, TradingRoutesMap, sourceGuildTag, allies)
+	// Try cheapest route first using configured pathfinding algorithm
+	pathfindingAlgorithm := st.runtimeOptions.PathfindingAlgorithm
+	route, err := pathfinder.FindPathCheapest(pathfindingAlgorithm, fromHQ, toHQ, TerritoryMap, TradingRoutesMap, sourceGuildTag, allies)
 	if err == nil && len(route) > 0 {
 		cost := pathfinder.CalculateRouteTax(route, sourceGuildTag, allies)
 		if bestCost < 0 || cost < bestCost {
 			bestRoute = route
 			bestCost = cost
 		}
-		debugf("Dijkstra route found: %d territories, tax cost: %.2f\n", len(route), cost)
+		debugf("Cheapest route found: %d territories, tax cost: %.2f\n", len(route), cost)
 	} else {
-		debugf("Dijkstra failed: %v\n", err)
+		debugf("Cheapest route failed: %v\n", err)
 	}
 
-	// Try fastest route as fallback (BFS)
-	route, err = pathfinder.BFS(fromHQ, toHQ, TerritoryMap, TradingRoutesMap, sourceGuildTag)
+	// Try fastest route as fallback (always uses BFS)
+	route, err = pathfinder.FindPathFastest(fromHQ, toHQ, TerritoryMap, TradingRoutesMap, sourceGuildTag)
 	if err == nil && len(route) > 0 {
 		cost := pathfinder.CalculateRouteTax(route, sourceGuildTag, allies)
 		if bestCost < 0 || cost < bestCost {

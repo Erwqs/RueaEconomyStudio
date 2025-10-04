@@ -498,21 +498,12 @@ func loadSessionFromBrowser() {
 
 	// fmt.Printf("[STATE_MGMT] Loaded file: %s (%d bytes)\n", filename, len(stateBytes))
 
-	// Load state from bytes using eruntime function
-	err = eruntime.LoadStateFromBytes(stateBytes)
-	if err != nil {
-		// fmt.Printf("[STATE_MGMT] Error loading state: %v\n", err)
-		NewToast().
-			Text("Error loading session: "+err.Error(), ToastOption{Colour: color.RGBA{255, 100, 100, 255}}).
-			AutoClose(time.Second * 5).
-			Show()
-		return
-	}
+	// Store the file data globally for the import modal to use
+	pendingWASMFileData = stateBytes
+	pendingWASMFileName = filename
 
-	NewToast().
-		Text("Session loaded successfully from "+filename, ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
-		AutoClose(time.Second * 3).
-		Show()
+	// Show the import modal instead of loading directly
+	ShowStateImportModal(filename)
 }
 
 // getCurrentSessionData returns the current session as JSON string

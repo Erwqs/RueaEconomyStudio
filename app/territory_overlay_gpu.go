@@ -14,7 +14,8 @@ const (
 	OverlayNormal OverlayState = iota
 	OverlayHovered
 	OverlaySelected
-	OverlayDimmed // For territories not belonging to the currently editing guild
+	OverlayDimmed           // For territories not belonging to the currently editing guild
+	OverlayRouteHighlighted // For highlighted trading routes to HQ
 )
 
 // OverlayPolygon represents a polygon overlay (territory or route).

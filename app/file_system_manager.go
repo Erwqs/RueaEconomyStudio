@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"log"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -15,6 +16,11 @@ import (
 
 // Global file system manager instance
 var globalFileSystemManager *FileSystemManager
+var globalStateImportModal *StateImportModal
+
+// Global variables to store file data for WASM import modal
+var pendingWASMFileData []byte
+var pendingWASMFileName string
 
 // GetFileSystemManager returns the global file system manager instance
 func GetFileSystemManager() *FileSystemManager {
@@ -25,6 +31,53 @@ func GetFileSystemManager() *FileSystemManager {
 func InitializeFileSystemManager(inputManager *InputManager) {
 	// // fmt.Println("[FILE] InitializeFileSystemManager called")
 	globalFileSystemManager = NewFileSystemManager(inputManager)
+
+	// Initialize the state import modal
+	titleFont := GetDefaultFont(24)       // Increased from 16 for high DPI
+	contentFont := GetDefaultFont(18)     // Increased from 14 for high DPI
+	descriptionFont := GetDefaultFont(14) // Smaller font for descriptions
+	globalStateImportModal = NewStateImportModal(titleFont, contentFont, descriptionFont)
+
+	// Set up import modal callbacks
+	globalStateImportModal.SetCallbacks(
+		func(selectedOptions map[string]bool, filePath string) {
+			// Handle import
+			fmt.Printf("[STATE] Importing state with options: %+v\n", selectedOptions)
+
+			// Check if we're in WASM mode and have pending file data
+			if runtime.GOOS == "js" && runtime.GOARCH == "wasm" && pendingWASMFileData != nil {
+				// Use byte data for WASM import
+				err := eruntime.LoadStateFromBytesSelective(pendingWASMFileData, selectedOptions)
+				// Clear the pending data
+				pendingWASMFileData = nil
+				pendingWASMFileName = ""
+
+				if err != nil {
+					NewToast().
+						Text("Import failed: "+err.Error(), ToastOption{Colour: color.RGBA{255, 100, 100, 255}}).
+						AutoClose(time.Second * 5).
+						Show()
+				} else {
+					NewToast().
+						Text("State import completed successfully", ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
+						AutoClose(time.Second * 3).
+						Show()
+				}
+			} else {
+				// Use file path for desktop import (this doesn't return an error)
+				eruntime.LoadStateSelective(filePath, selectedOptions)
+				// Show success toast
+				NewToast().
+					Text("State import initiated", ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
+					AutoClose(time.Second * 3).
+					Show()
+			}
+		},
+		func() {
+			// Handle cancel
+			fmt.Println("[STATE] Import cancelled")
+		},
+	)
 
 	// Set up state save/load callbacks
 	globalFileSystemManager.SetOnFileSaved(func(filepath string, content []byte) error {
@@ -40,14 +93,20 @@ func InitializeFileSystemManager(inputManager *InputManager) {
 	})
 
 	globalFileSystemManager.SetOnFileOpened(func(filepath string, content []byte) error {
-		// fmt.Printf("[FILE] onFileOpened callback called for: %s\n", filepath)
-		// For state loads, ignore content parameter and call LoadState API
-		eruntime.LoadState(filepath)
+		fmt.Printf("[FILE] onFileOpened callback called for: %s\n", filepath)
 
-		NewToast().
-			Text("Loading state data from "+filepath, ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
-			AutoClose(time.Second * 3).
-			Show()
+		// Check if this is a state file (has .lz4 extension)
+		if filepath != "" && (strings.HasSuffix(filepath, ".lz4") || strings.Contains(filepath, "state")) {
+			// Show import modal for state files
+			ShowStateImportModal(filepath)
+		} else {
+			// For other files, load directly
+			eruntime.LoadState(filepath)
+			NewToast().
+				Text("Loading state data from "+filepath, ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
+				AutoClose(time.Second * 3).
+				Show()
+		}
 		return nil
 	})
 }

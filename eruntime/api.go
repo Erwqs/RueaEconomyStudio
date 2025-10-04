@@ -882,6 +882,22 @@ func LoadState(path string) {
 	}
 }
 
+func LoadStateSelective(path string, importOptions map[string]bool) {
+	fmt.Printf("[STATE] LoadStateSelective called with path: '%s' and options: %+v\n", path, importOptions)
+	if path == "" {
+		fmt.Println("[STATE] LoadStateSelective called with empty path")
+		return
+	}
+
+	fmt.Printf("[STATE] Calling LoadStateFromFileSelective with path: %s\n", path)
+	err := LoadStateFromFileSelective(path, importOptions)
+	if err != nil {
+		fmt.Printf("[STATE] Error loading state selectively: %v\n", err)
+	} else {
+		fmt.Printf("[STATE] Successfully loaded state selectively from: %s\n", path)
+	}
+}
+
 func Elapsed() uint64 {
 	return st.tick
 }

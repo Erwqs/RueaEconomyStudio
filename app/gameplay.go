@@ -395,6 +395,50 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 					gm.scriptManager.Show()
 				}
 			}
+		case ebiten.KeyH:
+			// Toggle route highlighting feature - only if no text input is focused
+			textInputFocused := false
+
+			// Check if guild manager is open and has text input focused
+			if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+				guildManager := gm.mapView.territoriesManager.guildManager
+				if guildManager.IsVisible() {
+					if guildManager.HasTextInputFocused() {
+						textInputFocused = true
+					}
+				}
+			}
+
+			// Check if loadout manager is open and has text input focused
+			loadoutManager := GetLoadoutManager()
+			if loadoutManager != nil && loadoutManager.IsVisible() {
+				if loadoutManager.HasTextInputFocused() {
+					textInputFocused = true
+				}
+			}
+
+			// Check if transit resource menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Check if tribute menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			if !textInputFocused {
+				enabled := gm.ToggleRouteHighlighting()
+				NewToast().
+					Text("Route Highlighting: "+func() string {
+						if enabled {
+							return "Enabled"
+						}
+						return "Disabled"
+					}(), ToastOption{Colour: color.RGBA{100, 150, 255, 255}}).
+					AutoClose(time.Second * 2).
+					Show()
+			}
 		}
 	} else {
 		// Handle key release actions
@@ -472,4 +516,40 @@ func (gm *GameplayModule) Draw(screen *ebiten.Image) {
 	if welcomeScreen != nil && welcomeScreen.IsVisible() {
 		welcomeScreen.Draw(screen)
 	}
+}
+
+// ToggleRouteHighlighting toggles the white route highlighting feature for hovered territories
+func (gm *GameplayModule) ToggleRouteHighlighting() bool {
+	if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+		currentState := gm.mapView.territoriesManager.GetShowHoveredRoutes()
+		newState := !currentState
+		gm.mapView.territoriesManager.SetShowHoveredRoutes(newState)
+		if newState {
+			fmt.Println("[FEATURE] Route highlighting enabled - hover over territories to see routes to HQ in white")
+		} else {
+			fmt.Println("[FEATURE] Route highlighting disabled")
+		}
+		return newState
+	}
+	return false
+}
+
+// SetRouteHighlighting sets the route highlighting feature state
+func (gm *GameplayModule) SetRouteHighlighting(enabled bool) {
+	if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+		gm.mapView.territoriesManager.SetShowHoveredRoutes(enabled)
+		if enabled {
+			fmt.Println("[FEATURE] Route highlighting enabled")
+		} else {
+			fmt.Println("[FEATURE] Route highlighting disabled")
+		}
+	}
+}
+
+// GetRouteHighlighting returns whether route highlighting is currently enabled
+func (gm *GameplayModule) GetRouteHighlighting() bool {
+	if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+		return gm.mapView.territoriesManager.GetShowHoveredRoutes()
+	}
+	return false
 }

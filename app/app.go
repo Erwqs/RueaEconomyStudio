@@ -513,6 +513,11 @@ eventsDone:
 		}
 		// Update gameplay module
 		s.gameplayModule.Update()
+
+		// Update state import modal
+		if globalStateImportModal != nil {
+			globalStateImportModal.Update()
+		}
 	}
 
 	return nil
@@ -616,6 +621,11 @@ func (s *State) Draw(screen *ebiten.Image) {
 	// Also draw global file system manager for state save/load
 	if globalFileManager := GetFileSystemManager(); globalFileManager != nil {
 		globalFileManager.Draw(screen)
+	}
+
+	// Draw state import modal if visible
+	if globalStateImportModal != nil {
+		globalStateImportModal.Draw(screen)
 	}
 
 	// Draw toasts on top of everything else

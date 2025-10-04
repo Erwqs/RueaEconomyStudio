@@ -538,8 +538,241 @@ func LoadStateFromBytes(data []byte) error {
 	return nil
 }
 
-// LoadStateFromFile loads state from a file with LZ4 decompression
+// LoadStateFromFile loads state from a file with LZ4 decompression (imports everything)
 func LoadStateFromFile(filepath string) error {
+	// Default: import everything
+	importOptions := map[string]bool{
+		"core":             true,
+		"guilds":           true,
+		"territories":      true,
+		"territory_config": true,
+		"territory_data":   true,
+		"in_transit":       true,
+		"tributes":         true,
+		"loadouts":         true,
+	}
+	return loadStateFromFileInternal(filepath, importOptions)
+}
+
+// LoadStateFromFileSelective loads state from a file with selective import options
+func LoadStateFromFileSelective(filepath string, importOptions map[string]bool) error {
+	return loadStateFromFileInternal(filepath, importOptions)
+}
+
+// for wasm
+func LoadStateFromBytesSelective(data []byte, importOptions map[string]bool) error {
+	// Use the same logic as LoadStateFromBytes but with selective import options
+	// fmt.Printf("[STATE] LoadStateFromBytesSelective called with %d bytes and options: %+v\n", len(data), importOptions)
+	
+	// Halt the runtime during state loading to prevent flickering
+	wasHalted := st.halted
+	if !wasHalted {
+		st.halt()
+	}
+
+	// Decompress LZ4
+	jsonData, err := decompressLZ4(data)
+	if err != nil {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
+		return fmt.Errorf("failed to decompress data: %v", err)
+	}
+
+	// Unmarshal JSON
+	var stateData StateData
+	err = json.Unmarshal(jsonData, &stateData)
+	if err != nil {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
+		return fmt.Errorf("failed to unmarshal state data: %v", err)
+	}
+
+	// Validate state data
+	if stateData.Type != "state_save" {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
+		return fmt.Errorf("invalid file type: expected 'state_save', got '%s'", stateData.Type)
+	}
+
+	if !arrutil.Contains(supportedStateVersion, stateData.Version) {
+		// Restore runtime state if we halted it
+		if !wasHalted {
+			st.start()
+		}
+		return fmt.Errorf("unsupported version: %s", stateData.Version)
+	}
+
+	// Import core runtime data (if requested)
+	if importOptions["core"] {
+		st.mu.Lock()
+		st.tick = stateData.Tick
+		st.runtimeOptions = stateData.RuntimeOptions
+		st.mu.Unlock()
+		fmt.Printf("[STATE] Imported core data (tick: %d)\n", stateData.Tick)
+	} else {
+		fmt.Printf("[STATE] Skipped importing core data\n")
+	}
+	
+	// Merge guilds from state file with existing guilds and update guilds.json (if requested)
+	if importOptions["guilds"] {
+		err = mergeGuildsFromState(stateData.Guilds)
+		if err != nil {
+			// Restore runtime state if we halted it
+			if !wasHalted {
+				st.start()
+			}
+			return fmt.Errorf("failed to merge guilds from state: %v", err)
+		}
+		fmt.Printf("[STATE] Imported %d guilds from state\n", len(stateData.Guilds))
+	} else {
+		fmt.Printf("[STATE] Skipped importing guilds\n")
+	}
+
+	hasTransitFields := false
+	for _, t := range stateData.Territories {
+		if t == nil {
+			continue
+		}
+		if len(t.TransitResource) > 0 {
+			for _, tr := range t.TransitResource {
+				if tr.OriginID != "" || len(tr.Route2) > 0 || tr.DestinationID != "" || tr.NextID != "" {
+					hasTransitFields = true
+					break
+				}
+			}
+		}
+		if len(t.TradingRoutesJSON) > 0 {
+			hasTransitFields = true
+		}
+		if hasTransitFields {
+			break
+		}
+	}
+
+	// Apply state under write lock
+	st.mu.Lock()
+	st.stateLoading = true
+	
+	// Import territories and related data based on options
+	if importOptions["territories"] || importOptions["territory_config"] || importOptions["territory_data"] || importOptions["in_transit"] {
+		// Clear existing territories
+		for _, territory := range st.territories {
+			if territory != nil && territory.CloseCh != nil {
+				territory.CloseCh()
+			}
+		}
+		
+		st.tick = stateData.Tick
+		st.territories = stateData.Territories
+		
+		// Only import territory configurations if requested
+		if !importOptions["territory_config"] {
+			// Reset territory configurations to defaults but keep ownership
+			for _, territory := range st.territories {
+				if territory != nil {
+					// Keep guild ownership but reset configs
+					guild := territory.Guild
+					territoryID := territory.ID
+					territoryName := territory.Name
+					*territory = typedef.Territory{
+						ID:    territoryID,
+						Name:  territoryName,
+						Guild: guild,
+					}
+					// Apply default values here if needed
+				}
+			}
+			fmt.Printf("[STATE] Imported territories but skipped configurations\n")
+		} else {
+			fmt.Printf("[STATE] Imported territories with configurations\n")
+		}
+
+		// Only import territory data if requested
+		if !importOptions["territory_data"] {
+			// Clear resource data
+			for _, territory := range st.territories {
+				if territory != nil {
+					territory.Storage = typedef.TerritoryStorage{}
+					territory.ResourceGeneration = typedef.ResourceGeneration{}
+				}
+			}
+			fmt.Printf("[STATE] Cleared territory resource data\n")
+		} else {
+			fmt.Printf("[STATE] Imported territory resource data\n")
+		}
+
+		// Only import in-transit resources if requested
+		if !importOptions["in_transit"] {
+			for _, territory := range st.territories {
+				if territory != nil {
+					territory.TransitResource = nil
+					territory.TradingRoutesJSON = nil
+				}
+			}
+			fmt.Printf("[STATE] Cleared in-transit resources\n")
+		} else {
+			fmt.Printf("[STATE] Imported in-transit resources\n")
+		}
+	}
+	
+	// Import active tributes (if requested)
+	if importOptions["tributes"] {
+		st.activeTributes = stateData.ActiveTributes
+		rebuildTributeGuildPointers()
+		fmt.Printf("[STATE] Imported %d active tributes\n", len(st.activeTributes))
+	} else {
+		fmt.Printf("[STATE] Skipped importing active tributes\n")
+	}
+	// Copy user loadouts (version 1.3+) - these persist through resets (if requested)
+	if importOptions["loadouts"] && getLoadoutsCallback != nil && setLoadoutsCallback != nil && mergeLoadoutsCallback != nil {
+		existingLoadouts := getLoadoutsCallback()
+		fmt.Printf("[STATE] Existing loadouts before merge: %d\n", len(existingLoadouts))
+		mergeLoadoutsCallback(stateData.Loadouts)
+		mergedLoadouts := getLoadoutsCallback()
+		fmt.Printf("[STATE] Merged loadouts after import: %d (imported: %d)\n", len(mergedLoadouts), len(stateData.Loadouts))
+		setLoadoutsCallback(mergedLoadouts)
+	} else {
+		fmt.Printf("[STATE] Skipped importing loadouts\n")
+	}
+
+	// Only recalculate routes if new fields are missing and in-transit resources were imported
+	if !hasTransitFields && importOptions["in_transit"] {
+		st.updateRoute()
+	} else if importOptions["in_transit"] {
+		// Restore in-memory pointers from JSON-safe IDs
+		RestorePointersFromIDs(st.territories)
+	}
+	
+	loadCosts(&st)
+
+	// fmt.Printf("[STATE] Successfully loaded state from bytes (Territories: %d, Guilds: %d, Tick: %d)\n",
+	// len(st.territories), len(st.guilds), st.tick)
+	
+	st.mu.Unlock()
+	st.mu.Lock()
+	st.stateLoading = false
+	st.mu.Unlock()
+	
+	if !wasHalted {
+		st.start()
+	}
+	
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		NotifyTerritoryColorsUpdate()
+		// fmt.Printf("[STATE] State loading completed, notifications sent\n")
+	}()
+	return nil
+}
+
+// loadStateFromFileInternal is the internal implementation that handles selective loading
+func loadStateFromFileInternal(filepath string, importOptions map[string]bool) error {
 	// Halt the runtime during state loading to prevent flickering
 	wasHalted := st.halted
 	if !wasHalted {
@@ -594,14 +827,30 @@ func LoadStateFromFile(filepath string) error {
 		return fmt.Errorf("unsupported version: %s", stateData.Version)
 	}
 
-	// Merge guilds from state file with existing guilds and update guilds.json
-	err = mergeGuildsFromState(stateData.Guilds)
-	if err != nil {
-		// Restore runtime state if we halted it
-		if !wasHalted {
-			st.start()
+	// Import core runtime data (if requested)
+	if importOptions["core"] {
+		st.mu.Lock()
+		st.tick = stateData.Tick
+		st.runtimeOptions = stateData.RuntimeOptions
+		st.mu.Unlock()
+		fmt.Printf("[STATE] Imported core data (tick: %d)\n", stateData.Tick)
+	} else {
+		fmt.Printf("[STATE] Skipped importing core data\n")
+	}
+
+	// Merge guilds from state file with existing guilds and update guilds.json (if requested)
+	if importOptions["guilds"] {
+		err = mergeGuildsFromState(stateData.Guilds)
+		if err != nil {
+			// Restore runtime state if we halted it
+			if !wasHalted {
+				st.start()
+			}
+			return fmt.Errorf("failed to merge guilds from state: %v", err)
 		}
-		return fmt.Errorf("failed to merge guilds from state: %v", err)
+		fmt.Printf("[STATE] Imported %d guilds from state\n", len(stateData.Guilds))
+	} else {
+		fmt.Printf("[STATE] Skipped importing guilds\n")
 	}
 
 	hasTransitFields := false
@@ -629,52 +878,89 @@ func LoadStateFromFile(filepath string) error {
 	st.mu.Lock()
 	st.stateLoading = true
 
-	// Clear existing territories
-	for _, territory := range st.territories {
-		if territory != nil && territory.CloseCh != nil {
-			territory.CloseCh()
+	// Import territories and related data based on options
+	if importOptions["territories"] || importOptions["territory_config"] || importOptions["territory_data"] || importOptions["in_transit"] {
+		// Clear existing territories
+		for _, territory := range st.territories {
+			if territory != nil && territory.CloseCh != nil {
+				territory.CloseCh()
+			}
 		}
-	}
 
-	st.tick = stateData.Tick
-	st.territories = stateData.Territories
-	st.activeTributes = stateData.ActiveTributes
-	st.runtimeOptions = stateData.RuntimeOptions
+		st.tick = stateData.Tick
+		st.territories = stateData.Territories
 
-	// Rebuild territory map for fast lookups
-	TerritoryMap = make(map[string]*typedef.Territory)
-	st.territoryMap = make(map[string]*typedef.Territory)
-	for _, territory := range st.territories {
-		if territory != nil {
-			TerritoryMap[territory.Name] = territory
-			st.territoryMap[territory.ID] = territory
-			setCh := make(chan typedef.TerritoryOptions, 1)
-			territory.SetCh = setCh
-			territory.CloseCh = func() { close(setCh) }
+		// Only import territory configurations if requested
+		if !importOptions["territory_config"] {
+			// Reset territory configurations to defaults but keep ownership
+			for _, territory := range st.territories {
+				if territory != nil {
+					// Keep guild ownership but reset configs
+					guild := territory.Guild
+					territoryID := territory.ID
+					territoryName := territory.Name
+					*territory = typedef.Territory{
+						ID:    territoryID,
+						Name:  territoryName,
+						Guild: guild,
+					}
+					// Apply default values here if needed
+				}
+			}
+			fmt.Printf("[STATE] Imported territories but skipped configurations\n")
+		} else {
+			fmt.Printf("[STATE] Imported territories with configurations\n")
 		}
-	}
 
-	rebuildHQMap()
+		// Only import territory data if requested
+		if !importOptions["territory_data"] {
+			// Clear resource data
+			for _, territory := range st.territories {
+				if territory != nil {
+					territory.Storage = typedef.TerritoryStorage{}
+					territory.ResourceGeneration = typedef.ResourceGeneration{}
+				}
+			}
+			fmt.Printf("[STATE] Cleared territory resource data\n")
+		} else {
+			fmt.Printf("[STATE] Imported territory resource data\n")
+		}
 
-	// Rebuild guild pointers in tributes
-	rebuildTributeGuildPointers()
+		// Only import in-transit resources if requested
+		if !importOptions["in_transit"] {
+			// Clear transit resources
+			for _, territory := range st.territories {
+				if territory != nil {
+					territory.TransitResource = []typedef.InTransitResources{}
+					territory.TradingRoutesJSON = [][]string{}
+				}
+			}
+			fmt.Printf("[STATE] Cleared in-transit resources\n")
+		} else {
+			fmt.Printf("[STATE] Imported in-transit resources\n")
+		}
 
-	// Only recalculate routes if new fields are missing
-	if !hasTransitFields {
-		st.updateRoute()
+		// Rebuild territory map for fast lookups
+		TerritoryMap = make(map[string]*typedef.Territory)
+		st.territoryMap = make(map[string]*typedef.Territory)
+		for _, territory := range st.territories {
+			if territory != nil {
+				TerritoryMap[territory.Name] = territory
+				st.territoryMap[territory.ID] = territory
+			}
+		}
 	} else {
-		// Restore in-memory pointers from JSON-safe IDs
-		RestorePointersFromIDs(st.territories)
+		fmt.Printf("[STATE] Skipped importing territories\n")
 	}
 
-	loadCosts(&st)
+	// Import tributes if requested
+	if importOptions["tributes"] {
+		st.activeTributes = stateData.ActiveTributes
+		fmt.Printf("[STATE] Imported %d active tributes\n", len(stateData.ActiveTributes))
+	} else {
+		fmt.Printf("[STATE] Skipped importing tributes\n")
+	}
 
-	// fmt.Printf("[STATE] Successfully loaded state from %s (Territories: %d, Guilds: %d, Tick: %d)\n",
-	// filepath, len(st.territories), len(st.guilds), st.tick)
-
-	st.mu.Unlock()
-
-	st.mu.Lock()
 	st.stateLoading = false
 	st.mu.Unlock()
 
@@ -688,11 +974,14 @@ func LoadStateFromFile(filepath string) error {
 		// fmt.Printf("[STATE] State loading completed, notifications sent\n")
 	}()
 
-	// Load persistent user data (loadouts) - version 1.3+
-	// Use merge strategy to preserve existing user loadouts with same names
-	if mergeLoadoutsCallback != nil && stateData.Loadouts != nil {
-		mergeLoadoutsCallback(stateData.Loadouts)
-		fmt.Printf("[STATE] Merged %d loadouts from state\n", len(stateData.Loadouts))
+	// Load persistent user data (loadouts) - version 1.3+ (if requested)
+	if importOptions["loadouts"] {
+		if mergeLoadoutsCallback != nil && stateData.Loadouts != nil {
+			mergeLoadoutsCallback(stateData.Loadouts)
+			fmt.Printf("[STATE] Merged %d loadouts from state\n", len(stateData.Loadouts))
+		}
+	} else {
+		fmt.Printf("[STATE] Skipped importing loadouts\n")
 	}
 
 	// fmt.Printf("[STATE] Monitoring HQ status for the next few seconds after state load...\n")
@@ -704,8 +993,6 @@ func LoadStateFromFile(filepath string) error {
 			for _, territory := range st.territories {
 				if territory != nil && territory.HQ {
 					hqCount++
-					// fmt.Printf("[HQ_MONITOR] Tick %d: Territory %s (Guild: %s) is still HQ\n",
-					// i+1, territory.Name, territory.Guild.Name)
 				}
 			}
 			if hqCount == 0 {
