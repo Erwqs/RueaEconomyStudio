@@ -1369,6 +1369,22 @@ func NotifyGuildSpecificUpdate(guildName string) {
 	}
 }
 
+func GetStateBytesInfo(data []byte) (version string, err error) {
+	jsonData, err := decompressLZ4(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to decompress LZ4 data: %w", err)
+	}
+
+	var stateInfo struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(jsonData, &stateInfo); err != nil {
+		return "", fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	return stateInfo.Version, nil
+}
+
 // GetStateFileInfo extracts basic information from a state file without fully loading it
 func GetStateFileInfo(filePath string) (version string, err error) {
 	// Read the file
