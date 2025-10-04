@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"path/filepath"
 
+	"RueaES/eruntime"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
@@ -126,7 +128,14 @@ func (sim *StateImportModal) Show(filePath string) {
 	sim.filePath = filePath
 	sim.visible = true
 
+	// Try to get version from stored bytes (for WASM) or file path (for desktop)
 	sim.fileVersion = "Not Applicable"
+	if pendingWASMFileData != nil {
+		// WASM: Use stored bytes
+		if version, err := eruntime.GetStateBytesInfo(pendingWASMFileData); err == nil {
+			sim.fileVersion = version
+		}
+	}
 
 	screenW, screenH := WebSafeWindowSize()
 	sim.modalW = 600

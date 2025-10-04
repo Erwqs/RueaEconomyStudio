@@ -30,6 +30,23 @@ func SetLoadoutCallbacks(getFunc func() []typedef.Loadout, setFunc func([]typede
 	mergeLoadoutsCallback = mergeFunc
 }
 
+// GetStateBytesInfo extracts version information from state file bytes
+func GetStateBytesInfo(data []byte) (version string, err error) {
+	jsonData, err := decompressLZ4(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to decompress LZ4 data: %w", err)
+	}
+
+	var stateInfo struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(jsonData, &stateInfo); err != nil {
+		return "", fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	return stateInfo.Version, nil
+}
+
 // StateData represents the complete state that can be saved/loaded
 type StateData struct {
 	Type      string    `json:"type"` // "state_save"
