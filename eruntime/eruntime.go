@@ -10,7 +10,7 @@ import (
 // debugf prints debug information only if debug logging is enabled
 func debugf(format string, args ...interface{}) {
 	if st.debugLogging {
-		fmt.Printf("[DEBUG] "+format, args...)
+		// fmt.Printf("[DEBUG] "+format, args...)
 	}
 }
 
@@ -79,6 +79,7 @@ func init() {
 		runtimeOptions: typedef.RuntimeOptions{
 			TreasuryEnabled:      true,
 			PathfindingAlgorithm: typedef.PathfindingDijkstra, // Default to Dijkstra (cheapest route)
+			GPUComputeEnabled:    false,                       // Default to CPU-only mode
 		},
 		transitManager:        NewTransitManager(),
 		hqMap:                 make(map[string]*typedef.Territory),

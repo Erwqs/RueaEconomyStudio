@@ -1109,7 +1109,7 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 				routesToHighlight[routeKey] = true
 			}
 			// Debug: print route highlighting info (can be removed later)
-			fmt.Printf("[ROUTE_HIGHLIGHT] Highlighting %d route segments for territory %s to HQ\n", len(routesToHighlight), hoveredTerritory)
+			// fmt.Printf("[ROUTE_HIGHLIGHT] Highlighting %d route segments for territory %s to HQ\n", len(routesToHighlight), hoveredTerritory)
 		}
 	}
 
@@ -1705,7 +1705,7 @@ func (tm *TerritoriesManager) RefreshFromEruntime() error {
 	tm.bufferNeedsUpdate = true
 	tm.bufferMutex.Unlock()
 
-	fmt.Printf("[DEBUG] RefreshFromEruntime complete. Loaded %d territories, buffer marked for update\n", len(tm.Territories))
+	// fmt.Printf("[DEBUG] RefreshFromEruntime complete. Loaded %d territories, buffer marked for update\n", len(tm.Territories))
 
 	tm.isLoaded = true
 	tm.loadError = nil

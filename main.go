@@ -10,7 +10,7 @@ import (
 
 	"RueaES/api"
 	"RueaES/app"
-	_ "RueaES/eruntime"
+	"RueaES/eruntime"
 
 	"net/http"
 	_ "net/http/pprof"
@@ -120,7 +120,7 @@ func runWithGUI() {
 		if err != nil {
 			// Clipboard initialization failed, but we can continue without it
 			// The clipboard operations will simply not work
-			fmt.Printf("Warning: Clipboard initialization failed: %v\n", err)
+			fmt.Printf("Clipboard initialization failed: %v\n", err)
 		}
 	}
 
@@ -147,6 +147,15 @@ func runWithGUI() {
 	app.InitPanicNotifier()
 	app.InitToastManager()
 	app.InitPauseNotificationManager()
+
+	// Initialize GPU compute system
+	fmt.Println("[MAIN] Initializing GPU compute system...")
+	if err := eruntime.InitializeGPUCompute(); err != nil {
+		fmt.Printf("[MAIN] Warning: Failed to initialize GPU compute system: %v\n", err)
+		fmt.Println("[MAIN] Falling back to CPU-only computation")
+	} else {
+		fmt.Println("[MAIN] GPU compute system initialization completed")
+	}
 
 	ebiten.SetWindowTitle("Ruea Economy Studio")
 	ebiten.SetTPS(ebiten.SyncWithFPS) // Restore normal TPS since the issue is graphics, not game logic

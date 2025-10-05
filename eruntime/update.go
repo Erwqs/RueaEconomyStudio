@@ -1,8 +1,11 @@
 package eruntime
 
 import (
+	"fmt"
 	"runtime"
 	"sync"
+
+	"RueaES/typedef"
 )
 
 // update calculates the next state of the simulation
@@ -19,6 +22,34 @@ func (s *state) update() {
 
 // updateParallel processes territories in parallel for better performance
 func (s *state) updateParallel() {
+	territoryCount := len(s.territories)
+	if territoryCount == 0 {
+		return
+	}
+
+	// Check if GPU hybrid processing is available and enabled
+	if GetComputeMode() == ComputeCPUGPU && IsGPUComputeEnabled() {
+		// Use hybrid CPU+GPU processing
+		territoryMap := make(map[string]*typedef.Territory)
+		for _, territory := range s.territories {
+			if territory != nil {
+				territoryMap[territory.Name] = territory
+			}
+		}
+
+		if err := HybridComputeTerritories(territoryMap); err != nil {
+			fmt.Printf("[UPDATE] Hybrid compute failed: %v, falling back to CPU\n", err)
+			s.updateCPUParallel() // Fall back to CPU-only processing
+		}
+		return
+	}
+
+	// Use CPU-only parallel processing
+	s.updateCPUParallel()
+}
+
+// updateCPUParallel is the CPU-only parallel processing implementation
+func (s *state) updateCPUParallel() {
 	numWorkers := min(
 		// Use all available CPU cores
 		runtime.NumCPU(),
@@ -26,11 +57,6 @@ func (s *state) updateParallel() {
 		8)
 
 	territoryCount := len(s.territories)
-	if territoryCount == 0 {
-		return
-	}
-
-	// Calculate chunk size for each worker
 	chunkSize := territoryCount / numWorkers
 	if chunkSize == 0 {
 		chunkSize = 1

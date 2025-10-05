@@ -2175,7 +2175,7 @@ func (m *MapView) onTerritoryChanged(territoryName string) {
 		// Update tower stats and trading routes, don't rebuild the entire menu to avoid breaking sliders
 		m.edgeMenu.UpdateTowerStats(territoryName)
 		m.edgeMenu.UpdateTradingRoutes(territoryName)
-		fmt.Printf("[DEBUG] Tower stats and trading routes updated for: %s\n", territoryName)
+		// fmt.Printf("[DEBUG] Tower stats and trading routes updated for: %s\n", territoryName)
 	}
 }
 

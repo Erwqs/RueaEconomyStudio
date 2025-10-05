@@ -404,7 +404,7 @@ func (tr *TerritoryRenderer) drawTerritoriesToOverlayWithHover(overlay *ebiten.I
 
 	// Debug: Log when we're in editing mode
 	if tr.editingGuildName != "" {
-		fmt.Printf("[RENDERER DEBUG] Drawing in editing mode for guild: %s, territories visible: %d\n", tr.editingGuildName, len(visible))
+		// fmt.Printf("[RENDERER DEBUG] Drawing in editing mode for guild: %s, territories visible: %d\n", tr.editingGuildName, len(visible))
 	}
 
 	// Create a 1x1 white pixel if we don't have one
@@ -576,8 +576,8 @@ func (tr *TerritoryRenderer) drawTerritoriesToOverlayWithHover(overlay *ebiten.I
 
 			// Debug: Check for potential problematic rectangles that might cause green stripes
 			if rect.Dx() > int(screenWidth) || rect.Dy() > int(screenHeight) {
-				fmt.Printf("[RENDERER DEBUG] Large territory rectangle detected: %s, rect=%v, screen=%.0fx%.0f\n",
-					name, rect, screenWidth, screenHeight)
+				// fmt.Printf("[RENDERER DEBUG] Large territory rectangle detected: %s, rect=%v, screen=%.0fx%.0f\n",
+					// name, rect, screenWidth, screenHeight)
 			}
 			// Use DrawTriangles instead of Fill to avoid potential SubImage issues
 			// Add vertices to batch instead of drawing individually

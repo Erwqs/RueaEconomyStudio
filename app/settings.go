@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 
+	"RueaES/eruntime"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"golang.org/x/image/font"
@@ -11,14 +13,15 @@ import (
 
 // SettingsModule demonstrates another example of subscribing to key events
 type SettingsModule struct {
-	keyEventCh <-chan KeyEvent
-	active     bool
-	volume     int
-	showFPS    bool
-	windowMode string // "Windowed", "Fullscreen", "Borderless"
-	vsync      bool
-	autoSave   bool
-	language   string // "English", "Spanish", "French", etc.
+	keyEventCh      <-chan KeyEvent
+	active          bool
+	volume          int
+	showFPS         bool
+	windowMode      string // "Windowed", "Fullscreen", "Borderless"
+	vsync           bool
+	autoSave        bool
+	language        string // "English", "Spanish", "French", etc.
+	gpuAcceleration bool   // GPU acceleration for territory calculations
 }
 
 // SettingsScreen represents the settings UI screen
@@ -41,25 +44,30 @@ func NewSettingsScreen(settingsModule *SettingsModule) *SettingsScreen {
 		font:           loadWynncraftFont(14),
 		baseFontSize:   14,
 		selectedIndex:  0,
-		options:        []string{"Volume", "Show FPS", "Window Mode", "VSync", "Auto Save", "Language", "Reset to Defaults", "Save Settings", "Back to Menu"},
-		values:         make([]interface{}, 9),
-		callbacks:      make([]func(), 9),
+		options:        []string{"Volume", "Show FPS", "Window Mode", "VSync", "Auto Save", "Language", "GPU Acceleration", "Reset to Defaults", "Save Settings", "Back to Menu"},
+		values:         make([]interface{}, 10),
+		callbacks:      make([]func(), 10),
 		settingsModule: settingsModule,
 	}
 }
 
 // NewSettingsModule creates a new settings module that listens to key events
 func NewSettingsModule(inputManager *InputManager) *SettingsModule {
-	return &SettingsModule{
-		keyEventCh: inputManager.Subscribe(),
-		active:     false,      // Start inactive
-		volume:     50,         // Default volume
-		showFPS:    true,       // Show FPS by default
-		windowMode: "Windowed", // Default window mode
-		vsync:      true,       // VSync enabled by default
-		autoSave:   true,       // Auto save enabled by default
-		language:   "English",  // Default language
+	sm := &SettingsModule{
+		keyEventCh:      inputManager.Subscribe(),
+		active:          false,      // Start inactive
+		volume:          50,         // Default volume
+		showFPS:         true,       // Show FPS by default
+		windowMode:      "Windowed", // Default window mode
+		vsync:           true,       // VSync enabled by default
+		autoSave:        true,       // Auto save enabled by default
+		language:        "English",  // Default language
+		gpuAcceleration: false,      // GPU acceleration disabled by default
 	}
+
+	// Check if GPU acceleration is available
+	sm.checkGPUAvailability()
+	return sm
 }
 
 // Update processes key events in the settings module
@@ -137,6 +145,11 @@ func (sm *SettingsModule) handleKeyEvent(event KeyEvent) {
 			sm.language = "English"
 		}
 		fmt.Printf("[SETTINGS] Language: %s\n", sm.language)
+	case ebiten.KeyG:
+		sm.gpuAcceleration = !sm.gpuAcceleration
+		fmt.Printf("[SETTINGS] GPU Acceleration: %t\n", sm.gpuAcceleration)
+		// Apply the setting to the runtime
+		sm.applyGPUAccelerationSetting()
 	case ebiten.KeyR:
 		sm.resetToDefaults()
 	case ebiten.KeyS:
@@ -172,11 +185,49 @@ func (sm *SettingsModule) printHelp() {
 	fmt.Println("  V       : Toggle VSync")
 	fmt.Println("  A       : Toggle auto save")
 	fmt.Println("  L       : Cycle language")
+	fmt.Println("  G       : Toggle GPU acceleration")
 	fmt.Println("  R       : Reset to defaults")
 	fmt.Println("  S       : Save settings")
 	fmt.Println("  ESC     : Close settings")
-	fmt.Printf("[SETTINGS] Current - Volume: %d%%, Show FPS: %t, Window: %s, VSync: %t, Auto Save: %t, Language: %s\n",
-		sm.volume, sm.showFPS, sm.windowMode, sm.vsync, sm.autoSave, sm.language)
+	fmt.Printf("[SETTINGS] Current - Volume: %d%%, Show FPS: %t, Window: %s, VSync: %t, Auto Save: %t, Language: %s, GPU: %t\n",
+		sm.volume, sm.showFPS, sm.windowMode, sm.vsync, sm.autoSave, sm.language, sm.gpuAcceleration)
+}
+
+// applyGPUAccelerationSetting applies the GPU acceleration setting to the runtime
+func (sm *SettingsModule) applyGPUAccelerationSetting() {
+	// Import the eruntime package to access GPU compute functionality
+	if sm.gpuAcceleration {
+		// Enable GPU acceleration
+		if err := sm.setComputeMode("hybrid"); err != nil {
+			fmt.Printf("[SETTINGS] Failed to enable GPU acceleration: %v\n", err)
+			sm.gpuAcceleration = false // Revert on failure
+		}
+	} else {
+		// Disable GPU acceleration (CPU only)
+		if err := sm.setComputeMode("cpu"); err != nil {
+			fmt.Printf("[SETTINGS] Failed to disable GPU acceleration: %v\n", err)
+		}
+	}
+}
+
+// checkGPUAvailability checks if GPU acceleration is available and updates settings accordingly
+func (sm *SettingsModule) checkGPUAvailability() {
+	if eruntime.GlobalComputeController != nil && eruntime.GlobalComputeController.IsGPUAvailable() {
+		fmt.Println("[SETTINGS] GPU acceleration is available")
+		// GPU is available but we start with it disabled for safety
+	} else {
+		fmt.Println("[SETTINGS] GPU acceleration is not available")
+		sm.gpuAcceleration = false
+	}
+}
+
+// setComputeMode sets the compute mode in the runtime
+func (sm *SettingsModule) setComputeMode(mode string) error {
+	if eruntime.GlobalComputeController != nil {
+		return eruntime.GlobalComputeController.SetComputeMode(mode)
+	}
+	fmt.Printf("[SETTINGS] GPU compute system not available, mode: %s\n", mode)
+	return fmt.Errorf("GPU compute system not available")
 }
 
 // resetToDefaults resets all settings to their default values
@@ -187,6 +238,8 @@ func (sm *SettingsModule) resetToDefaults() {
 	sm.vsync = true
 	sm.autoSave = true
 	sm.language = "English"
+	sm.gpuAcceleration = false
+	sm.applyGPUAccelerationSetting() // Apply the reset GPU setting
 	fmt.Println("[SETTINGS] Settings reset to defaults")
 }
 

@@ -36,14 +36,14 @@ func sethq(territory *typedef.Territory) {
 // sethqUnsafe is the internal version that doesn't acquire locks
 // Caller must ensure proper locking (st.mu write lock)
 func sethqUnsafe(territory *typedef.Territory) {
-	fmt.Printf("[HQ_DEBUG] Setting HQ for territory %s (guild: %s)\n", territory.Name, territory.Guild.Name)
+	// fmt.Printf("[HQ_DEBUG] Setting HQ for territory %s (guild: %s)\n", territory.Name, territory.Guild.Name)
 
 	// Find old HQ for this guild and unset it
 	guildTag := territory.Guild.Tag
 	if oldHQ := getHQFromMap(guildTag); oldHQ != nil && oldHQ != territory {
 		// Lock the old HQ territory to unset it safely
 		oldHQ.Mu.Lock()
-		fmt.Printf("[HQ_DEBUG] Unsetting old HQ: %s (guild: %s)\n", oldHQ.Name, oldHQ.Guild.Name)
+		// fmt.Printf("[HQ_DEBUG] Unsetting old HQ: %s (guild: %s)\n", oldHQ.Name, oldHQ.Guild.Name)
 		oldHQ.HQ = false
 		oldHQ.Mu.Unlock()
 
@@ -54,7 +54,7 @@ func sethqUnsafe(territory *typedef.Territory) {
 	// Set this territory as the new HQ
 	territory.Mu.Lock()
 	territory.HQ = true
-	fmt.Printf("[HQ_DEBUG] HQ set successfully for territory %s (guild: %s)\n", territory.Name, territory.Guild.Name)
+	// fmt.Printf("[HQ_DEBUG] HQ set successfully for territory %s (guild: %s)\n", territory.Name, territory.Guild.Name)
 	territory.Mu.Unlock()
 
 	// Add new HQ to map
@@ -76,6 +76,6 @@ func sethqUnsafe(territory *typedef.Territory) {
 		// Notify only the specific guild that had its HQ changed for efficiency
 		NotifyGuildSpecificUpdate(territory.Guild.Name)
 
-		fmt.Printf("[HQ_DEBUG] HQ change notifications sent to UI components for guild: %s\n", territory.Guild.Name)
+		// fmt.Printf("[HQ_DEBUG] HQ change notifications sent to UI components for guild: %s\n", territory.Guild.Name)
 	}()
 }

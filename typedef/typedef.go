@@ -68,8 +68,8 @@ const (
 type PathfindingAlgorithm int8
 
 const (
-	PathfindingDijkstra      PathfindingAlgorithm = iota // Breadth-First Search (fastest, ignores cost)
-	PathfindingAstar                             // Dijkstra's algorithm (cheapest route)
+	PathfindingDijkstra PathfindingAlgorithm = iota
+	PathfindingAstar                         // Dijkstra's algorithm (cheapest route)
 	PathfindingFloodFill
 )
 
@@ -740,6 +740,8 @@ type RuntimeOptions struct {
 	NoHaltedMessages bool `json:"NoHaltedMessages"` // If true, the user will not receive messages when the app is halted due to errors or other issues
 
 	PathfindingAlgorithm PathfindingAlgorithm `json:"PathfindingAlgorithm"` // Pathfinding algorithm to use for routing
+
+	GPUComputeEnabled bool `json:"GPUComputeEnabled"` // If true, GPU compute acceleration is enabled for territory calculations
 }
 
 func _round_down4(x float64) float64 {

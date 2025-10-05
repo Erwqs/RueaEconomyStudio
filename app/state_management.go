@@ -76,7 +76,8 @@ func NewStateManagementMenu() *StateManagementMenu {
 	options.Width = 340
 	options.Background = color.RGBA{30, 30, 45, 240}
 	menu := NewEdgeMenu("State Management", options)
-	return &StateManagementMenu{
+
+	smm := &StateManagementMenu{
 		menu:         menu,
 		rateValue:    1,   // Changed to int, default 1 tick
 		rateInput:    "1", // Changed to match int value
@@ -84,6 +85,15 @@ func NewStateManagementMenu() *StateManagementMenu {
 		addTickInput: "60",
 		halted:       eruntime.IsHalted(),
 	}
+
+	// Set up GPU error callback to update UI when GPU fails
+	eruntime.SetGPUErrorCallback(func(err error) {
+		fmt.Printf("[STATE_MANAGEMENT] GPU error callback triggered: %v\n", err)
+		// Refresh the menu to update the toggle switch to show CPU-only mode
+		smm.Show()
+	})
+
+	return smm
 }
 
 func (smm *StateManagementMenu) Show() {
@@ -352,6 +362,57 @@ func (smm *StateManagementMenu) Show() {
 	}
 
 	optionsSection.ToggleSwitch("Algorithm", currentPathfindingIndex, pathfindingToggleOpts, pathfindingToggleCBFunc)
+
+	optionsSection.Spacer(DefaultSpacerOptions())
+
+	// GPU Compute toggle switch
+	computeOptions := []string{"CPU", "CPU + GPU"}
+	gpuComputeToggleOpts := DefaultToggleSwitchOptions()
+	gpuComputeToggleOpts.Options = computeOptions
+	gpuComputeToggleOpts.Width = 210
+	gpuComputeToggleOpts.FontSize = 12
+	gpuComputeToggleCBFunc := func(index int, value string) {
+		currOpts := eruntime.GetRuntimeOptions()
+		if value == "CPU + GPU" {
+			currOpts.GPUComputeEnabled = true
+
+			// Try to enable GPU compute mode
+			if eruntime.GlobalComputeController != nil {
+				err := eruntime.GlobalComputeController.SetComputeMode("hybrid")
+				if err != nil {
+					fmt.Printf("[STATE_MANAGEMENT] Failed to enable GPU compute: %v\n", err)
+					// Fallback to CPU mode and update the toggle
+					currOpts.GPUComputeEnabled = false
+					eruntime.SetRuntimeOptions(currOpts)
+					// Refresh the menu to update the toggle state
+					smm.Show()
+					return
+				}
+				fmt.Println("[STATE_MANAGEMENT] GPU compute enabled successfully")
+			}
+		} else {
+			currOpts.GPUComputeEnabled = false
+
+			// Set to CPU-only mode
+			if eruntime.GlobalComputeController != nil {
+				eruntime.GlobalComputeController.SetComputeMode("cpu")
+				fmt.Println("[STATE_MANAGEMENT] GPU compute disabled, using CPU-only mode")
+			}
+		}
+		eruntime.SetRuntimeOptions(currOpts)
+	}
+
+	optionsSection.Text("Territory calculation method", DefaultTextOptions())
+	optionsSection.Text("GPU may fail and fallback to CPU", DefaultTextOptions())
+
+	var currentGPUComputeIndex int
+	if currentOpts.GPUComputeEnabled {
+		currentGPUComputeIndex = 1 // GPU Accelerated
+	} else {
+		currentGPUComputeIndex = 0 // CPU Only
+	}
+
+	optionsSection.ToggleSwitch("Compute Mode", currentGPUComputeIndex, gpuComputeToggleOpts, gpuComputeToggleCBFunc)
 
 	// --- Credits ---
 	creditsSection := smm.menu.CollapsibleMenu("Credits", DefaultCollapsibleMenuOptions())

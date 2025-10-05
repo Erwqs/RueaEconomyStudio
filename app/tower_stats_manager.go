@@ -9,7 +9,7 @@ import (
 
 // UpdateTowerStats updates only the Tower Stats section with new territory data
 func (m *EdgeMenu) UpdateTowerStats(territoryName string) {
-	fmt.Printf("DEBUG: UpdateTowerStats called for territory: %s\n", territoryName)
+	// fmt.Printf("DEBUG: UpdateTowerStats called for territory: %s\n", territoryName)
 	// Get fresh territory data from eruntime
 	territory := eruntime.GetTerritory(territoryName)
 	if territory == nil {
@@ -33,11 +33,11 @@ func (m *EdgeMenu) UpdateTowerStats(territoryName string) {
 						if submenu.title == "Configured" {
 							// Update Configured stats with calculated values
 							m.updateStatsElementsWithLevelAndColor(submenu, &configuredStats, configuredLevelString, configuredLevel)
-							fmt.Printf("DEBUG: Configured tower stats updated in place for %s\n", territoryName)
+							// fmt.Printf("DEBUG: Configured tower stats updated in place for %s\n", territoryName)
 						} else if submenu.title == "Current" {
 							// Update Current stats with territory values
 							m.updateStatsElementsWithLevelAndColor(submenu, &territory.TowerStats, currentLevelString, currentLevel)
-							fmt.Printf("DEBUG: Current tower stats updated in place for %s\n", territoryName)
+							// fmt.Printf("DEBUG: Current tower stats updated in place for %s\n", territoryName)
 						}
 					}
 				}

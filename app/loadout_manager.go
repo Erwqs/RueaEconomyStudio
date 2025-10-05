@@ -2081,7 +2081,7 @@ func (lm *LoadoutManager) addUpgradeSlider(menu *CollapsibleMenu, label string, 
 	costs := eruntime.GetCost()
 	var maxLevel int
 
-	fmt.Printf("[DEBUG] Creating upgrade slider for %s\n", label)
+	// fmt.Printf("[DEBUG] Creating upgrade slider for %s\n", label)
 
 	switch label {
 	case "Damage":
@@ -2131,7 +2131,7 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 	costs := eruntime.GetCost()
 	var maxLevel int
 
-	fmt.Printf("[DEBUG] Creating slider for %s (%s)\n", label, key)
+	// fmt.Printf("[DEBUG] Creating slider for %s (%s)\n", label, key)
 
 	switch key {
 	case "strongerMinions":
@@ -2211,7 +2211,7 @@ func (lm *LoadoutManager) addBonusSlider(menu *CollapsibleMenu, label string, ke
 // Debug function to print cost information
 func debugCostInfo() {
 	costs := eruntime.GetCost()
-	fmt.Printf("[DEBUG] Cost info:\n")
+	// fmt.Printf("[DEBUG] Cost info:\n")
 	fmt.Printf("  GatheringExperience MaxLevel: %d, Cost array length: %d\n",
 		costs.Bonuses.GatheringExperience.MaxLevel, len(costs.Bonuses.GatheringExperience.Cost))
 	fmt.Printf("  MobExperience MaxLevel: %d, Cost array length: %d\n",

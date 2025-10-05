@@ -344,8 +344,8 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 
 				// If territory changes ownership, it should no longer be an HQ
 				// The new guild must explicitly set a new HQ
-				fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuild from %s[%s] to %s[%s]\n",
-					t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
+				// fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuild from %s[%s] to %s[%s]\n",
+					// t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
 
 				// Remove from old guild's HQ map entry if it was an HQ
 				if t.HQ {
@@ -396,8 +396,8 @@ func SetGuildT(territory *typedef.Territory, guild typedef.Guild) *typedef.Terri
 
 		// If territory changes ownership, it should no longer be an HQ
 		// The new guild must explicitly set a new HQ
-		fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuildT from %s[%s] to %s[%s]\n",
-			territory.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
+		// fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuildT from %s[%s] to %s[%s]\n",
+			// territory.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
 
 		// Remove from old guild's HQ map entry if it was an HQ
 		if territory.HQ {
@@ -452,8 +452,8 @@ func SetGuildBatch(opts map[string]*typedef.Guild) []*typedef.Territory {
 		// Only clear HQ status if territory changes ownership
 		// Don't clear HQ if it's just a guild update during state loading with same guild
 		if oldGuildName != guild.Name || oldGuildTag != guild.Tag {
-			fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to ownership change from %s[%s] to %s[%s]\n",
-				t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
+			// fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to ownership change from %s[%s] to %s[%s]\n",
+				// t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
 
 			// Remove from old guild's HQ map entry if it was an HQ
 			if t.HQ {
@@ -723,7 +723,7 @@ func Reset() {
 			}
 
 			// Reset HQ status
-			fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to Reset operation\n", territory.Name)
+			// fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to Reset operation\n", territory.Name)
 			territory.HQ = false
 
 			// Reset treasury and generation bonus

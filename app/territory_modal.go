@@ -248,7 +248,7 @@ func (tm *TerritoryModal) drawResourceTable(screen *ebiten.Image, x, y, width, h
 		totalUsage.Wood += guild.TributeOut.Wood * 60
 		totalUsage.Fish += guild.TributeOut.Fish * 60
 	} else {
-		fmt.Printf("DEBUG: Guild %s not found in guild manager\n", guildName)
+		// fmt.Printf("DEBUG: Guild %s not found in guild manager\n", guildName)
 	}
 
 	// Load font

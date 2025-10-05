@@ -1,10 +1,10 @@
 package eruntime
 
 import (
-	"fmt"
 	"runtime"
 	"time"
 )
+
 var StateTick = make(chan uint64)
 
 // Start creates a timer ticker that calls update() every tick
@@ -79,7 +79,7 @@ func (s *state) processQueuedTicks() {
 		// Process resource deliveries BEFORE consumption on minute boundaries
 		// This ensures territories receive HQ shipments before consuming resources
 		if s.tick%60 == 0 {
-			fmt.Printf("[DELIVERY_DEBUG] Resource delivery triggered at tick %d\n", s.tick)
+			// fmt.Printf("[DELIVERY_DEBUG] Resource delivery triggered at tick %d\n", s.tick)
 			s.update2()
 		}
 		s.update()
