@@ -1154,14 +1154,14 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 	if m.towerStatsUpdateTime >= 1.0 && !mousePressed && m.currentTerritory != "" {
 		m.towerStatsUpdateTime = 0.0
 		m.UpdateTowerStats(m.currentTerritory)
-		fmt.Printf("DEBUG: Periodic tower stats update for territory: %s\n", m.currentTerritory)
+		// fmt.Printf("DEBUG: Periodic tower stats update for territory: %s\n", m.currentTerritory)
 	}
 
 	// Update trading routes every 2 seconds when no mouse buttons are pressed (less frequent than tower stats)
 	if m.tradingRoutesUpdateTime >= 2.0 && !mousePressed && m.currentTerritory != "" {
 		m.tradingRoutesUpdateTime = 0.0
 		m.UpdateTradingRoutes(m.currentTerritory)
-		fmt.Printf("DEBUG: Periodic trading routes update for territory: %s\n", m.currentTerritory)
+		// fmt.Printf("DEBUG: Periodic trading routes update for territory: %s\n", m.currentTerritory)
 	}
 
 	// Update menu data every 50ms for territory stats, but only if no mouse buttons are pressed
@@ -1169,10 +1169,10 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 		m.lastUpdateTime = 0.0
 		// Skip refreshing menu data if any mouse button is pressed to avoid interrupting interactions
 		if !mousePressed {
-			fmt.Printf("DEBUG: Regular refreshMenuData called\n")
+			// fmt.Printf("DEBUG: Regular refreshMenuData called\n")
 			m.refreshMenuData()
 		} else {
-			fmt.Printf("DEBUG: Skipping refreshMenuData - mouse button pressed\n")
+			// fmt.Printf("DEBUG: Skipping refreshMenuData - mouse button pressed\n")
 		}
 	}
 
@@ -1725,7 +1725,7 @@ func NewUpgradeControl(label, upgradeType, territoryName string, currentLevel in
 
 	// Set up drag end callback to update tower stats only when dragging finishes
 	uc.slider.SetOnDragEnd(func() {
-		fmt.Printf("DEBUG: UpgradeControl drag ended for %s\n", uc.upgradeType)
+		// fmt.Printf("DEBUG: UpgradeControl drag ended for %s\n", uc.upgradeType)
 		if uc.parentMenu != nil {
 			uc.parentMenu.UpdateTowerStats(uc.territoryName)
 		}
@@ -1764,7 +1764,7 @@ func NewUpgradeControl(label, upgradeType, territoryName string, currentLevel in
 }
 
 func (uc *UpgradeControl) setLevel(level int) {
-	fmt.Printf("DEBUG: UpgradeControl.setLevel called for %s, level %d\n", uc.upgradeType, level)
+	// fmt.Printf("DEBUG: UpgradeControl.setLevel called for %s, level %d\n", uc.upgradeType, level)
 	if level < 0 || level > uc.maxLevel {
 		return
 	}
@@ -1780,7 +1780,7 @@ func (uc *UpgradeControl) setLevel(level int) {
 	if uc.parentMenu != nil {
 		uc.parentMenu.UpdateTotalCosts(uc.territoryName)
 		// Tower stats will be updated by the periodic timer or on mouse release
-		fmt.Printf("DEBUG: UpgradeControl - setLevel completed, tower stats will update periodically\n")
+		// fmt.Printf("DEBUG: UpgradeControl - setLevel completed, tower stats will update periodically\n")
 	}
 }
 
@@ -1997,7 +1997,7 @@ func NewBonusControl(label, bonusType, territoryName string, currentLevel int, e
 
 	// Set up drag end callback to update tower stats only when dragging finishes
 	bc.slider.SetOnDragEnd(func() {
-		fmt.Printf("DEBUG: BonusControl drag ended for %s\n", bc.bonusType)
+		// fmt.Printf("DEBUG: BonusControl drag ended for %s\n", bc.bonusType)
 		if bc.parentMenu != nil {
 			bc.parentMenu.UpdateTowerStats(bc.territoryName)
 			// For Tower Multi-Attack, also do a full refresh when drag ends
@@ -2119,7 +2119,7 @@ func (bc *BonusControl) setLevel(level int) {
 	if bc.parentMenu != nil {
 		bc.parentMenu.UpdateTotalCosts(bc.territoryName)
 		// Tower stats will be updated by the periodic timer or on mouse release
-		fmt.Printf("DEBUG: BonusControl - setLevel completed, tower stats will update periodically\n")
+		// fmt.Printf("DEBUG: BonusControl - setLevel completed, tower stats will update periodically\n")
 	}
 }
 

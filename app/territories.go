@@ -1108,8 +1108,7 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 				routeKey := routesToHQ[i] + "->" + routesToHQ[i+1]
 				routesToHighlight[routeKey] = true
 			}
-			// Debug: print route highlighting info (can be removed later)
-			fmt.Printf("[ROUTE_HIGHLIGHT] Highlighting %d route segments for territory %s to HQ\n", len(routesToHighlight), hoveredTerritory)
+			// fmt.Printf("[ROUTE_HIGHLIGHT] Highlighting %d route segments for territory %s to HQ\n", len(routesToHighlight), hoveredTerritory)
 		}
 	}
 
