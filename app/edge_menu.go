@@ -1023,10 +1023,20 @@ func (m *EdgeMenu) Show() {
 	if m.modal != nil && m.currentTerritory != "" {
 		m.modal.Show()
 	}
+
+	// Start tracking edits for undo system
+	if m.currentTerritory != "" {
+		GetUndoManager().StartEdit(m.currentTerritory)
+	}
 }
 
 // Hide conceals the menu with animation
 func (m *EdgeMenu) Hide() {
+	// Save changes to undo system before hiding
+	if m.currentTerritory != "" {
+		GetUndoManager().EndEdit(m.currentTerritory)
+	}
+
 	m.animTarget = 0.0
 	m.animating = true
 	// Always hide the modal when the menu is hidden
@@ -2598,15 +2608,30 @@ func (m *EdgeMenu) SetTerritoryNavCallback(callback func(string)) {
 
 // SetCurrentTerritory sets the territory name that this menu is displaying
 func (m *EdgeMenu) SetCurrentTerritory(territoryName string) {
+	// Save changes for previous territory before switching
+	if m.currentTerritory != "" && m.currentTerritory != territoryName {
+		GetUndoManager().EndEdit(m.currentTerritory)
+	}
+
 	m.currentTerritory = territoryName
 	// Update the modal with the current territory so it shows the correct guild totals
 	if m.modal != nil {
 		m.modal.SetCurrentTerritory(territoryName)
 	}
+
+	// Start tracking new territory
+	if territoryName != "" {
+		GetUndoManager().StartEdit(territoryName)
+	}
 }
 
 // ClearCurrentTerritory clears the current territory (for non-territory menu usage)
 func (m *EdgeMenu) ClearCurrentTerritory() {
+	// Save changes before clearing
+	if m.currentTerritory != "" {
+		GetUndoManager().EndEdit(m.currentTerritory)
+	}
+
 	m.currentTerritory = ""
 	// Hide the modal when clearing territory since it's territory-specific
 	if m.modal != nil {

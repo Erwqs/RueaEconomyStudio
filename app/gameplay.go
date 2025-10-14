@@ -168,6 +168,14 @@ mouseEventsProcessed:
 		}
 	}
 
+	// Update undo explorer and check if it handled the input
+	if !inputHandled {
+		undoExplorer := GetUndoExplorer()
+		if undoExplorer != nil && undoExplorer.IsVisible() {
+			inputHandled = undoExplorer.Update()
+		}
+	}
+
 	// Update map view if it exists and input wasn't handled by guild manager
 	if gm.mapView != nil && !inputHandled {
 		gm.mapView.Update(screenW, screenH)
@@ -186,6 +194,101 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 			// fmt.Printf("[GAMEPLAY] Player jumped!\n")
 		case ebiten.KeyShift:
 			gm.moveSpeed = 4.0 // Run speed
+		case ebiten.KeyZ:
+			// Check if any text input is focused before handling Z key
+			textInputFocused := false
+
+			// Check if guild manager is open and has text input focused
+			if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+				guildManager := gm.mapView.territoriesManager.guildManager
+				if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+					textInputFocused = true
+				}
+			}
+
+			// Check if loadout manager is open and has text input focused
+			loadoutManager := GetLoadoutManager()
+			if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Check if transit resource menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Check if tribute menu is open and has text input focused
+			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Only handle Z key if no text input is focused
+			if !textInputFocused {
+				// Check if Ctrl is held for undo, otherwise show undo explorer
+				if ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight) {
+					// Ctrl+Z: Undo last edit
+					um := GetUndoManager()
+					if territoryName, ok := um.Undo(); ok {
+						// Show toast notification
+						NewToast().
+							Text(fmt.Sprintf("Undid edit for %s", territoryName), ToastOption{Colour: color.RGBA{255, 255, 255, 255}}).
+							AutoClose(2 * time.Second).
+							Show()
+					} else {
+						// Already at root
+						NewToast().
+							Text("Nothing to undo", ToastOption{Colour: color.RGBA{200, 200, 100, 255}}).
+							AutoClose(2 * time.Second).
+							Show()
+					}
+				} else {
+					// Z: Toggle undo explorer
+					explorer := GetUndoExplorer()
+					if !explorer.IsVisible() {
+						explorer.Show()
+					} else {
+						explorer.Hide()
+					}
+				}
+			}
+		case ebiten.KeyY:
+			// Check if any text input is focused before handling Y key
+			textInputFocused := false
+
+			// Check if guild manager is open and has text input focused
+			if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+				guildManager := gm.mapView.territoriesManager.guildManager
+				if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+					textInputFocused = true
+				}
+			}
+
+			// Check if loadout manager is open and has text input focused
+			loadoutManager := GetLoadoutManager()
+			if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
+			// Only handle Y key if no text input is focused
+			if !textInputFocused {
+				// Ctrl+Y: Redo
+				if ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight) {
+					um := GetUndoManager()
+					if territoryName, ok := um.Redo(); ok {
+						// Show toast notification
+						NewToast().
+							Text(fmt.Sprintf("Redid edit for %s", territoryName), ToastOption{Colour: color.RGBA{255, 255, 255, 255}}).
+							AutoClose(2 * time.Second).
+							Show()
+					} else {
+						// No redo available
+						NewToast().
+							Text("Nothing to redo", ToastOption{Colour: color.RGBA{200, 200, 100, 255}}).
+							AutoClose(2 * time.Second).
+							Show()
+					}
+				}
+			}
 		case ebiten.KeyR:
 			// Check if any text input is currently focused before resetting map view
 			textInputFocused := false
@@ -504,6 +607,12 @@ func (gm *GameplayModule) Draw(screen *ebiten.Image) {
 	welcomeScreen := GetWelcomeScreen()
 	if welcomeScreen != nil && welcomeScreen.IsVisible() {
 		welcomeScreen.Draw(screen)
+	}
+
+	// Draw undo explorer if it exists and is visible (draw last so it's on top)
+	undoExplorer := GetUndoExplorer()
+	if undoExplorer != nil && undoExplorer.IsVisible() {
+		undoExplorer.Draw(screen)
 	}
 }
 

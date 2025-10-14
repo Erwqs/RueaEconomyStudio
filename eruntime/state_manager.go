@@ -14,7 +14,7 @@ import (
 	"github.com/pierrec/lz4"
 )
 
-var supportedStateVersion = []string{"1.0", "1.1", "1.2", "1.3"}
+var supportedStateVersion = []string{"1.0", "1.1", "1.2", "1.3", "1.4"}
 
 // Callback functions for user data that persists through resets
 var (
@@ -24,6 +24,8 @@ var (
 	getGuildColorsCallback   func() map[string]map[string]string
 	setGuildColorsCallback   func(map[string]map[string]string)
 	mergeGuildColorsCallback func(map[string]map[string]string) // Merges guild colors
+	getUndoHistoryCallback   func() ([]byte, error)             // Returns serialized undo tree
+	setUndoHistoryCallback   func([]byte) error                 // Restores undo tree from serialized data
 )
 
 // SetLoadoutCallbacks sets the callback functions for loadout persistence
@@ -38,6 +40,12 @@ func SetGuildColorCallbacks(getFunc func() map[string]map[string]string, setFunc
 	getGuildColorsCallback = getFunc
 	setGuildColorsCallback = setFunc
 	mergeGuildColorsCallback = mergeFunc
+}
+
+// SetUndoHistoryCallbacks sets the callback functions for undo history persistence
+func SetUndoHistoryCallbacks(getFunc func() ([]byte, error), setFunc func([]byte) error) {
+	getUndoHistoryCallback = getFunc
+	setUndoHistoryCallback = setFunc
 }
 
 // StateData represents the complete state that can be saved/loaded
@@ -61,6 +69,9 @@ type StateData struct {
 	// Persistent user data (version 1.3+)
 	Loadouts    []typedef.Loadout            `json:"loadouts,omitempty"`    // Loadouts persist through resets
 	GuildColors map[string]map[string]string `json:"guildColors,omitempty"` // Guild colors: guildName -> {tag, color}
+	
+	// Undo/Redo history (version 1.4+)
+	UndoHistory json.RawMessage `json:"undoHistory,omitempty"` // Serialized undo tree for debugging and future features
 }
 
 // SaveStateToFile saves the current state to a file with LZ4 compression
@@ -74,7 +85,7 @@ func SaveStateToFile(filepath string) error {
 
 	// Quick copy of basic state data (no deep copying yet)
 	stateData.Type = "state_save"
-	stateData.Version = "1.3"
+	stateData.Version = "1.4"
 	stateData.Timestamp = time.Now()
 	stateData.Tick = st.tick
 	stateData.RuntimeOptions = st.runtimeOptions
@@ -219,6 +230,15 @@ func SaveStateToFile(filepath string) error {
 	if getGuildColorsCallback != nil {
 		stateData.GuildColors = getGuildColorsCallback()
 		fmt.Printf("[STATE] Saved %d guild colors to state\n", len(stateData.GuildColors))
+	}
+
+	// Copy undo history (version 1.4+) - for debugging and future features
+	if getUndoHistoryCallback != nil {
+		undoData, err := getUndoHistoryCallback()
+		if err == nil && len(undoData) > 0 {
+			stateData.UndoHistory = json.RawMessage(undoData)
+			fmt.Printf("[STATE] Saved undo history to state (%d bytes)\n", len(undoData))
+		}
 	}
 
 	// All the expensive operations (JSON marshal, compression, file write) happen
@@ -558,6 +578,17 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 		fmt.Printf("[STATE] Merged %d guild colors from state\n", len(stateData.GuildColors))
 	} else if !importOptions["guilds"] {
 		fmt.Printf("[STATE] Skipped importing guild colors\n")
+	}
+
+	// Load undo history - version 1.4+ (if undo_history option is selected)
+	if importOptions["undo_history"] && setUndoHistoryCallback != nil && len(stateData.UndoHistory) > 0 {
+		if err := setUndoHistoryCallback([]byte(stateData.UndoHistory)); err != nil {
+			fmt.Printf("[STATE] Warning: Failed to restore undo history: %v\n", err)
+		} else {
+			fmt.Printf("[STATE] Restored undo history (%d bytes)\n", len(stateData.UndoHistory))
+		}
+	} else if !importOptions["undo_history"] {
+		fmt.Printf("[STATE] Skipped importing undo history\n")
 	}
 
 	fmt.Printf("[STATE] Monitoring HQ status for the next few seconds after state load...\n")

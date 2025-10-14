@@ -679,6 +679,16 @@ func New() *Game {
 		},
 	)
 
+	// Initialize undo history persistence callbacks
+	eruntime.SetUndoHistoryCallbacks(
+		func() ([]byte, error) {
+			return GetUndoManager().ExportToJSON()
+		},
+		func(data []byte) error {
+			return GetUndoManager().ImportFromJSON(data)
+		},
+	)
+
 	game := &Game{
 		state: &State{
 			gameState: StateSession, // Skip main menu, go straight to game

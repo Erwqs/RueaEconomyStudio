@@ -76,7 +76,14 @@ var StateImportOptions = []StateImportOption{
 		Label:        "Territory Configurations",
 		Description:  "Upgrades, bonuses, taxes, routing modes, borders",
 		Dependencies: []string{"guilds", "territories"},
-		Dependents:   []string{"territory_data", "in_transit"},
+		Dependents:   []string{"territory_data", "in_transit", "undo_history"},
+	},
+	{
+		ID:           "undo_history",
+		Label:        "Undo History",
+		Description:  "Edit history and undo tree for territories",
+		Dependencies: []string{"guilds", "territories", "territory_config"},
+		Dependents:   []string{},
 	},
 	{
 		ID:           "territory_data",
@@ -138,8 +145,8 @@ func (sim *StateImportModal) Show(filePath string) {
 
 	// Calculate modal dimensions and position
 	screenW, screenH := ebiten.WindowSize()
-	sim.modalW = 600
-	sim.modalH = 500
+	sim.modalW = 700
+	sim.modalH = 650
 	sim.modalX = (screenW - sim.modalW) / 2
 	sim.modalY = (screenH - sim.modalH) / 2
 
