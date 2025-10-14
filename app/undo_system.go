@@ -179,7 +179,7 @@ func (um *UndoManager) StartEdit(territoryName string) {
 
 	um.lastTerritoryName = territoryName
 	um.lastSnapshot = um.CaptureTerritoryState(territoryName)
-	
+
 	fmt.Printf("[UNDO] Started tracking edits for %s\n", territoryName)
 }
 
@@ -212,7 +212,7 @@ func (um *UndoManager) EndEdit(territoryName string) {
 		Timestamp:     um.lastSnapshot.Timestamp,
 		Changes:       um.lastSnapshot.Changes, // State BEFORE editing
 	}
-	
+
 	afterSnapshot := &TerritorySnapshot{
 		TerritoryName: territoryName,
 		Timestamp:     time.Now(),
@@ -311,11 +311,11 @@ func (tree *UndoTree) layoutTree() {
 	if tree.Root == nil {
 		return
 	}
-	
+
 	// Position root at origin
 	tree.Root.X = 0
 	tree.Root.Y = 0
-	
+
 	// Layout children recursively with collision detection
 	tree.layoutSubtree(tree.Root)
 }
@@ -325,12 +325,12 @@ func (tree *UndoTree) layoutSubtree(node *UndoNode) {
 	const verticalSpacing = 120.0
 	const horizontalAngle = 150.0 // Base horizontal spacing between siblings
 	const minNodeSpacing = 180.0  // Minimum distance between any two nodes
-	
+
 	numChildren := len(node.Children)
 	if numChildren == 0 {
 		return
 	}
-	
+
 	// Calculate initial positions for children in a spread pattern
 	// Center child at index 0, spread others left and right
 	for i, child := range node.Children {
@@ -339,16 +339,16 @@ func (tree *UndoTree) layoutSubtree(node *UndoNode) {
 		child.X = node.X + offset*horizontalAngle
 		child.Y = node.Y + verticalSpacing
 	}
-	
+
 	// Get all nodes at this level and check for collisions
 	childLevel := int(node.Y/verticalSpacing) + 1
 	nodesAtLevel := tree.getNodesAtLevel(childLevel)
-	
+
 	// Resolve collisions by shifting overlapping subtrees
 	for _, child := range node.Children {
 		tree.resolveCollisions(child, nodesAtLevel, minNodeSpacing)
 	}
-	
+
 	// Recursively layout children's subtrees
 	for _, child := range node.Children {
 		tree.layoutSubtree(child)
@@ -359,34 +359,34 @@ func (tree *UndoTree) layoutSubtree(node *UndoNode) {
 func (tree *UndoTree) getNodesAtLevel(level int) []*UndoNode {
 	var nodes []*UndoNode
 	const verticalSpacing = 120.0
-	
+
 	for _, node := range tree.Nodes {
 		nodeLevel := int(node.Y / verticalSpacing)
 		if nodeLevel == level {
 			nodes = append(nodes, node)
 		}
 	}
-	
+
 	return nodes
 }
 
 // resolveCollisions shifts a node and its subtree if it collides with others
 func (tree *UndoTree) resolveCollisions(node *UndoNode, nodesAtLevel []*UndoNode, minSpacing float64) {
 	const maxIterations = 10
-	
+
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		hasCollision := false
-		
+
 		for _, other := range nodesAtLevel {
 			if other == node || other.Parent == node.Parent {
 				// Skip self and siblings (siblings are positioned by parent)
 				continue
 			}
-			
+
 			// Check distance
 			dx := node.X - other.X
 			distance := math.Abs(dx)
-			
+
 			if distance < minSpacing {
 				// Collision detected! Shift this node away
 				hasCollision = true
@@ -400,7 +400,7 @@ func (tree *UndoTree) resolveCollisions(node *UndoNode, nodesAtLevel []*UndoNode
 				}
 			}
 		}
-		
+
 		if !hasCollision {
 			break
 		}
@@ -410,7 +410,7 @@ func (tree *UndoTree) resolveCollisions(node *UndoNode, nodesAtLevel []*UndoNode
 // shiftSubtree shifts a node and all its descendants horizontally
 func (tree *UndoTree) shiftSubtree(node *UndoNode, deltaX float64) {
 	node.X += deltaX
-	
+
 	for _, child := range node.Children {
 		tree.shiftSubtree(child, deltaX)
 	}
@@ -623,7 +623,7 @@ func (um *UndoManager) SetCurrentNode(nodeID string) bool {
 
 	// Determine the direction and path
 	commonAncestor := um.findCommonAncestor(um.tree.CurrentNode, node)
-	
+
 	// First, undo from current to common ancestor (apply BEFORE snapshots)
 	current := um.tree.CurrentNode
 	for current != commonAncestor {
@@ -636,7 +636,7 @@ func (um *UndoManager) SetCurrentNode(nodeID string) bool {
 			break
 		}
 	}
-	
+
 	// Build path from common ancestor to target
 	pathToTarget := make([]*UndoNode, 0)
 	temp := node
@@ -644,7 +644,7 @@ func (um *UndoManager) SetCurrentNode(nodeID string) bool {
 		pathToTarget = append([]*UndoNode{temp}, pathToTarget...)
 		temp = temp.Parent
 	}
-	
+
 	// Apply AFTER snapshots from common ancestor to target (in forward order)
 	for _, pathNode := range pathToTarget {
 		if pathNode.AfterSnapshot.TerritoryName != "" {
@@ -725,7 +725,7 @@ func (um *UndoManager) getAncestors(node *UndoNode) []*UndoNode {
 func (um *UndoManager) findCommonAncestor(node1, node2 *UndoNode) *UndoNode {
 	ancestors1 := um.getAncestors(node1)
 	ancestors2 := um.getAncestors(node2)
-	
+
 	// Find first common node
 	for _, a1 := range ancestors1 {
 		for _, a2 := range ancestors2 {
@@ -734,7 +734,7 @@ func (um *UndoManager) findCommonAncestor(node1, node2 *UndoNode) *UndoNode {
 			}
 		}
 	}
-	
+
 	return nil
 }
 

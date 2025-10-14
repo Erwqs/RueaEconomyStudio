@@ -42,7 +42,7 @@ type StateImportModal struct {
 	cancelButton     Rect
 	everythingButton Rect
 	hoveredButton    string
-	
+
 	// Callbacks
 	onImport func(selectedOptions map[string]bool, filePath string)
 	onCancel func()

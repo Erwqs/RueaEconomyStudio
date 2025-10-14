@@ -69,7 +69,7 @@ type StateData struct {
 	// Persistent user data (version 1.3+)
 	Loadouts    []typedef.Loadout            `json:"loadouts,omitempty"`    // Loadouts persist through resets
 	GuildColors map[string]map[string]string `json:"guildColors,omitempty"` // Guild colors: guildName -> {tag, color}
-	
+
 	// Undo/Redo history (version 1.4+)
 	UndoHistory json.RawMessage `json:"undoHistory,omitempty"` // Serialized undo tree for debugging and future features
 }
