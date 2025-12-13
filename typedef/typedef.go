@@ -727,19 +727,18 @@ type Loadout struct {
 
 // Tracks user options and settings
 type RuntimeOptions struct {
-	TreasuryEnabled bool `json:"TreasuryEnabled"` // If true, the treasury is enabled and will be used for resource generation and storage
-
-	// NoKSPrompt indicates whether user will be prompted with available keyboard shortcuts upon starting the app
-	NoKSPrompt bool `json:"NoKSPrompt"` // If true, the user will not be prompted to set the KS (Kingdom Status) when starting the game
+	TreasuryEnabled bool // If true, the treasury is enabled and will be used for resource generation and storage
 
 	// EnableShm indicates whether the user wants to enable the SHM (Shared Memory) feature
-	EnableShm bool `json:"EnableShm"` //
+	EnableShm bool
 
-	EncodeInTransitResources bool `json:"EncodeTreasury"` // If true, the treasury will be encoded in the JSON format for easier storage and retrieval
+	EncodeInTransitResources bool // If true, the treasury will be encoded in the JSON format for easier storage and retrieval
 
-	NoHaltedMessages bool `json:"NoHaltedMessages"` // If true, the user will not receive messages when the app is halted due to errors or other issues
+	NoHaltedMessages bool // If true, the user will not receive messages when the app is halted due to errors or other issues
 
-	PathfindingAlgorithm PathfindingAlgorithm `json:"PathfindingAlgorithm"` // Pathfinding algorithm to use for routing
+	PathfindingAlgorithm PathfindingAlgorithm // Pathfinding algorithm to use for routing
+
+	ImposeCooldown bool // whether 10 mins is imposed
 }
 
 func _round_down4(x float64) float64 {

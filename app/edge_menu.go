@@ -162,17 +162,22 @@ func (b *MenuButton) Update(mx, my int, deltaTime float64) bool {
 	oldHovered := b.hovered
 	b.hovered = mx >= b.rect.Min.X && mx < b.rect.Max.X && my >= b.rect.Min.Y && my < b.rect.Max.Y
 
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && b.hovered {
-		b.pressed = true
-		return true
-	}
-
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) && b.pressed {
-		b.pressed = false
-		if b.hovered && b.callback != nil {
-			b.callback()
+	if mx != -1 && my != -1 {
+		if px, py, pressed := primaryJustPressed(); pressed && pointInRect(px, py, b.rect) {
+			b.pressed = true
+			return true
 		}
-		return true
+
+		if px, py, released := primaryJustReleased(); released {
+			wasPressed := b.pressed
+			b.pressed = false
+			if wasPressed && pointInRect(px, py, b.rect) && b.callback != nil {
+				b.callback()
+			}
+			if wasPressed {
+				return true
+			}
+		}
 	}
 
 	return b.hovered != oldHovered
@@ -332,12 +337,13 @@ func (t *MenuClickableText) Update(mx, my int, deltaTime float64) bool {
 	// Check if mouse is over the text
 	t.hovered = mx >= t.rect.Min.X && mx < t.rect.Max.X && my >= t.rect.Min.Y && my < t.rect.Max.Y
 
-	// Check for click
-	if t.hovered && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		if t.callback != nil {
-			t.callback()
+	if mx != -1 && my != -1 {
+		if px, py, pressed := primaryJustPressed(); pressed && pointInRect(px, py, t.rect) {
+			if t.callback != nil {
+				t.callback()
+			}
+			return true
 		}
-		return true
 	}
 
 	return false
@@ -442,25 +448,23 @@ func (s *MenuSlider) Update(mx, my int, deltaTime float64) bool {
 
 	s.updateAnimation(deltaTime)
 
-	// Handle mouse input
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		if mx >= s.sliderRect.Min.X && mx < s.sliderRect.Max.X && my >= s.sliderRect.Min.Y && my < s.sliderRect.Max.Y {
+	if mx != -1 && my != -1 {
+		if px, py, pressed := primaryJustPressed(); pressed && pointInRect(px, py, s.sliderRect) {
 			s.dragging = true
-			s.updateValueFromMouse(mx)
+			s.updateValueFromMouse(px)
 			return true
 		}
 	}
 
 	if s.dragging {
-		if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-			s.updateValueFromMouse(mx)
+		if primaryPressed() {
+			px, _ := primaryPointerPosition()
+			s.updateValueFromMouse(px)
 			return true
-		} else {
-			s.dragging = false
-			// Call drag end callback if it exists
-			if s.onDragEnd != nil {
-				s.onDragEnd()
-			}
+		}
+		s.dragging = false
+		if s.onDragEnd != nil {
+			s.onDragEnd()
 		}
 	}
 
@@ -705,8 +709,8 @@ func (c *CollapsibleMenu) Update(mx, my int, deltaTime float64) bool {
 	c.hovered = mx >= c.headerRect.Min.X && mx < c.headerRect.Max.X && my >= c.headerRect.Min.Y && my < c.headerRect.Max.Y
 
 	// Check header click for collapse/expand with debounce protection
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && c.lastClickTime > 0.1 {
-		if c.hovered {
+	if c.lastClickTime > 0.1 {
+		if px, py, pressed := primaryJustPressed(); pressed && pointInRect(px, py, c.headerRect) {
 			c.collapsed = !c.collapsed
 			c.lastClickTime = 0.0 // Reset timer to prevent immediate re-triggering
 
@@ -1142,23 +1146,21 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 	m.towerStatsUpdateTime += deltaTime
 	m.tradingRoutesUpdateTime += deltaTime
 
-	// Check if any mouse button is currently pressed
-	mousePressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) ||
-		ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) ||
-		ebiten.IsMouseButtonPressed(ebiten.MouseButtonMiddle)
+	// Check if any pointer is currently pressed (mouse or touch)
+	pointerPressed := primaryPressed() || ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) || ebiten.IsMouseButtonPressed(ebiten.MouseButtonMiddle)
 
 	// Update mouse state for next frame
-	m.lastMousePressed = mousePressed
+	m.lastMousePressed = pointerPressed
 
 	// Update tower stats every 1 second when no mouse buttons are pressed
-	if m.towerStatsUpdateTime >= 1.0 && !mousePressed && m.currentTerritory != "" {
+	if m.towerStatsUpdateTime >= 1.0 && !pointerPressed && m.currentTerritory != "" {
 		m.towerStatsUpdateTime = 0.0
 		m.UpdateTowerStats(m.currentTerritory)
 		// fmt.Printf("DEBUG: Periodic tower stats update for territory: %s\n", m.currentTerritory)
 	}
 
 	// Update trading routes every 2 seconds when no mouse buttons are pressed (less frequent than tower stats)
-	if m.tradingRoutesUpdateTime >= 2.0 && !mousePressed && m.currentTerritory != "" {
+	if m.tradingRoutesUpdateTime >= 2.0 && !pointerPressed && m.currentTerritory != "" {
 		m.tradingRoutesUpdateTime = 0.0
 		m.UpdateTradingRoutes(m.currentTerritory)
 		// fmt.Printf("DEBUG: Periodic trading routes update for territory: %s\n", m.currentTerritory)
@@ -1168,7 +1170,7 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 	if m.lastUpdateTime >= 0.05 {
 		m.lastUpdateTime = 0.0
 		// Skip refreshing menu data if any mouse button is pressed to avoid interrupting interactions
-		if !mousePressed {
+		if !pointerPressed {
 			// fmt.Printf("DEBUG: Regular refreshMenuData called\n")
 			m.refreshMenuData()
 		} else {
@@ -1217,11 +1219,11 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 	// Calculate bounds
 	m.calculateBounds()
 
-	mx, my := ebiten.CursorPosition()
+	mx, my := primaryPointerPosition()
 
 	// Handle close button (only accept clicks when significantly visible)
-	if m.options.Closable && m.titleProgress > 0.5 && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		if mx >= m.closeButton.Min.X && mx < m.closeButton.Max.X && my >= m.closeButton.Min.Y && my < m.closeButton.Max.Y {
+	if m.options.Closable && m.titleProgress > 0.5 {
+		if px, py, pressed := primaryJustPressed(); pressed && pointInRect(px, py, m.closeButton) {
 			m.Hide()
 			return true
 		}
@@ -1305,7 +1307,7 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 	if !handled && m.options.Scrollable && m.maxScroll > 0 {
 		// Handle scrollbar dragging
 		if m.scrollbarDragging {
-			if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+			if primaryPressed() {
 				// Continue dragging
 				if m.options.HorizontalScroll {
 					// Horizontal scrollbar dragging
@@ -1335,26 +1337,26 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 			}
 		} else {
 			// Check for scrollbar interactions when not already dragging
-			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			if px, py, pressed := primaryJustPressed(); pressed {
 				// Check if clicking on scrollbar handle to start dragging
-				if mx >= m.scrollbarHandle.Min.X && mx < m.scrollbarHandle.Max.X &&
-					my >= m.scrollbarHandle.Min.Y && my < m.scrollbarHandle.Max.Y {
+				if px >= m.scrollbarHandle.Min.X && px < m.scrollbarHandle.Max.X &&
+					py >= m.scrollbarHandle.Min.Y && py < m.scrollbarHandle.Max.Y {
 					m.scrollbarDragging = true
 					if m.options.HorizontalScroll {
-						m.dragStartY = mx // Store X position for horizontal scrolling
+						m.dragStartY = px // Store X position for horizontal scrolling
 					} else {
-						m.dragStartY = my
+						m.dragStartY = py
 					}
 					m.dragStartOffset = m.scrollOffset
 					handled = true
-				} else if mx >= m.scrollbarRect.Min.X && mx < m.scrollbarRect.Max.X &&
-					my >= m.scrollbarRect.Min.Y && my < m.scrollbarRect.Max.Y {
+				} else if px >= m.scrollbarRect.Min.X && px < m.scrollbarRect.Max.X &&
+					py >= m.scrollbarRect.Min.Y && py < m.scrollbarRect.Max.Y {
 					// Clicking on scrollbar track (not handle) - jump to position
 					if m.options.HorizontalScroll {
 						// Horizontal scrollbar track click
 						trackWidth := m.scrollbarRect.Dx() - m.scrollbarHandle.Dx()
 						if trackWidth > 0 {
-							relativeX := mx - m.scrollbarRect.Min.X - m.scrollbarHandle.Dx()/2
+							relativeX := px - m.scrollbarRect.Min.X - m.scrollbarHandle.Dx()/2
 							scrollRatio := float64(relativeX) / float64(trackWidth)
 							scrollRatio = math.Max(0, math.Min(1, scrollRatio))
 							m.scrollTarget = scrollRatio * float64(m.maxScroll)
@@ -1363,7 +1365,7 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 						// Vertical scrollbar track click
 						trackHeight := m.scrollbarRect.Dy() - m.scrollbarHandle.Dy()
 						if trackHeight > 0 {
-							relativeY := my - m.scrollbarRect.Min.Y - m.scrollbarHandle.Dy()/2
+							relativeY := py - m.scrollbarRect.Min.Y - m.scrollbarHandle.Dy()/2
 							scrollRatio := float64(relativeY) / float64(trackHeight)
 							scrollRatio = math.Max(0, math.Min(1, scrollRatio))
 							m.scrollTarget = scrollRatio * float64(m.maxScroll)
@@ -1376,9 +1378,11 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 		}
 	}
 
-	// Stop scrollbar dragging if mouse button is released anywhere
-	if m.scrollbarDragging && inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
-		m.scrollbarDragging = false
+	// Stop scrollbar dragging if primary pointer is released anywhere
+	if m.scrollbarDragging {
+		if _, _, released := primaryJustReleased(); released {
+			m.scrollbarDragging = false
+		}
 	}
 
 	// Only handle wheel scrolling if no child element or scrollbar handled the input

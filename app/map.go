@@ -46,6 +46,7 @@ type MapView struct {
 	dragging        bool
 	lastMouseX      int
 	lastMouseY      int
+	pointer         *PointerInput
 	minScale        float64
 	maxScale        float64
 	screenW         int
@@ -137,6 +138,14 @@ type MapView struct {
 	areaSelectTempHighlight map[string]bool // Temporarily highlighted territories during area selection
 	areaSelectIsDeselecting bool            // Whether we're in deselection mode (right-click)
 
+	// Touch input state
+	touchDragging bool
+	touchStartX   int
+	touchStartY   int
+	touchLastX    int
+	touchLastY    int
+	lastTouchTap  time.Time
+
 	// Event Editor GUI
 	eventEditor *EventEditorGUI // Event editor interface
 }
@@ -151,9 +160,10 @@ func NewMapView() *MapView {
 
 	// Create MapView with default values
 	mapView := &MapView{
-		scale:           0.3,   // Start with a smaller scale to see more of the map
-		offsetX:         0,     // Will be adjusted after map loads
-		offsetY:         0,     // Will be adjusted after map loads
+		scale:           0.3, // Start with a smaller scale to see more of the map
+		offsetX:         0,   // Will be adjusted after map loads
+		offsetY:         0,   // Will be adjusted after map loads
+		pointer:         NewPointerInput(),
 		minScale:        0.1,   // Allow zooming out more to see full map
 		maxScale:        3.0,   // Allow zooming in more for detail
 		showCoordinates: false, // Coordinates disabled by default
@@ -352,6 +362,11 @@ func (m *MapView) Update(screenW, screenH int) {
 	// Update animations
 	m.updateAnimations(deltaTime)
 
+	// Update unified pointer state (mouse + touch)
+	if m.pointer != nil {
+		m.pointer.Update()
+	}
+
 	// Check if we need to refresh transit resources (every 60 ticks)
 	currentTick := eruntime.Elapsed()
 	currentTime := time.Now()
@@ -508,6 +523,11 @@ func (m *MapView) Update(screenW, screenH int) {
 
 	// If EdgeMenu, transit menu, tribute menu, or state menu handled input, don't process map input
 	if edgeMenuHandledInput || transitMenuHandledInput || tributeMenuHandledInput || stateMenuHandledInput {
+		return
+	}
+
+	// Handle touch/pointer input before mouse-specific paths
+	if m.handlePointerEvents(screenW) {
 		return
 	}
 
@@ -922,361 +942,31 @@ func (m *MapView) Update(screenW, screenH int) {
 	// Handle territory hover detection
 	if m.territoriesManager != nil && m.territoriesManager.IsLoaded() {
 		mx, my := ebiten.CursorPosition()
-
-		// Check if mouse is not in sidebar or EdgeMenu area
-		isInSidebar := false
-		if m.territoriesManager.IsSideMenuOpen() {
-			sidebarWidth := int(m.territoriesManager.GetSideMenuWidth())
-			sidebarX := screenW - sidebarWidth
-			isInSidebar = mx >= sidebarX
-		}
-
-		isInEdgeMenu := false
-		if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
-			isInEdgeMenu = m.edgeMenu.IsMouseInside(mx, my)
-		}
-
-		// Update hovered territory if not in sidebar or EdgeMenu
-		if !isInSidebar && !isInEdgeMenu {
-			hoveredTerritory := m.territoriesManager.GetTerritoryAtPosition(mx, my, m.scale, m.offsetX, m.offsetY)
-			m.hoveredTerritory = hoveredTerritory
-		} else {
-			m.hoveredTerritory = ""
-		}
+		m.updateHoveredTerritory(mx, my, screenW)
 	}
 
 	// Handle mouse clicks
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
-		m.lastMouseX = mx
-		m.lastMouseY = my
-
-		// Block most map interactions if event editor is maximized OR if territory picker is active
-		if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
-			// Still allow map dragging but block other functionality
-			m.dragging = true
+		if m.handlePrimaryPress(mx, my) {
 			return
 		}
-
-		// Check if EdgeMenu is visible and mouse is inside EdgeMenu area
-		if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
-			// Only block input if mouse is actually inside the EdgeMenu bounds
-			if m.edgeMenu.IsMouseInside(mx, my) {
-				// EdgeMenu will handle its own input, don't process map clicks
-				return
-			}
-		}
-
-		// Check if we're in area selection mode first
-		if m.isAreaSelecting {
-			// Area selection will handle its own mouse input
-			return
-		}
-
-		// Check if click is on side menu first
-		if m.territoriesManager != nil && m.territoriesManager.IsSideMenuOpen() {
-			if m.territoriesManager.HandleSideMenuClick(mx, my, screenW) {
-				// If a trading route or connected territory was clicked, center on that territory
-				// (the side menu is already handled in HandleSideMenuClick)
-				if route := m.territoriesManager.GetPendingRoute(); route != "" {
-					m.CenterTerritory(route)
-				}
-				return // Click was handled by side menu
-			}
-		}
-
-		// Only start dragging mode if EdgeMenu is not consuming the input
-		// (EdgeMenu check was already done above, so if we reach here, it's safe to drag)
-		m.dragging = true
-
 	} else if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
-
-		// If event editor is maximized or territory picker is active, only allow dragging to end but block other interactions
-		if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
-			// Reset dragging state and return early
-			m.dragging = false
+		if m.handlePrimaryRelease(mx, my, time.Now()) {
 			return
 		}
-
-		// Check if EdgeMenu is visible and mouse is inside EdgeMenu area
-		if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
-			// Only block input if mouse is actually inside the EdgeMenu bounds
-			if m.edgeMenu.IsMouseInside(mx, my) {
-				// EdgeMenu will handle its own input, don't process map clicks
-				return
-			}
-		}
-
-		// Check if we're in area selection mode first
-		if m.isAreaSelecting {
-			// Area selection will handle its own mouse input
-			return
-		}
-
-		// Handle slider mouse release first
-		if m.territoriesManager != nil {
-			m.territoriesManager.handleMouseRelease()
-		}
-
-		// If released without dragging much, it's a click
-		dragDistance := math.Sqrt(math.Pow(float64(mx-m.lastMouseX), 2) + math.Pow(float64(my-m.lastMouseY), 2))
-
-		// If drag distance is small, consider it a click, not a drag
-		if m.dragging && dragDistance < 5 {
-			// Get current time for double-click detection
-			currentTime := time.Now()
-			timeSinceLastClick := currentTime.Sub(m.lastClickTime)
-
-			// Check if click is within the claim editing banner area first (prevent any processing through banner)
-			if m.isEditingClaims {
-				bannerHeight := 140 // Same as overlayHeight in drawClaimEditingUI
-				if my <= bannerHeight {
-					// Check if click is on Save or Cancel buttons first
-					buttonWidth := 100
-					buttonHeight := 30
-					buttonY := 15
-					buttonSpacing := 15
-
-					// Save button area
-					saveX := m.screenW - (buttonWidth*2 + buttonSpacing + 20)
-					if mx >= saveX && mx < saveX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
-						// Let the Save button click be processed below
-					} else {
-						// Cancel button area
-						cancelX := m.screenW - (buttonWidth + 20)
-						if mx >= cancelX && mx < cancelX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
-							// Let the Cancel button click be processed below
-						} else {
-							// Click is within the banner area but not on buttons, don't process any territory logic
-							// Update last click time to prevent double-click issues
-							m.lastClickTime = currentTime
-							m.dragging = false
-							return
-						}
-					}
-				}
-			}
-
-			// Check for double-click (time threshold: 500ms)
-			isDoubleClick := timeSinceLastClick < 500*time.Millisecond
-
-			// Block double-click functionality if event editor is maximized
-			if isDoubleClick && m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode() {
-				// Update last click time but don't process double-click logic
-				m.lastClickTime = currentTime
-				m.dragging = false
-				return
-			}
-
-			// Handle claim editing UI button clicks FIRST (before territory selection)
-			if m.isEditingClaims {
-				buttonWidth := 100
-				buttonHeight := 30
-				buttonY := 15
-				buttonSpacing := 15
-
-				// Save button
-				saveX := m.screenW - (buttonWidth*2 + buttonSpacing + 20)
-				if mx >= saveX && mx < saveX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
-					m.StopClaimEditing()
-					m.dragging = false
-					return
-				}
-
-				// Cancel button
-				cancelX := m.screenW - (buttonWidth + 20)
-				if mx >= cancelX && mx < cancelX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
-					m.CancelClaimEditing()
-					m.dragging = false
-					return
-				}
-			}
-
-			// Handle territory selection ONLY if not in claim editing mode OR not clicking on buttons
-			shouldHandleTerritorySelection := true
-			if m.isEditingClaims {
-				buttonWidth := 100
-				buttonHeight := 30
-				buttonY := 15
-				buttonSpacing := 15
-
-				// Check if clicking on Save button
-				saveX := m.screenW - (buttonWidth*2 + buttonSpacing + 20)
-				if mx >= saveX && mx < saveX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
-					shouldHandleTerritorySelection = false
-				}
-
-				// Check if clicking on Cancel button
-				cancelX := m.screenW - (buttonWidth + 20)
-				if mx >= cancelX && mx < cancelX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
-					shouldHandleTerritorySelection = false
-				}
-			}
-
-			if shouldHandleTerritorySelection {
-				// Handle territory selection
-				if m.territoriesManager != nil && m.territoriesManager.IsLoaded() {
-					// Use the original offset for territory detection
-					territoryClicked := m.territoriesManager.HandleMouseClick(mx, my, m.scale, m.offsetX, m.offsetY)
-
-					// Handle claim editing mode - single click to toggle territory claims
-					if m.isEditingClaims && territoryClicked != "" {
-						m.ToggleTerritoryClaim(territoryClicked)
-						// Update last click time but don't process double-click logic
-						m.lastClickTime = currentTime
-						m.dragging = false
-						return
-					}
-
-					// Handle loadout application mode - single click to toggle territory selection
-					loadoutManager := GetLoadoutManager()
-					if loadoutManager != nil && loadoutManager.IsApplyingLoadout() && territoryClicked != "" {
-						loadoutManager.ToggleTerritorySelection(territoryClicked)
-						// Update last click time but don't process double-click logic
-						m.lastClickTime = currentTime
-						m.dragging = false
-						return
-					}
-
-					// Handle double-click on empty space to close EdgeMenu or side menu
-					if isDoubleClick && territoryClicked == "" {
-						// First check if EdgeMenu is open
-						if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
-							m.edgeMenu.Hide()
-							// Deselect territory when EdgeMenu is closed
-							if m.territoriesManager != nil {
-								m.territoriesManager.DeselectTerritory()
-							}
-						} else if m.territoriesManager.IsSideMenuOpen() {
-							// Close side menu
-							m.territoriesManager.PrepareToCloseMenu()
-							// Close menu after a slight delay
-							go func(tm *TerritoriesManager) {
-								time.Sleep(50 * time.Millisecond)
-								tm.CloseSideMenu()
-							}(m.territoriesManager)
-						}
-					}
-
-					// If territory was clicked and it's a double-click, select and center it
-					// Don't do this in claim editing mode - we only want single-click territory toggling
-					// Also don't show EdgeMenu if event editor is visible
-					if isDoubleClick && territoryClicked != "" && !m.isEditingClaims && !m.IsEventEditorVisible() {
-						// Center the territory first
-						m.CenterTerritory(territoryClicked)
-
-						// Check if this is the same territory that's already selected and blinking
-						currentSelected := ""
-						if m.territoriesManager != nil {
-							currentSelected = m.territoriesManager.GetSelectedTerritoryName()
-						}
-
-						// Set selected territory for blinking effect only if it's a different territory
-						// or if no territory is currently selected
-						if m.territoriesManager != nil && currentSelected != territoryClicked {
-							m.territoriesManager.SetSelectedTerritory(territoryClicked)
-						}
-
-						// Show EdgeMenu instead of old side menu
-						if m.edgeMenu != nil {
-							m.populateTerritoryMenu(territoryClicked)
-							m.edgeMenu.Show()
-						}
-					}
-				}
-
-				// Update last click time for future double-click detection
-				m.lastClickTime = currentTime
-			}
-		}
-
-		// Reset dragging state (always reset, regardless of territory selection logic)
-		m.dragging = false
-
 	} else if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		// Check if we're in area selection mode first
-		if m.isAreaSelecting {
-			// Area selection will handle its own mouse input
-			return
-		}
-
 		mx, my := ebiten.CursorPosition()
-
-		// Always check if we're dragging a slider first, regardless of map dragging
-		if m.territoriesManager != nil && m.territoriesManager.IsSideMenuOpen() {
-			if m.territoriesManager.handleSliderDrag(mx, my) {
-				// Slider is being dragged, don't move the map
-				return
-			}
-		}
-
-		// Handle dragging when mouse is moved while button is held
-		if m.dragging {
-			// Check if EdgeMenu is consuming input
-			isInEdgeMenu := false
-			if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
-				isInEdgeMenu = m.edgeMenu.IsMouseInside(mx, my)
-			}
-
-			// Only drag the map if not inside EdgeMenu
-			if !isInEdgeMenu {
-				// Calculate drag distance
-				deltaX := float64(mx - m.lastMouseX)
-				deltaY := float64(my - m.lastMouseY)
-
-				// Move the map
-				m.offsetX += deltaX
-				m.offsetY += deltaY
-
-				m.lastMouseX = mx
-				m.lastMouseY = my
-			}
-		}
+		m.handlePrimaryDrag(mx, my)
 	}
 
 	// Handle right-click for context menu FIRST (before updating existing menu)
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
 		mx, my := ebiten.CursorPosition()
-		fmt.Printf("Right-click detected at (%d, %d)\n", mx, my)
-
-		// Don't show context menu if we're in claim editing mode (right-click is used for area deselection)
-		if m.isEditingClaims {
-			fmt.Println("Right-click ignored - in claim editing mode")
+		if m.handleContextMenuRequest(mx, my) {
 			return
 		}
-
-		// Don't show context menu if loadout is being applied
-		if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsApplyingLoadout() {
-			fmt.Println("Right-click ignored - in loadout application mode")
-			return
-		}
-
-		// Check if EdgeMenu is consuming right-click input first
-		if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
-			// EdgeMenu area - don't show context menu
-			fmt.Println("Right-click in EdgeMenu area, ignoring")
-			return
-		}
-
-		// Check if right-click is not in sidebar area
-		if m.territoriesManager != nil && m.territoriesManager.IsSideMenuOpen() {
-			sidebarWidth := int(m.territoriesManager.GetSideMenuWidth())
-			sidebarX := screenW - sidebarWidth
-
-			if mx >= sidebarX {
-				// Right-click is in sidebar area - don't show context menu
-				fmt.Println("Right-click in sidebar area, ignoring")
-				return
-			}
-		}
-
-		// Setup and show context menu
-		fmt.Println("Setting up context menu...")
-		m.setupContextMenu(mx, my)
-		m.contextMenu.Show(mx, my, screenW, screenH)
-		fmt.Printf("Context menu shown at (%d, %d), visible: %v\n", mx, my, m.contextMenu.IsVisible())
-		return // Don't update the context menu this frame to avoid hiding it immediately
 	}
 
 	// Update context menu - this might consume input including right-clicks to hide
@@ -1849,6 +1539,381 @@ func (m *MapView) handleSmoothZoom(wheelDelta float64, cursorX, cursorY int) {
 	m.animateToScale(newScale, targetOffsetX, targetOffsetY)
 }
 
+// handlePrimaryPress centralizes logic for left/tap press handling.
+// Returns true when the caller should stop further input processing this frame.
+func (m *MapView) handlePrimaryPress(mx, my int) bool {
+	m.lastMouseX = mx
+	m.lastMouseY = my
+
+	if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
+		m.dragging = true
+		return true
+	}
+
+	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
+		return true
+	}
+
+	if m.isAreaSelecting {
+		return true
+	}
+
+	if m.territoriesManager != nil && m.territoriesManager.IsSideMenuOpen() {
+		if m.territoriesManager.HandleSideMenuClick(mx, my, m.screenW) {
+			if route := m.territoriesManager.GetPendingRoute(); route != "" {
+				m.CenterTerritory(route)
+			}
+			return true
+		}
+	}
+
+	m.dragging = true
+	return false
+}
+
+// handlePrimaryRelease centralizes logic for left/tap release handling.
+// Returns true when the caller should stop further input processing this frame.
+func (m *MapView) handlePrimaryRelease(mx, my int, currentTime time.Time) bool {
+	if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
+		m.dragging = false
+		return true
+	}
+
+	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
+		return true
+	}
+
+	if m.isAreaSelecting {
+		return true
+	}
+
+	if m.territoriesManager != nil {
+		m.territoriesManager.handleMouseRelease()
+	}
+
+	dragDistance := math.Hypot(float64(mx-m.lastMouseX), float64(my-m.lastMouseY))
+
+	if m.dragging && dragDistance < 5 {
+		isDoubleClick := currentTime.Sub(m.lastClickTime) < 500*time.Millisecond
+
+		if m.isEditingClaims {
+			bannerHeight := 140 // Same as overlayHeight in drawClaimEditingUI
+			if my <= bannerHeight {
+				buttonWidth := 100
+				buttonHeight := 30
+				buttonY := 15
+				buttonSpacing := 15
+
+				saveX := m.screenW - (buttonWidth*2 + buttonSpacing + 20)
+				if mx >= saveX && mx < saveX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
+					// Let Save button be processed below
+				} else {
+					cancelX := m.screenW - (buttonWidth + 20)
+					if mx >= cancelX && mx < cancelX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
+						// Let Cancel button be processed below
+					} else {
+						m.lastClickTime = currentTime
+						m.dragging = false
+						return true
+					}
+				}
+			}
+		}
+
+		if isDoubleClick && m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode() {
+			m.lastClickTime = currentTime
+			m.dragging = false
+			return true
+		}
+
+		if m.isEditingClaims {
+			buttonWidth := 100
+			buttonHeight := 30
+			buttonY := 15
+			buttonSpacing := 15
+
+			saveX := m.screenW - (buttonWidth*2 + buttonSpacing + 20)
+			if mx >= saveX && mx < saveX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
+				m.StopClaimEditing()
+				m.dragging = false
+				return true
+			}
+
+			cancelX := m.screenW - (buttonWidth + 20)
+			if mx >= cancelX && mx < cancelX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
+				m.CancelClaimEditing()
+				m.dragging = false
+				return true
+			}
+		}
+
+		shouldHandleTerritorySelection := true
+		if m.isEditingClaims {
+			buttonWidth := 100
+			buttonHeight := 30
+			buttonY := 15
+			buttonSpacing := 15
+
+			saveX := m.screenW - (buttonWidth*2 + buttonSpacing + 20)
+			if mx >= saveX && mx < saveX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
+				shouldHandleTerritorySelection = false
+			}
+
+			cancelX := m.screenW - (buttonWidth + 20)
+			if mx >= cancelX && mx < cancelX+buttonWidth && my >= buttonY && my < buttonY+buttonHeight {
+				shouldHandleTerritorySelection = false
+			}
+		}
+
+		if shouldHandleTerritorySelection {
+			if m.territoriesManager != nil && m.territoriesManager.IsLoaded() {
+				territoryClicked := m.territoriesManager.HandleMouseClick(mx, my, m.scale, m.offsetX, m.offsetY)
+
+				if m.isEditingClaims && territoryClicked != "" {
+					m.ToggleTerritoryClaim(territoryClicked)
+					m.lastClickTime = currentTime
+					m.dragging = false
+					return true
+				}
+
+				if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsApplyingLoadout() && territoryClicked != "" {
+					loadoutManager.ToggleTerritorySelection(territoryClicked)
+					m.lastClickTime = currentTime
+					m.dragging = false
+					return true
+				}
+
+				if isDoubleClick && territoryClicked == "" {
+					if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
+						m.edgeMenu.Hide()
+						if m.territoriesManager != nil {
+							m.territoriesManager.DeselectTerritory()
+						}
+					} else if m.territoriesManager != nil && m.territoriesManager.IsSideMenuOpen() {
+						m.territoriesManager.PrepareToCloseMenu()
+						go func(tm *TerritoriesManager) {
+							time.Sleep(50 * time.Millisecond)
+							tm.CloseSideMenu()
+						}(m.territoriesManager)
+					}
+				}
+
+				if isDoubleClick && territoryClicked != "" && !m.isEditingClaims && !m.IsEventEditorVisible() {
+					m.CenterTerritory(territoryClicked)
+
+					currentSelected := ""
+					if m.territoriesManager != nil {
+						currentSelected = m.territoriesManager.GetSelectedTerritoryName()
+					}
+
+					if m.territoriesManager != nil && currentSelected != territoryClicked {
+						m.territoriesManager.SetSelectedTerritory(territoryClicked)
+					}
+
+					if m.edgeMenu != nil {
+						m.populateTerritoryMenu(territoryClicked)
+						m.edgeMenu.Show()
+					}
+				}
+			}
+
+			m.lastClickTime = currentTime
+		}
+	}
+
+	m.dragging = false
+	return false
+}
+
+// handlePrimaryDrag centralizes dragging movement while the primary pointer is held.
+func (m *MapView) handlePrimaryDrag(mx, my int) {
+	if m.isAreaSelecting {
+		return
+	}
+
+	if m.territoriesManager != nil && m.territoriesManager.IsSideMenuOpen() {
+		if m.territoriesManager.handleSliderDrag(mx, my) {
+			return
+		}
+	}
+
+	if m.dragging {
+		isInEdgeMenu := m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my)
+		if !isInEdgeMenu {
+			deltaX := float64(mx - m.lastMouseX)
+			deltaY := float64(my - m.lastMouseY)
+
+			m.offsetX += deltaX
+			m.offsetY += deltaY
+
+			m.lastMouseX = mx
+			m.lastMouseY = my
+		}
+	}
+}
+
+// handleContextMenuRequest unifies right-click / long-press context menu logic.
+func (m *MapView) handleContextMenuRequest(mx, my int) bool {
+	fmt.Printf("Right-click detected at (%d, %d)\n", mx, my)
+
+	if m.isEditingClaims {
+		fmt.Println("Right-click ignored - in claim editing mode")
+		return true
+	}
+
+	if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsApplyingLoadout() {
+		fmt.Println("Right-click ignored - in loadout application mode")
+		return true
+	}
+
+	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
+		fmt.Println("Right-click in EdgeMenu area, ignoring")
+		return true
+	}
+
+	if m.territoriesManager != nil && m.territoriesManager.IsSideMenuOpen() {
+		sidebarWidth := int(m.territoriesManager.GetSideMenuWidth())
+		sidebarX := m.screenW - sidebarWidth
+		if mx >= sidebarX {
+			fmt.Println("Right-click in sidebar area, ignoring")
+			return true
+		}
+	}
+
+	fmt.Println("Setting up context menu...")
+	m.setupContextMenu(mx, my)
+	m.contextMenu.Show(mx, my, m.screenW, m.screenH)
+	fmt.Printf("Context menu shown at (%d, %d), visible: %v\n", mx, my, m.contextMenu.IsVisible())
+	return true
+}
+
+// updateHoveredTerritory updates hover state for the given pointer position.
+func (m *MapView) updateHoveredTerritory(mx, my, screenW int) {
+	if m.territoriesManager == nil || !m.territoriesManager.IsLoaded() {
+		return
+	}
+
+	isInSidebar := false
+	if m.territoriesManager.IsSideMenuOpen() {
+		sidebarWidth := int(m.territoriesManager.GetSideMenuWidth())
+		sidebarX := screenW - sidebarWidth
+		isInSidebar = mx >= sidebarX
+	}
+
+	isInEdgeMenu := false
+	if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
+		isInEdgeMenu = m.edgeMenu.IsMouseInside(mx, my)
+	}
+
+	if !isInSidebar && !isInEdgeMenu {
+		hovered := m.territoriesManager.GetTerritoryAtPosition(mx, my, m.scale, m.offsetX, m.offsetY)
+		m.hoveredTerritory = hovered
+	} else {
+		m.hoveredTerritory = ""
+	}
+}
+
+// handlePointerEvents processes touch-originated pointer events and maps them to existing behaviors.
+func (m *MapView) handlePointerEvents(screenW int) bool {
+	if m.pointer == nil {
+		return false
+	}
+
+	loadoutManager := GetLoadoutManager()
+	autoAreaSelection := m.isEditingClaims || (loadoutManager != nil && loadoutManager.IsApplyingLoadout())
+
+	for _, ev := range m.pointer.Events() {
+		if ev.IsMouse {
+			continue
+		}
+
+		switch ev.Type {
+		case PointerPinchZoom:
+			if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
+				continue
+			}
+
+			mx := ev.Position.X
+			my := ev.Position.Y
+
+			if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
+				continue
+			}
+
+			if m.territoriesManager != nil && m.territoriesManager.IsSideMenuOpen() {
+				sidebarWidth := int(m.territoriesManager.GetSideMenuWidth())
+				if mx >= screenW-sidebarWidth {
+					continue
+				}
+			}
+
+			if ev.Scale > 0 {
+				wheelDelta := math.Log(ev.Scale) / math.Log(1.1)
+				if math.Abs(wheelDelta) > 0.001 {
+					m.handleSmoothZoom(wheelDelta, mx, my)
+				}
+			}
+
+		case PointerDown:
+			// In claim editing or loadout apply mode, auto-enable area selection for touch
+			if autoAreaSelection && !m.isAreaSelecting {
+				m.startAreaSelection()
+			}
+
+			if m.isAreaSelecting {
+				m.startAreaSelectionDrag(ev.Position.X, ev.Position.Y, false)
+				return true
+			}
+
+			m.touchDragging = true
+			m.touchStartX, m.touchStartY = ev.Position.X, ev.Position.Y
+			m.touchLastX, m.touchLastY = ev.Position.X, ev.Position.Y
+			if m.handlePrimaryPress(ev.Position.X, ev.Position.Y) {
+				return true
+			}
+
+		case PointerMove:
+			if m.areaSelectDragging {
+				m.updateAreaSelectionDrag(ev.Position.X, ev.Position.Y)
+				return true
+			}
+
+			if m.dragging {
+				m.handlePrimaryDrag(ev.Position.X, ev.Position.Y)
+			}
+			m.touchLastX, m.touchLastY = ev.Position.X, ev.Position.Y
+			m.updateHoveredTerritory(ev.Position.X, ev.Position.Y, screenW)
+
+		case PointerUp:
+			if m.areaSelectDragging {
+				m.finishAreaSelectionDrag()
+				return true
+			}
+
+			m.touchDragging = false
+			if m.handlePrimaryRelease(ev.Position.X, ev.Position.Y, ev.Time) {
+				return true
+			}
+
+		case PointerLongPress:
+			if m.isAreaSelecting || autoAreaSelection {
+				if !m.isAreaSelecting {
+					m.startAreaSelection()
+				}
+				if !m.areaSelectDragging {
+					m.startAreaSelectionDrag(ev.Position.X, ev.Position.Y, true)
+				}
+				return true
+			}
+			if m.handleContextMenuRequest(ev.Position.X, ev.Position.Y) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // GetScale returns the current map scale
 func (m *MapView) GetScale() float64 {
 	return m.scale
@@ -2203,6 +2268,7 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 		// Context menu for territory
 		m.contextMenu.
 			Option("Open Territory Menu", "Double Click", true, func() {
+
 				if m.territoriesManager != nil {
 					m.territoriesManager.SetSelectedTerritory(clickedTerritory)
 				}
@@ -3701,14 +3767,11 @@ func (m *MapView) drawAreaSelection(screen *ebiten.Image) {
 		return
 	}
 
-	// Calculate current mouse position
-	cx, cy := ebiten.CursorPosition()
-
-	// Determine rectangle coordinates
+	// Use stored coordinates (works for touch where there is no cursor)
 	x0 := float32(m.areaSelectStartX)
 	y0 := float32(m.areaSelectStartY)
-	x1 := float32(cx)
-	y1 := float32(cy)
+	x1 := float32(m.areaSelectEndX)
+	y1 := float32(m.areaSelectEndY)
 
 	// Ensure proper ordering (x0, y0) is top-left, (x1, y1) is bottom-right
 	if x0 > x1 {
@@ -3758,54 +3821,66 @@ func (m *MapView) endAreaSelection() {
 	m.areaSelectTempHighlight = nil
 }
 
+// startAreaSelectionDrag initializes a drag rectangle for selection/deselection.
+func (m *MapView) startAreaSelectionDrag(x, y int, deselect bool) {
+	m.areaSelectStartX = x
+	m.areaSelectStartY = y
+	m.areaSelectEndX = x
+	m.areaSelectEndY = y
+	m.areaSelectDragging = true
+	m.areaSelectIsDeselecting = deselect
+	m.applyRealtimeAreaSelection()
+}
+
+// updateAreaSelectionDrag updates the drag rectangle and realtime highlights.
+func (m *MapView) updateAreaSelectionDrag(x, y int) {
+	if !m.areaSelectDragging {
+		return
+	}
+	m.areaSelectEndX = x
+	m.areaSelectEndY = y
+	m.applyRealtimeAreaSelection()
+}
+
+// finishAreaSelectionDrag finalizes the current drag and applies selections.
+func (m *MapView) finishAreaSelectionDrag() {
+	if !m.areaSelectDragging {
+		return
+	}
+	m.applyCurrentAreaSelection()
+	m.areaSelectDragging = false
+}
+
 // updateAreaSelection handles mouse input for area selection
 func (m *MapView) updateAreaSelection() {
 	mx, my := ebiten.CursorPosition()
 
 	// Check for left mouse press to start selection dragging
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && !m.areaSelectDragging {
-		m.areaSelectStartX = mx
-		m.areaSelectStartY = my
-		m.areaSelectEndX = mx
-		m.areaSelectEndY = my
-		m.areaSelectDragging = true
-		m.areaSelectIsDeselecting = false // Left click is for selection
+		m.startAreaSelectionDrag(mx, my, false)
 		fmt.Printf("[MAP] Started area selection drag at (%d, %d)\n", mx, my)
 	}
 
 	// Check for right mouse press to start deselection dragging
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) && !m.areaSelectDragging {
-		m.areaSelectStartX = mx
-		m.areaSelectStartY = my
-		m.areaSelectEndX = mx
-		m.areaSelectEndY = my
-		m.areaSelectDragging = true
-		m.areaSelectIsDeselecting = true // Right click is for deselection
+		m.startAreaSelectionDrag(mx, my, true)
 		fmt.Printf("[MAP] Started area deselection drag at (%d, %d)\n", mx, my)
 	}
 
 	// Update drag coordinates and apply real-time selection/deselection
 	if m.areaSelectDragging {
-		m.areaSelectEndX = mx
-		m.areaSelectEndY = my
-
-		// Apply real-time selection as the user drags
-		m.applyRealtimeAreaSelection()
+		m.updateAreaSelectionDrag(mx, my)
 	}
 
 	// Check for left mouse release to end selection dragging
 	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) && m.areaSelectDragging && !m.areaSelectIsDeselecting {
-		// Apply the current selection when mouse is released
-		m.applyCurrentAreaSelection()
-		m.areaSelectDragging = false
+		m.finishAreaSelectionDrag()
 		fmt.Printf("[MAP] Ended area selection drag at (%d, %d)\n", mx, my)
 	}
 
 	// Check for right mouse release to end deselection dragging
 	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonRight) && m.areaSelectDragging && m.areaSelectIsDeselecting {
-		// Apply the current deselection when mouse is released
-		m.applyCurrentAreaSelection()
-		m.areaSelectDragging = false
+		m.finishAreaSelectionDrag()
 		fmt.Printf("[MAP] Ended area deselection drag at (%d, %d)\n", mx, my)
 	}
 }

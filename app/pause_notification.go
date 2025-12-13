@@ -101,7 +101,6 @@ func (pnm *PauseNotificationManager) showPauseNotification() {
 				NoHaltedMessages:         true,
 				TreasuryEnabled:          eruntime.GetRuntimeOptions().TreasuryEnabled,
 				EncodeInTransitResources: eruntime.GetRuntimeOptions().EncodeInTransitResources,
-				NoKSPrompt:               eruntime.GetRuntimeOptions().NoKSPrompt,
 				EnableShm:                eruntime.GetRuntimeOptions().EnableShm,
 			})
 

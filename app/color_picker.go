@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"log"
 	"math"
 	"strconv"
 	"strings"
@@ -38,6 +39,159 @@ type ColorPicker struct {
 	saturation    float64 // 0-1
 	brightness    float64 // 0-1
 	guildIndex    int     // Index of guild being edited
+}
+
+// Shaders for color picker rendering
+var (
+	colorPickerAreaShader *ebiten.Shader // HSV area (S across X, V across Y) with uniform Hue
+	colorPickerHueShader  *ebiten.Shader // Hue slider gradient
+	colorPickerRGBShader  *ebiten.Shader // Generic RGB slider gradient (mode-select)
+)
+
+// Shader sources (Kage DSL)
+const colorPickerAreaShaderSrc = `
+package main
+
+//kage:unit pixels
+
+var Hue float // degrees [0..360]
+var OriginX float
+var OriginY float
+var Width float
+var Height float
+
+// Convert HSV to RGB. H in degrees [0..360], S,V in [0..1]
+func hsv2rgb(h, s, v float) vec3 {
+	if s <= 0.00001 {
+		return vec3(v, v, v)
+	}
+	h = mod(h, 360.0)
+	hh := h / 60.0
+	i := floor(hh)
+	f := hh - i
+	p := v * (1.0 - s)
+	q := v * (1.0 - s*f)
+	t := v * (1.0 - s*(1.0 - f))
+
+	// Branch by i in [0..5]
+	if i == 0.0 {
+		return vec3(v, t, p)
+	}
+	if i == 1.0 {
+		return vec3(q, v, p)
+	}
+	if i == 2.0 {
+		return vec3(p, v, t)
+	}
+	if i == 3.0 {
+		return vec3(p, q, v)
+	}
+	if i == 4.0 {
+		return vec3(t, p, v)
+	}
+	// i == 5
+	return vec3(v, p, q)
+}
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+	// Compute local UV from absolute pixel position
+	u := clamp((position.x - OriginX) / max(Width, 1.0), 0.0, 1.0)
+	vpx := clamp((position.y - OriginY) / max(Height, 1.0), 0.0, 1.0)
+	// S across X, V across Y (top bright -> v = 1 - y)
+	s := u
+	v := 1.0 - vpx
+	rgb := hsv2rgb(Hue, s, v)
+	return vec4(rgb, 1.0)
+}
+`
+
+const colorPickerHueShaderSrc = `
+package main
+
+//kage:unit pixels
+
+// Reuse HSV -> RGB
+func hsv2rgb(h, s, v float) vec3 {
+	if s <= 0.00001 {
+		return vec3(v, v, v)
+	}
+	h = mod(h, 360.0)
+	hh := h / 60.0
+	i := floor(hh)
+	f := hh - i
+	p := v * (1.0 - s)
+	q := v * (1.0 - s*f)
+	t := v * (1.0 - s*(1.0 - f))
+
+	if i == 0.0 { return vec3(v, t, p) }
+	if i == 1.0 { return vec3(q, v, p) }
+	if i == 2.0 { return vec3(p, v, t) }
+	if i == 3.0 { return vec3(p, q, v) }
+	if i == 4.0 { return vec3(t, p, v) }
+	return vec3(v, p, q)
+}
+
+var OriginX float
+var OriginY float
+var Width float
+var Height float
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+	u := clamp((position.x - OriginX) / max(Width, 1.0), 0.0, 1.0)
+	h := u * 360.0
+	rgb := hsv2rgb(h, 1.0, 1.0)
+	return vec4(rgb, 1.0)
+}
+`
+
+const colorPickerRGBShaderSrc = `
+package main
+
+//kage:unit pixels
+
+// Mode: 0=R, 1=G, 2=B
+var Mode float
+// Base channels in [0..1]
+var BaseR float
+var BaseG float
+var BaseB float
+var OriginX float
+var OriginY float
+var Width float
+var Height float
+
+func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+	intensity := clamp((position.x - OriginX) / max(Width, 1.0), 0.0, 1.0)
+	r := BaseR
+	g := BaseG
+	b := BaseB
+
+	if Mode < 0.5 { // R slider
+		r = intensity
+	} else if Mode < 1.5 { // G slider
+		g = intensity
+	} else { // B slider
+		b = intensity
+	}
+	return vec4(r, g, b, 1.0)
+}
+`
+
+func init() {
+	// Compile shaders once; fall back to CPU drawing if any compilation fails
+	var err error
+	colorPickerAreaShader, err = ebiten.NewShader([]byte(colorPickerAreaShaderSrc))
+	if err != nil {
+		log.Println("color picker: failed to compile area shader:", err)
+	}
+	colorPickerHueShader, err = ebiten.NewShader([]byte(colorPickerHueShaderSrc))
+	if err != nil {
+		log.Println("color picker: failed to compile hue shader:", err)
+	}
+	colorPickerRGBShader, err = ebiten.NewShader([]byte(colorPickerRGBShaderSrc))
+	if err != nil {
+		log.Println("color picker: failed to compile RGB shader:", err)
+	}
 }
 
 // NewColorPicker creates a new color picker
@@ -545,20 +699,34 @@ func (cp *ColorPicker) drawColorArea(screen *ebiten.Image) {
 	pickerWidth := cp.width - 140 // Leave space for color preview
 	pickerHeight := 200
 
-	// Draw color gradient (simplified approach using rectangles)
-	stepSize := 4
-	for i := 0; i < pickerWidth; i += stepSize {
-		for j := 0; j < pickerHeight; j += stepSize {
-			saturation := float64(i) / float64(pickerWidth)
-			brightness := 1.0 - float64(j)/float64(pickerHeight)
+	// Prefer shader rendering for smooth gradient
+	if colorPickerAreaShader != nil {
+		op := &ebiten.DrawRectShaderOptions{}
+		op.GeoM.Translate(float64(pickerX), float64(pickerY))
+		op.Uniforms = map[string]interface{}{
+			"Hue":     float32(cp.hue),
+			"OriginX": float32(pickerX),
+			"OriginY": float32(pickerY),
+			"Width":   float32(pickerWidth),
+			"Height":  float32(pickerHeight),
+		}
+		screen.DrawRectShader(pickerWidth, pickerHeight, colorPickerAreaShader, op)
+	} else {
+		// Fallback: CPU-drawn grid
+		stepSize := 4
+		for i := 0; i < pickerWidth; i += stepSize {
+			for j := 0; j < pickerHeight; j += stepSize {
+				saturation := float64(i) / float64(pickerWidth)
+				brightness := 1.0 - float64(j)/float64(pickerHeight)
 
-			r, g, b := hsvToRGB(cp.hue, saturation, brightness)
-			fillColor := color.RGBA{r, g, b, 255}
+				r, g, b := hsvToRGB(cp.hue, saturation, brightness)
+				fillColor := color.RGBA{r, g, b, 255}
 
-			vector.DrawFilledRect(screen,
-				float32(pickerX+i), float32(pickerY+j),
-				float32(stepSize), float32(stepSize),
-				fillColor, false)
+				vector.DrawFilledRect(screen,
+					float32(pickerX+i), float32(pickerY+j),
+					float32(stepSize), float32(stepSize),
+					fillColor, false)
+			}
 		}
 	}
 
@@ -593,17 +761,26 @@ func (cp *ColorPicker) drawHueSlider(screen *ebiten.Image) {
 	sliderWidth := cp.width - 140 // Match picker width
 	sliderHeight := 20
 
-	// Draw hue gradient
-	stepSize := 2
-	for i := 0; i < sliderWidth; i += stepSize {
-		hue := float64(i) / float64(sliderWidth) * 360
-		r, g, b := hsvToRGB(hue, 1.0, 1.0)
-		fillColor := color.RGBA{r, g, b, 255}
-
-		vector.DrawFilledRect(screen,
-			float32(sliderX+i), float32(sliderY),
-			float32(stepSize), float32(sliderHeight),
-			fillColor, false)
+	// Draw hue gradient with shader if available
+	if colorPickerHueShader != nil {
+		op := &ebiten.DrawRectShaderOptions{}
+		op.GeoM.Translate(float64(sliderX), float64(sliderY))
+		op.Uniforms = map[string]interface{}{
+			"OriginX": float32(sliderX),
+			"OriginY": float32(sliderY),
+			"Width":   float32(sliderWidth),
+			"Height":  float32(sliderHeight),
+		}
+		screen.DrawRectShader(sliderWidth, sliderHeight, colorPickerHueShader, op)
+	} else {
+		// Fallback CPU gradient
+		stepSize := 2
+		for i := 0; i < sliderWidth; i += stepSize {
+			hue := float64(i) / float64(sliderWidth) * 360
+			r, g, b := hsvToRGB(hue, 1.0, 1.0)
+			fillColor := color.RGBA{r, g, b, 255}
+			vector.DrawFilledRect(screen, float32(sliderX+i), float32(sliderY), float32(stepSize), float32(sliderHeight), fillColor, false)
+		}
 	}
 
 	// Draw border
@@ -624,11 +801,27 @@ func (cp *ColorPicker) drawRGBSliders(screen *ebiten.Image) {
 	rSliderX := cp.x + 20
 	rSliderY := cp.y + 310
 
-	// Draw red gradient
-	for i := 0; i < sliderWidth; i += 2 {
-		intensity := uint8(float64(i) / float64(sliderWidth) * 255)
-		fillColor := color.RGBA{intensity, cp.selectedG, cp.selectedB, 255}
-		vector.DrawFilledRect(screen, float32(rSliderX+i), float32(rSliderY), 2, float32(sliderHeight), fillColor, false)
+	// Draw red gradient (shader preferred)
+	if colorPickerRGBShader != nil {
+		op := &ebiten.DrawRectShaderOptions{}
+		op.GeoM.Translate(float64(rSliderX), float64(rSliderY))
+		op.Uniforms = map[string]interface{}{
+			"Mode":    float32(0),
+			"BaseR":   float32(cp.selectedR) / 255.0,
+			"BaseG":   float32(cp.selectedG) / 255.0,
+			"BaseB":   float32(cp.selectedB) / 255.0,
+			"OriginX": float32(rSliderX),
+			"OriginY": float32(rSliderY),
+			"Width":   float32(sliderWidth),
+			"Height":  float32(sliderHeight),
+		}
+		screen.DrawRectShader(sliderWidth, sliderHeight, colorPickerRGBShader, op)
+	} else {
+		for i := 0; i < sliderWidth; i += 2 {
+			intensity := uint8(float64(i) / float64(sliderWidth) * 255)
+			fillColor := color.RGBA{intensity, cp.selectedG, cp.selectedB, 255}
+			vector.DrawFilledRect(screen, float32(rSliderX+i), float32(rSliderY), 2, float32(sliderHeight), fillColor, false)
+		}
 	}
 
 	// Draw border and cursor
@@ -646,10 +839,26 @@ func (cp *ColorPicker) drawRGBSliders(screen *ebiten.Image) {
 	gSliderY := cp.y + 335
 
 	// Draw green gradient
-	for i := 0; i < sliderWidth; i += 2 {
-		intensity := uint8(float64(i) / float64(sliderWidth) * 255)
-		fillColor := color.RGBA{cp.selectedR, intensity, cp.selectedB, 255}
-		vector.DrawFilledRect(screen, float32(gSliderX+i), float32(gSliderY), 2, float32(sliderHeight), fillColor, false)
+	if colorPickerRGBShader != nil {
+		op := &ebiten.DrawRectShaderOptions{}
+		op.GeoM.Translate(float64(gSliderX), float64(gSliderY))
+		op.Uniforms = map[string]interface{}{
+			"Mode":    float32(1),
+			"BaseR":   float32(cp.selectedR) / 255.0,
+			"BaseG":   float32(cp.selectedG) / 255.0,
+			"BaseB":   float32(cp.selectedB) / 255.0,
+			"OriginX": float32(gSliderX),
+			"OriginY": float32(gSliderY),
+			"Width":   float32(sliderWidth),
+			"Height":  float32(sliderHeight),
+		}
+		screen.DrawRectShader(sliderWidth, sliderHeight, colorPickerRGBShader, op)
+	} else {
+		for i := 0; i < sliderWidth; i += 2 {
+			intensity := uint8(float64(i) / float64(sliderWidth) * 255)
+			fillColor := color.RGBA{cp.selectedR, intensity, cp.selectedB, 255}
+			vector.DrawFilledRect(screen, float32(gSliderX+i), float32(gSliderY), 2, float32(sliderHeight), fillColor, false)
+		}
 	}
 
 	// Draw border and cursor
@@ -667,10 +876,26 @@ func (cp *ColorPicker) drawRGBSliders(screen *ebiten.Image) {
 	bSliderY := cp.y + 360
 
 	// Draw blue gradient
-	for i := 0; i < sliderWidth; i += 2 {
-		intensity := uint8(float64(i) / float64(sliderWidth) * 255)
-		fillColor := color.RGBA{cp.selectedR, cp.selectedG, intensity, 255}
-		vector.DrawFilledRect(screen, float32(bSliderX+i), float32(bSliderY), 2, float32(sliderHeight), fillColor, false)
+	if colorPickerRGBShader != nil {
+		op := &ebiten.DrawRectShaderOptions{}
+		op.GeoM.Translate(float64(bSliderX), float64(bSliderY))
+		op.Uniforms = map[string]interface{}{
+			"Mode":    float32(2),
+			"BaseR":   float32(cp.selectedR) / 255.0,
+			"BaseG":   float32(cp.selectedG) / 255.0,
+			"BaseB":   float32(cp.selectedB) / 255.0,
+			"OriginX": float32(bSliderX),
+			"OriginY": float32(bSliderY),
+			"Width":   float32(sliderWidth),
+			"Height":  float32(sliderHeight),
+		}
+		screen.DrawRectShader(sliderWidth, sliderHeight, colorPickerRGBShader, op)
+	} else {
+		for i := 0; i < sliderWidth; i += 2 {
+			intensity := uint8(float64(i) / float64(sliderWidth) * 255)
+			fillColor := color.RGBA{cp.selectedR, cp.selectedG, intensity, 255}
+			vector.DrawFilledRect(screen, float32(bSliderX+i), float32(bSliderY), 2, float32(sliderHeight), fillColor, false)
+		}
 	}
 
 	// Draw border and cursor

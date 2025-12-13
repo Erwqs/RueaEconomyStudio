@@ -1,40 +1,5 @@
 package eruntime
 
-/*
-DECOUPLED RESOURCE TRANSIT SYSTEM
-
-This file implements a new decoupled resource movement system that separates
-transit logic from territory structs. This eliminates complex locking scenarios
-and improves maintainability.
-
-MIGRATION GUIDE:
-1. To switch to the new system, update eruntime/update.go line 38:
-   Change: ResourceTraversalAndTax()
-   To:     ResourceTraversalAndTaxV2()
-
-2. Update UI code that accesses territory.TransitResource:
-   Replace: territory.TransitResource
-   With:    GetTransitResourcesForTerritory(territory)
-
-3. After full migration, you can:
-   - Remove TransitResource field from Territory struct (typedef.go line 511)
-   - Remove InTransitResources struct (typedef.go lines 414-424)
-   - Remove the old transit.go file
-
-BENEFITS:
-- Simplified locking (single mutex for all transits)
-- Better performance (no cross-territory locking)
-- Cleaner serialization (transit state separate from territory state)
-- Easier testing and debugging
-- Better scalability
-
-NEW SYSTEM OVERVIEW:
-- TransitManager: Central manager for all resource transits
-- Transit: Simplified transit representation with string IDs
-- State integration: transitManager field added to state struct
-- Backward compatibility: UI can still access transit data through helper functions
-*/
-
 import (
 	"RueaES/typedef"
 	"fmt"
@@ -320,6 +285,42 @@ func (tm *TransitManager) ClearAllTransits() {
 
 	tm.transits = make(map[string]*Transit)
 	tm.atTerritory = make(map[string][]*Transit)
+}
+
+// LoadTransits restores transits from saved state
+func (tm *TransitManager) LoadTransits(transits []*Transit) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	// Clear existing transits
+	tm.transits = make(map[string]*Transit)
+	tm.atTerritory = make(map[string][]*Transit)
+
+	// Restore each transit
+	for _, transit := range transits {
+		if transit == nil {
+			continue
+		}
+
+		// Add to main transit map
+		tm.transits[transit.ID] = transit
+
+		// Add to territory lookup map (current position in route)
+		if transit.RouteIndex < len(transit.Route) {
+			currentTerritoryID := transit.Route[transit.RouteIndex]
+			tm.atTerritory[currentTerritoryID] = append(tm.atTerritory[currentTerritoryID], transit)
+		}
+
+		// Update nextID counter to avoid ID conflicts
+		// Extract numeric part from transit ID (format: "transit_123")
+		var idNum uint64
+		fmt.Sscanf(transit.ID, "transit_%d", &idNum)
+		if idNum >= tm.nextID {
+			tm.nextID = idNum + 1
+		}
+	}
+
+	fmt.Printf("[TRANSIT] Loaded %d transits into TransitManager\n", len(transits))
 }
 
 // Helper function to get territory by ID using O(1) map lookup
@@ -649,12 +650,22 @@ func GetTransitResourcesForTerritory(territory *typedef.Territory) []typedef.InT
 	return result
 }
 
-// Migration helper: Replace the old ResourceTraversalAndTax with the new system
-// To switch to the new system, replace ResourceTraversalAndTax() call with ResourceTraversalAndTaxV2()
-// in update.go line 38
+func scaleResources(res typedef.BasicResources, factor float64) typedef.BasicResources {
+	return typedef.BasicResources{
+		Emeralds: res.Emeralds * factor,
+		Ores:     res.Ores * factor,
+		Wood:     res.Wood * factor,
+		Fish:     res.Fish * factor,
+		Crops:    res.Crops * factor,
+	}
+}
 
-// Example update to update.go:
-// func (s *state) update2() {
-//     ResourceTraversalAndTaxV2()  // <- Change this line
-//     s.ClampResource()
-// }
+func applyTax(res typedef.BasicResources, tax float64) typedef.BasicResources {
+	return typedef.BasicResources{
+		Emeralds: res.Emeralds * (1.0 - tax),
+		Ores:     res.Ores * (1.0 - tax),
+		Wood:     res.Wood * (1.0 - tax),
+		Fish:     res.Fish * (1.0 - tax),
+		Crops:    res.Crops * (1.0 - tax),
+	}
+}

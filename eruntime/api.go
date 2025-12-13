@@ -321,7 +321,6 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 
 	// Don't allow modifications during state loading
 	if st.stateLoading {
-		fmt.Printf("[ERUNTIME] SetGuild blocked during state loading for territory: %s\n", territory)
 		return nil
 	}
 
@@ -330,6 +329,12 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 	for _, t := range st.territories {
 		if t != nil && t.Name == territory {
 			t.Mu.Lock()
+
+			// impose 10 minutes cooldown, skip if therritory was acquired by another guild less than 10 minutes ago
+			if st.runtimeOptions.ImposeCooldown && st.tick-t.CapturedAt < 600 {
+				// skip
+				continue
+			}
 
 			// Check if guild ownership is actually changing
 			oldGuildName := t.Guild.Name
@@ -344,8 +349,8 @@ func SetGuild(territory string, guild typedef.Guild) *typedef.Territory {
 
 				// If territory changes ownership, it should no longer be an HQ
 				// The new guild must explicitly set a new HQ
-				fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuild from %s[%s] to %s[%s]\n",
-					t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
+				// fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuild from %s[%s] to %s[%s]\n",
+				// t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
 
 				// Remove from old guild's HQ map entry if it was an HQ
 				if t.HQ {
@@ -377,8 +382,11 @@ func SetGuildT(territory *typedef.Territory, guild typedef.Guild) *typedef.Terri
 
 	// Don't allow modifications during state loading
 	if st.stateLoading {
-		fmt.Printf("[ERUNTIME] SetGuildT blocked during state loading for territory: %s\n", territory.Name)
 		return nil
+	}
+
+	if st.runtimeOptions.ImposeCooldown && st.tick-territory.CapturedAt < 600 {
+		return territory
 	}
 
 	territory.Mu.Lock()
@@ -433,6 +441,10 @@ func SetGuildBatch(opts map[string]*typedef.Guild) []*typedef.Territory {
 	for territory, guild := range opts {
 		t := getTerritoryUnsafe(territory) // Use unsafe version since we have the lock
 		if t == nil {
+			continue
+		}
+
+		if st.runtimeOptions.ImposeCooldown && st.tick-t.CapturedAt < 600 {
 			continue
 		}
 
@@ -633,6 +645,7 @@ func ModifyStorageState(territory string, newState typedef.BasicResourcesInterfa
 	t := GetTerritory(territory)
 	t.Mu.Lock()
 	t.Storage.At = newState.PerHour()
+	TriggerAutoSave()
 	t.Mu.Unlock()
 	return t
 }
@@ -640,6 +653,7 @@ func ModifyStorageState(territory string, newState typedef.BasicResourcesInterfa
 func ModifyStorageStateT(territory *typedef.Territory, newState typedef.BasicResourcesInterface) *typedef.Territory {
 	territory.Mu.Lock()
 	territory.Storage.At = newState.PerHour()
+	TriggerAutoSave()
 	territory.Mu.Unlock()
 	return territory
 }
@@ -800,7 +814,6 @@ func Reset() {
 	// Reset runtime options to defaults
 	st.runtimeOptions = typedef.RuntimeOptions{
 		TreasuryEnabled:      true,
-		NoKSPrompt:           false,
 		EnableShm:            false,
 		PathfindingAlgorithm: typedef.PathfindingDijkstra,
 	}
@@ -1300,9 +1313,9 @@ func TriggerAutoSave() {
 	}
 
 	now := time.Now()
-	// Only auto-save if at least 10 seconds have passed since last auto-save
+	// Only auto-save if at least 5 seconds have passed since last auto-save
 	// This prevents excessive auto-saving during rapid user actions
-	if now.Sub(lastAutoSaveTime) < 10*time.Second {
+	if now.Sub(lastAutoSaveTime) < 5*time.Second {
 		return
 	}
 

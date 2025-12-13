@@ -42,7 +42,7 @@ type StateImportModal struct {
 	cancelButton     Rect
 	everythingButton Rect
 	hoveredButton    string
-	
+
 	// Callbacks
 	onImport func(selectedOptions map[string]bool, filePath string)
 	onCancel func()
@@ -269,11 +269,11 @@ func (sim *StateImportModal) Update() {
 
 	// Update button hover states
 	sim.hoveredButton = ""
-	if pointInRect(mouseX, mouseY, sim.everythingButton) {
+	if rectContains(mouseX, mouseY, sim.everythingButton) {
 		sim.hoveredButton = "import_all"
-	} else if pointInRect(mouseX, mouseY, sim.importButton) {
+	} else if rectContains(mouseX, mouseY, sim.importButton) {
 		sim.hoveredButton = "import"
-	} else if pointInRect(mouseX, mouseY, sim.cancelButton) {
+	} else if rectContains(mouseX, mouseY, sim.cancelButton) {
 		sim.hoveredButton = "cancel"
 	}
 
@@ -427,8 +427,8 @@ func (sim *StateImportModal) handleCancel() {
 	sim.Hide()
 }
 
-// pointInRect checks if a point is within a rectangle
-func pointInRect(x, y int, rect Rect) bool {
+// rectContains checks if a point is within a Rect value.
+func rectContains(x, y int, rect Rect) bool {
 	return x >= rect.X && x < rect.X+rect.Width &&
 		y >= rect.Y && y < rect.Y+rect.Height
 }

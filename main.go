@@ -10,6 +10,7 @@ import (
 
 	"RueaES/api"
 	"RueaES/app"
+	"RueaES/eruntime"
 	_ "RueaES/eruntime"
 
 	"net/http"
@@ -90,15 +91,8 @@ func runHeadless() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sigChan
+	eruntime.TriggerAutoSave()
 	fmt.Println("Received shutdown signal. Cleaning up...")
-
-	// Note: WebSocket server shutdown is handled automatically by the HTTP server
-	// when the main goroutine exits
-
-	// Clean up shared memory
-	// if api, err := eruntime.GetSharedMemoryAPI(); err == nil {
-	// 	api.Close()
-	// }
 
 	fmt.Println("Shutdown complete.")
 }
@@ -130,6 +124,9 @@ func runWithGUI() {
 	go func() {
 		<-signalChan
 		fmt.Println("Received shutdown signal. Cleaning up...")
+		// trigger autosave
+		eruntime.TriggerAutoSave()
+
 		// Delete lock file if exists
 		if _, err := os.Stat(".rueaes.lock"); err == nil {
 			if err := os.Remove(".rueaes.lock"); err != nil {

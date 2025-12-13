@@ -14,7 +14,7 @@ import (
 	"github.com/pierrec/lz4"
 )
 
-var supportedStateVersion = []string{"1.0", "1.1", "1.2", "1.3"}
+var supportedStateVersion = []string{"1.0", "1.1", "1.2", "1.3", "1.4"}
 
 // Callback functions for user data that persists through resets
 var (
@@ -58,6 +58,9 @@ type StateData struct {
 	TotalTerritories int `json:"totalTerritories"`
 	TotalGuilds      int `json:"totalGuilds"`
 
+	// Transit system data (version 1.4+) - new TransitManager system
+	Transits []*Transit `json:"transits,omitempty"` // Active transits from the new TransitManager
+
 	// Persistent user data (version 1.3+)
 	Loadouts    []typedef.Loadout            `json:"loadouts,omitempty"`    // Loadouts persist through resets
 	GuildColors map[string]map[string]string `json:"guildColors,omitempty"` // Guild colors: guildName -> {tag, color}
@@ -74,7 +77,7 @@ func SaveStateToFile(filepath string) error {
 
 	// Quick copy of basic state data (no deep copying yet)
 	stateData.Type = "state_save"
-	stateData.Version = "1.3"
+	stateData.Version = "1.4"
 	stateData.Timestamp = time.Now()
 	stateData.Tick = st.tick
 	stateData.RuntimeOptions = st.runtimeOptions
@@ -207,6 +210,20 @@ func SaveStateToFile(filepath string) error {
 			tributeData := *tribute
 			stateData.ActiveTributes[i] = &tributeData
 		}
+	}
+
+	// Copy transits from the new TransitManager (version 1.4+)
+	if st.transitManager != nil {
+		allTransits := st.transitManager.GetAllTransits()
+		stateData.Transits = make([]*Transit, 0, len(allTransits))
+		for _, transit := range allTransits {
+			if transit != nil {
+				// Deep copy transit
+				transitCopy := *transit
+				stateData.Transits = append(stateData.Transits, &transitCopy)
+			}
+		}
+		fmt.Printf("[STATE] Saved %d transits from TransitManager to state\n", len(stateData.Transits))
 	}
 
 	// Copy user loadouts (version 1.3+) - these persist through resets
@@ -558,6 +575,16 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 		fmt.Printf("[STATE] Merged %d guild colors from state\n", len(stateData.GuildColors))
 	} else if !importOptions["guilds"] {
 		fmt.Printf("[STATE] Skipped importing guild colors\n")
+	}
+
+	// Load transits from TransitManager - version 1.4+ (if requested)
+	if importOptions["in_transit"] && st.transitManager != nil && stateData.Transits != nil {
+		st.transitManager.LoadTransits(stateData.Transits)
+		fmt.Printf("[STATE] Loaded %d transits into TransitManager from state\n", len(stateData.Transits))
+	} else if !importOptions["in_transit"] && st.transitManager != nil {
+		// Clear transits if not importing
+		st.transitManager.ClearAllTransits()
+		fmt.Printf("[STATE] Cleared all transits from TransitManager (not importing)\n")
 	}
 
 	fmt.Printf("[STATE] Monitoring HQ status for the next few seconds after state load...\n")

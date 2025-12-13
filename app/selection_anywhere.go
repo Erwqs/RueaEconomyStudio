@@ -273,15 +273,15 @@ func (sa *SelectionAnywhere) Update() bool {
 		}
 	}
 
-	// Get mouse position
-	mx, my := ebiten.CursorPosition()
+	// Get primary pointer position (touch first, mouse fallback)
+	mx, my := primaryPointerPosition()
 
 	// Update hover state
 	oldHoveredIndex := sa.hoveredIndex
 	sa.hoveredIndex = -1
-	isMouseOverMenu := mx >= sa.X && mx < sa.X+sa.Width && my >= sa.Y && my < sa.Y+sa.Height
+	isPointerOverMenu := mx >= sa.X && mx < sa.X+sa.Width && my >= sa.Y && my < sa.Y+sa.Height
 
-	if isMouseOverMenu {
+	if isPointerOverMenu {
 		// Calculate which item is hovered
 		relativeY := my - sa.Y - sa.padding
 		currentY := 0
@@ -351,19 +351,41 @@ func (sa *SelectionAnywhere) Update() bool {
 	}
 
 	// Handle mouse clicks
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		if isMouseOverMenu {
-			// Click inside menu
+	if px, py, pressed := primaryJustPressed(); pressed {
+		if px >= sa.X && px < sa.X+sa.Width && py >= sa.Y && py < sa.Y+sa.Height {
+			// Tap/click inside menu
 			if sa.hoveredIndex >= 0 && sa.hoveredIndex < len(sa.items) {
 				item := sa.items[sa.hoveredIndex]
-				if item.Enabled && !item.hasSubMenu && item.Action != nil {
-					item.Action()
-					sa.Hide()
-					return true
+				if item.Enabled {
+					if item.hasSubMenu && item.SubMenu != nil {
+						// Open submenu immediately on tap
+						sa.activeSubMenu = item.SubMenu
+						// Position submenu to the right of the current menu
+						subX := sa.X + sa.Width - 5 // Slight overlap
+						subY := sa.Y + sa.padding + sa.hoveredIndex*sa.itemHeight
+
+						// Adjust for dividers before this item
+						dividerOffset := 0
+						for i := 0; i < sa.hoveredIndex; i++ {
+							if sa.items[i].Divider {
+								dividerOffset += 8 - sa.itemHeight
+							}
+						}
+						subY += dividerOffset
+
+						sa.activeSubMenu.Show(subX, subY, 1920, 1080)
+						return true
+					}
+
+					if !item.hasSubMenu && item.Action != nil {
+						item.Action()
+						sa.Hide()
+						return true
+					}
 				}
 			}
 		} else {
-			// Click outside menu - hide it
+			// Tap/click outside menu - hide it
 			sa.Hide()
 			return true
 		}

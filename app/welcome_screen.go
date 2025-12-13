@@ -37,12 +37,12 @@ var globalWelcomeScreen *WelcomeScreen
 // NewWelcomeScreen creates a new welcome screen
 func NewWelcomeScreen() *WelcomeScreen {
 	ws := &WelcomeScreen{
-		modal:        NewEnhancedModal("Welcome to Ruea Economy Studio!", 900, 700),
+		modal:        NewEnhancedModal("Welcome to Ruea Economy Studio!", 900, 800),
 		visible:      false,
 		scrollOffset: 0,
-		font:         loadWynncraftFont(14),
-		titleFont:    loadWynncraftFont(20),
-		smallFont:    loadWynncraftFont(12),
+		font:         loadWynncraftFont(24),
+		titleFont:    loadWynncraftFont(32),
+		smallFont:    loadWynncraftFont(16),
 	}
 
 	// Create close button with red color
@@ -259,18 +259,18 @@ func (ws *WelcomeScreen) Draw(screen *ebiten.Image) {
 // drawContent renders the welcome screen content
 func (ws *WelcomeScreen) drawContent(screen *ebiten.Image, x, y, width, height int) {
 	currentY := y - ws.scrollOffset
-	lineHeight := 22     // Increased line height for better readability
-	sectionSpacing := 35 // Increased spacing between sections
-	itemPadding := 5     // Padding between items within sections
+	lineHeight := 30     // Increased line height for larger fonts
+	sectionSpacing := 45 // Increased spacing between sections
+	itemPadding := 8     // Padding between items within sections
 
 	// Title
-	titleText := "Ruea Economy Studio - Wynncraft Guild Economy Simulator"
+	titleText := "RueaEconomy Studio - Wynncraft Guild Economy Simulator"
 	titleBounds := text.BoundString(ws.titleFont, titleText)
 	titleX := x + (width-titleBounds.Dx())/2
 	if currentY > y-lineHeight && currentY < y+height {
-		text.Draw(screen, titleText, ws.titleFont, titleX, currentY+20, color.RGBA{100, 149, 237, 255})
+		text.Draw(screen, titleText, ws.titleFont, titleX, currentY+25, color.RGBA{100, 149, 237, 255})
 	}
-	currentY += 40
+	currentY += 50
 
 	// Subtitle
 	subtitleText := "As far as I know, this is the most comprehensive one out there"
@@ -342,20 +342,21 @@ func (ws *WelcomeScreen) drawContent(screen *ebiten.Image, x, y, width, height i
 // calculateMaxScroll determines how much the content can be scrolled
 func (ws *WelcomeScreen) calculateMaxScroll(x, y, width, height int) {
 	// Calculate total content height by simulating the drawing process
-	currentY := y
-	lineHeight := 22     // Match the increased line height
-	sectionSpacing := 35 // Match the increased section spacing
+	currentY := 0 // Start from 0 to calculate absolute height
+	lineHeight := 30     // Match the increased line height
+	sectionSpacing := 45 // Match the increased section spacing
+	itemPadding := 8     // Match the item padding
 
 	// Title
-	currentY += 40
+	currentY += 50
 
 	// Subtitle
-	currentY += 25
+	currentY += sectionSpacing + itemPadding
 
 	// Description
 	descText := "It aims to closely replicate the economy system in game as much as possible"
 	descLines := ws.wrapText(descText, width-40, ws.font)
-	currentY += len(descLines)*lineHeight + sectionSpacing
+	currentY += len(descLines)*lineHeight + sectionSpacing + itemPadding
 
 	// First Time Setup section
 	setupItems := []string{
@@ -363,64 +364,93 @@ func (ws *WelcomeScreen) calculateMaxScroll(x, y, width, height int) {
 		"Press G to bring up guild management",
 		"Then press API import to import all guilds and the map",
 	}
-	currentY += 25 // title
-	currentY += len(setupItems)*lineHeight + sectionSpacing
+	currentY += 45 // section title spacing
+	for i, item := range setupItems {
+		if i > 0 {
+			currentY += itemPadding
+		}
+		wrappedLines := ws.wrapText(item, width-20, ws.font)
+		currentY += len(wrappedLines) * lineHeight
+	}
+	currentY += 30 // section end spacing
 
 	// Features section (large section)
 	featureItems := []string{
 		"Multiple guild supports",
 		"Resource/storage based on how much time has elapsed",
 		"Route calculation, affected by tax, border closure and trading style",
-		"Ability to live travel into the future with manual tick advancement or stop the clock with state halting",
+		"Ability to time travel into the future with manual tick advancement or stop the clock with state halting",
 		"Save and load state/session to file for sharing/later use",
 		"Import current map data directly from the API (this only imports guild claims, not their upgrades)",
 		"Ability to enable/disable treasury calculation",
 		"Treasury overrides, allow you to explicitly set a territory to treasury level of your choice",
 		"Manually editable resource storage at runtime, so your experiment isn't limited by available resource",
 		"Loadouts, apply mode (just like in game) and merge mode",
-		"Tribute system with an option to spawn in or void resources through \"M Src/Source\" guild instead of from other guild on map",
-		"In-transit resource inspector, see where all the resources in transit system go",
-		"Scriptable, write your own Javascript code to be run within the simulation context",
+		"Tribute system with an option to spawn in or void resource through \"Nil Sink/Source\" guild instead of from other guild on map",
+		"In-Transit resource inspector, see where all the resources in transit system go!",
+		"Scriptable, write your own JavaScript code to be run within the simulation context",
 	}
-	currentY += 25 // title
-	currentY += len(featureItems)*lineHeight + sectionSpacing
+	currentY += 45 // section title spacing
+	for i, item := range featureItems {
+		if i > 0 {
+			currentY += itemPadding
+		}
+		wrappedLines := ws.wrapText(item, width-20, ws.font)
+		currentY += len(wrappedLines) * lineHeight
+	}
+	currentY += 30 // section end spacing
 
 	// Keybinds section
 	keybindItems := []string{
-		"G - Guild management; you can add/remove guilds or edit guild's clan",
-		"P - State management; this menu lets you control the tick rate, modify the logic/calculation/behavior or save and load state session to and from file",
-		"L - Loadout menu; create loadout to apply to many territories, there are two application modes: apply which overrides the previous territory setting and apply the loadout's one and merge which merge non-zero data from loadout to territory",
-		"B - Tribute configuration; set up your tribute here you can set up a tribute between 2 guilds on the map or spawn in tribute from nothing to the HQ (Source) or simulate sending out tribute to non-existent guild on the map where (Void)",
-		"I - Resource inspector; unfinished and abandoned in transit resource inspector and editor",
-		"S - Script; run your own Javascript code that will be interacted with the economy simulator here",
-		"Tab - Territory view switcher; switch between guild view, resource view, defence and moral",
+		"G - Guild management: you can add/remove guilds or edit guild's claim",
+		"P - State management: this menu lets you control the tick rate, modify the logic/calculation/behavior or save and load state session to and from file",
+		"L - Loadout menu: create loadout to apply to many territories, there are two application modes: apply which overrides the previous territory setting and apply the loadout's one and merge which merge non-zero data from loadout to territory",
+		"B - Tribute configuration: set up your tribute here. you can set up a tribute between 2 guilds on the map or spawn in tribute from nothing to the hq (source) or simulate sending out tribute to non-existent guild on the map (sink)",
+		"I - Resource inspector: unfinished and abandoned in transit resource inspector and editor",
+		"S - Script: run your diy javascript code that will be interacted with the economy simulator here",
+		"Tab - Territory view switcher: switch between guild view, resource view, defence and more!",
 	}
-	currentY += 25 // title
-	currentY += len(keybindItems)*lineHeight + sectionSpacing
+	currentY += 45 // section title spacing
+	for i, item := range keybindItems {
+		if i > 0 {
+			currentY += itemPadding
+		}
+		wrappedLines := ws.wrapText(item, width-20, ws.font)
+		currentY += len(wrappedLines) * lineHeight
+	}
+	currentY += 30 // section end spacing
 
 	// Usage Tips section
 	usageTipItems := []string{
 		"Double click on a territory to open territory menu",
 		"Note: if everything shows up as 0 or seems like nothing is working, press P and click Resume (if it says resume) to un-halt the state",
 	}
-	currentY += 25 // title
-	currentY += len(usageTipItems)*lineHeight + sectionSpacing
+	currentY += 45 // section title spacing
+	for i, item := range usageTipItems {
+		if i > 0 {
+			currentY += itemPadding
+		}
+		wrappedLines := ws.wrapText(item, width-20, ws.font)
+		currentY += len(wrappedLines) * lineHeight
+	}
+	currentY += 30 // section end spacing
 
-	// Calculate max scroll needed
-	ws.maxScroll = maxInt(0, currentY-y-height+50)
+	// Calculate max scroll needed - total content height minus visible height
+	// Add extra padding at the end to ensure all content is visible
+	ws.maxScroll = maxInt(0, currentY-height+50)
 }
 
 // drawSection renders a section with title and bullet points
 func (ws *WelcomeScreen) drawSection(screen *ebiten.Image, title string, items []string, x, startY, width, viewY, viewHeight int, titleColor color.RGBA) int {
 	currentY := startY
-	lineHeight := 22 // Match the main content line height
-	itemPadding := 5 // Padding between items
+	lineHeight := 30 // Match the main content line height
+	itemPadding := 8 // Padding between items
 
 	// Draw section title with more padding
 	if currentY > viewY-lineHeight && currentY < viewY+viewHeight {
-		text.Draw(screen, title, ws.titleFont, x+10, currentY+18, titleColor)
+		text.Draw(screen, title, ws.titleFont, x+10, currentY+20, titleColor)
 	}
-	currentY += 35 // More space after title
+	currentY += 45 // More space after title
 
 	// Draw items
 	for i, item := range items {
@@ -445,7 +475,7 @@ func (ws *WelcomeScreen) drawSection(screen *ebiten.Image, title string, items [
 		}
 	}
 
-	return currentY + 20 // Add spacing after section
+	return currentY + 30 // Add spacing after section
 }
 
 // wrapText wraps text to fit within the given width

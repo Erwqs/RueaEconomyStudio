@@ -128,16 +128,19 @@ type UIColorPicker struct {
 
 // UIScrollableList represents a scrollable list of items
 type UIScrollableList struct {
-	Items       []UIListItem
-	X, Y        int
-	Width       int
-	Height      int
-	ScrollY     int
-	ItemHeight  int
-	OnItemClick func(index int, item UIListItem)
-	font        font.Face
-	hoveredItem int
-	scrolling   bool
+	Items          []UIListItem
+	X, Y           int
+	Width          int
+	Height         int
+	ScrollY        int
+	ItemHeight     int
+	OnItemClick    func(index int, item UIListItem)
+	font           font.Face
+	hoveredItem    int
+	scrolling      bool
+	touchScrolling bool
+	scrollStartY   int
+	scrollStartPos int
 }
 
 // UIListItem represents an item in a scrollable list
@@ -205,6 +208,8 @@ func (m *UIModal) Update(mx, my int) bool {
 		return false
 	}
 
+	px, py := primaryPointerPosition()
+
 	// Handle animation
 	if m.animated && m.animPhase < 1.0 {
 		m.animPhase += UIAnimationSpeed / 60.0 // Assuming 60 FPS
@@ -214,15 +219,15 @@ func (m *UIModal) Update(mx, my int) bool {
 	}
 
 	// Handle close button
-	if m.Closable && m.CloseButton.Update(mx, my) {
+	if m.Closable && m.CloseButton.Update(px, py) {
 		return true
 	}
 
 	// Handle content
 	if m.Content != nil {
 		// Adjust coordinates relative to modal content area
-		contentX := mx - (m.X + 10)
-		contentY := my - (m.Y + 40)
+		contentX := px - (m.X + 10)
+		contentY := py - (m.Y + 40)
 		if m.Content.Update(contentX, contentY) {
 			return true
 		}
@@ -230,16 +235,17 @@ func (m *UIModal) Update(mx, my int) bool {
 
 	// Check if click is inside modal bounds
 	bounds := m.GetBounds()
-	if mx >= bounds.Min.X && mx <= bounds.Max.X && my >= bounds.Min.Y && my <= bounds.Max.Y {
+	if px >= bounds.Min.X && px <= bounds.Max.X && py >= bounds.Min.Y && py <= bounds.Max.Y {
 		return true // Modal consumed the input
 	}
 
 	// Click outside modal - close if closable
-	if m.Closable && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		m.Hide()
-		return true
+	if m.Closable {
+		if _, _, pressed := primaryJustPressed(); pressed {
+			m.Hide()
+			return true
+		}
 	}
-
 	return false
 }
 
@@ -350,15 +356,17 @@ func (b *UIButton) Update(mx, my int) bool {
 		return false
 	}
 
+	px, py := primaryPointerPosition()
+
 	bounds := b.GetBounds()
-	b.hovered = mx >= bounds.Min.X && mx <= bounds.Max.X && my >= bounds.Min.Y && my <= bounds.Max.Y
+	b.hovered = px >= bounds.Min.X && px <= bounds.Max.X && py >= bounds.Min.Y && py <= bounds.Max.Y
 
 	if b.hovered {
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		if _, _, pressed := primaryJustPressed(); pressed {
 			b.pressed = true
 			return true
 		}
-		if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) && b.pressed {
+		if _, _, released := primaryJustReleased(); released && b.pressed {
 			b.pressed = false
 			if b.OnClick != nil {
 				b.OnClick()
@@ -367,7 +375,7 @@ func (b *UIButton) Update(mx, my int) bool {
 		}
 	}
 
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+	if _, _, released := primaryJustReleased(); released {
 		b.pressed = false
 	}
 
@@ -435,15 +443,16 @@ func NewUITextInput(placeholder string, x, y, width int, maxLength int) *UITextI
 
 // Update handles text input
 func (t *UITextInput) Update(mx, my int) bool {
+	px, py := primaryPointerPosition()
 	bounds := t.GetBounds()
-	wasClicked := mx >= bounds.Min.X && mx <= bounds.Max.X && my >= bounds.Min.Y && my <= bounds.Max.Y
+	wasClicked := px >= bounds.Min.X && px <= bounds.Max.X && py >= bounds.Min.Y && py <= bounds.Max.Y
 
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	if _, _, pressed := primaryJustPressed(); pressed {
 		t.Focused = wasClicked
 		if wasClicked {
 			// Position cursor based on click position
 			// This is a simplified version - could be improved with proper text metrics
-			clickOffset := mx - bounds.Min.X - 5
+			clickOffset := px - bounds.Min.X - 5
 			if clickOffset <= 0 {
 				t.cursorPos = 0
 			} else if t.font != nil {
@@ -660,22 +669,23 @@ func NewUIColorPicker(x, y, size int, initialColor color.RGBA) *UIColorPicker {
 
 // Update handles color picker input
 func (cp *UIColorPicker) Update(mx, my int) bool {
+	px, py := primaryPointerPosition()
 	bounds := cp.GetBounds()
-	if mx < bounds.Min.X || mx > bounds.Max.X || my < bounds.Min.Y || my > bounds.Max.Y {
-		if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+	if px < bounds.Min.X || px > bounds.Max.X || py < bounds.Min.Y || py > bounds.Max.Y {
+		if _, _, released := primaryJustReleased(); released {
 			cp.isDragging = false
 		}
 		return false
 	}
 
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	if _, _, pressed := primaryJustPressed(); pressed {
 		cp.isDragging = true
 	}
 
-	if cp.isDragging && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+	if cp.isDragging && primaryPressed() {
 		// Convert mouse position to color
-		relX := float64(mx-bounds.Min.X) / float64(bounds.Dx())
-		relY := float64(my-bounds.Min.Y) / float64(bounds.Dy())
+		relX := float64(px-bounds.Min.X) / float64(bounds.Dx())
+		relY := float64(py-bounds.Min.Y) / float64(bounds.Dy())
 
 		relX = math.Max(0, math.Min(1, relX))
 		relY = math.Max(0, math.Min(1, relY))
@@ -699,7 +709,7 @@ func (cp *UIColorPicker) Update(mx, my int) bool {
 		return true
 	}
 
-	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
+	if _, _, released := primaryJustReleased(); released {
 		cp.isDragging = false
 	}
 
@@ -816,6 +826,13 @@ func uiHsvToRGB(h, s, v float64) (r, g, b uint8) {
 	return
 }
 
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 // NewUIScrollableList creates a new scrollable list
 func NewUIScrollableList(x, y, width, height, itemHeight int) *UIScrollableList {
 	return &UIScrollableList{
@@ -831,44 +848,85 @@ func NewUIScrollableList(x, y, width, height, itemHeight int) *UIScrollableList 
 
 // Update handles scrollable list input
 func (sl *UIScrollableList) Update(mx, my int) bool {
+	px, py := primaryPointerPosition()
 	bounds := sl.GetBounds()
-	if mx < bounds.Min.X || mx > bounds.Max.X || my < bounds.Min.Y || my > bounds.Max.Y {
+	inside := px >= bounds.Min.X && px <= bounds.Max.X && py >= bounds.Min.Y && py <= bounds.Max.Y
+
+	if !inside && !sl.touchScrolling {
 		sl.hoveredItem = -1
 		return false
 	}
 
-	// Handle scrolling
-	_, scrollY := ebiten.Wheel()
-	if scrollY != 0 {
-		sl.ScrollY -= int(scrollY * 30) // Scroll speed
-		maxScroll := len(sl.Items)*sl.ItemHeight - sl.Height
-		if maxScroll < 0 {
-			maxScroll = 0
+	// Handle mouse wheel scrolling
+	_, wheelY := ebiten.Wheel()
+	if wheelY != 0 {
+		sl.ScrollY -= int(wheelY * 30)
+	}
+
+	if inside {
+		relY := py - bounds.Min.Y + sl.ScrollY
+		itemIndex := relY / sl.ItemHeight
+		if itemIndex >= 0 && itemIndex < len(sl.Items) {
+			sl.hoveredItem = itemIndex
+		} else {
+			sl.hoveredItem = -1
 		}
-		if sl.ScrollY < 0 {
-			sl.ScrollY = 0
-		} else if sl.ScrollY > maxScroll {
-			sl.ScrollY = maxScroll
-		}
+	}
+
+	// Start touch/mouse drag scrolling
+	if _, pressY, pressed := primaryJustPressed(); pressed && inside {
+		sl.touchScrolling = true
+		sl.scrollStartY = pressY
+		sl.scrollStartPos = sl.ScrollY
 		return true
 	}
 
-	// Handle item selection
-	relY := my - bounds.Min.Y + sl.ScrollY
-	itemIndex := relY / sl.ItemHeight
-	if itemIndex >= 0 && itemIndex < len(sl.Items) {
-		sl.hoveredItem = itemIndex
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			if sl.OnItemClick != nil {
-				sl.OnItemClick(itemIndex, sl.Items[itemIndex])
+	maxScroll := len(sl.Items)*sl.ItemHeight - sl.Height
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+
+	// Continue drag scrolling
+	if sl.touchScrolling && primaryPressed() {
+		delta := py - sl.scrollStartY
+		newScroll := sl.scrollStartPos - delta
+		if newScroll < 0 {
+			newScroll = 0
+		} else if newScroll > maxScroll {
+			newScroll = maxScroll
+		}
+		sl.ScrollY = newScroll
+		return true
+	}
+
+	// Release: stop scrolling and treat as tap if there was minimal movement
+	if rx, ry, released := primaryJustReleased(); released {
+		if sl.touchScrolling {
+			movement := absInt(ry - sl.scrollStartY)
+			sl.touchScrolling = false
+			if movement < sl.ItemHeight/4 {
+				relY := ry - bounds.Min.Y + sl.ScrollY
+				itemIndex := relY / sl.ItemHeight
+				insideRelease := rx >= bounds.Min.X && rx <= bounds.Max.X && ry >= bounds.Min.Y && ry <= bounds.Max.Y
+				if itemIndex >= 0 && itemIndex < len(sl.Items) && insideRelease {
+					sl.hoveredItem = itemIndex
+					if sl.OnItemClick != nil {
+						sl.OnItemClick(itemIndex, sl.Items[itemIndex])
+					}
+				}
 			}
 			return true
 		}
-	} else {
-		sl.hoveredItem = -1
 	}
 
-	return true
+	// Clamp scroll position after wheel input
+	if sl.ScrollY < 0 {
+		sl.ScrollY = 0
+	} else if sl.ScrollY > maxScroll {
+		sl.ScrollY = maxScroll
+	}
+
+	return inside
 }
 
 // Draw renders the scrollable list
