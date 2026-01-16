@@ -422,7 +422,7 @@ func (tm *TributeMenu) saveTribute() {
 
 	// Validate input
 	if fromGuildName == "" && toGuildName == "" {
-		fmt.Println("Error: At least one guild must be specified")
+		// fmt.Println("Error: At least one guild must be specified")
 		return
 	}
 

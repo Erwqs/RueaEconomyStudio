@@ -79,47 +79,47 @@ func (tm *TerritoryModal) SetCurrentTerritory(territoryName string) {
 // Update handles the modal logic (no animation)
 func (tm *TerritoryModal) Update(deltaTime float64) {
 	// Calculate modal bounds (same as in Draw method, but dynamic height)
-	modalWidth := 350
-	rowCount := 1 + 5 // header + 5 resources
-	rowHeight := 18
-	padding := 40 // header, spacing, and bottom margin
-	modalHeight := rowCount*rowHeight + padding
+	// modalWidth := 350
+	// rowCount := 1 + 5 // header + 5 resources
+	// rowHeight := 18
+	// padding := 40 // header, spacing, and bottom margin
+	// modalHeight := rowCount*rowHeight + padding
 
-	var modalX, modalY int
-	switch tm.edgeMenuPosition {
-	case EdgeMenuRight:
-		modalX = tm.screenWidth - 450 - modalWidth
-		modalY = 50
-	case EdgeMenuLeft:
-		modalX = 450
-		modalY = 50
-	case EdgeMenuTop:
-		modalX = tm.screenWidth - modalWidth - 50
-		modalY = 150
-	case EdgeMenuBottom:
-		modalX = tm.screenWidth - modalWidth - 50
-		modalY = tm.screenHeight - 200 - modalHeight
-	default:
-		modalX = tm.screenWidth - 450 - modalWidth
-		modalY = 50
-	}
+	//var modalX, modalY int
+	// switch tm.edgeMenuPosition {
+	// case EdgeMenuRight:
+	// 	modalX = tm.screenWidth - 450 - modalWidth
+	// 	modalY = 50
+	// case EdgeMenuLeft:
+	// 	modalX = 450
+	// 	modalY = 50
+	// case EdgeMenuTop:
+	// 	modalX = tm.screenWidth - modalWidth - 50
+	// 	modalY = 150
+	// case EdgeMenuBottom:
+	// 	modalX = tm.screenWidth - modalWidth - 50
+	// 	modalY = tm.screenHeight - 200 - modalHeight
+	// default:
+	// 	modalX = tm.screenWidth - 450 - modalWidth
+	// 	modalY = 50
+	// }
 
-	mx, my := ebiten.CursorPosition()
-	mouseOver := mx >= modalX && mx < modalX+modalWidth && my >= modalY && my < modalY+modalHeight
+	// mx, my := ebiten.CursorPosition()
+	// mouseOver := mx >= modalX && mx < modalX+modalWidth && my >= modalY && my < modalY+modalHeight
 
-	if mouseOver {
-		tm.hovered = true
-		if tm.visible {
-			tm.HideByHover()
-		}
-	} else {
-		if tm.hovered || tm.hiddenByHover {
-			tm.hovered = false
-			if tm.hiddenByHover {
-				tm.Show()
-			}
-		}
-	}
+	// if mouseOver {
+	// 	tm.hovered = true
+	// 	if tm.visible {
+	// 		tm.HideByHover()
+	// 	}
+	// } else {
+	// 	if tm.hovered || tm.hiddenByHover {
+	// 		tm.hovered = false
+	// 		if tm.hiddenByHover {
+	// 			tm.Show()
+	// 		}
+	// 	}
+	// }
 }
 
 // Draw renders the modal overlay

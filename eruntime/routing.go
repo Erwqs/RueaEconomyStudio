@@ -213,12 +213,20 @@ func (s *state) updateRoute() {
 
 			var route []*typedef.Territory
 			var err error
-			pathfindingAlgorithm := st.runtimeOptions.PathfindingAlgorithm
-			switch t.RoutingMode {
-			case typedef.RoutingCheapest:
-				route, err = pathfinder.FindPathCheapest(pathfindingAlgorithm, t, hq, TerritoryMap, TradingRoutesMap, t.Guild.Tag, allies)
-			case typedef.RoutingFastest:
-				route, err = pathfinder.FindPathFastest(t, hq, TerritoryMap, TradingRoutesMap, t.Guild.Tag)
+
+			// Prefer external pathfinder when selected; fall back to built-in algorithms on failure.
+			usePlugin := hasPathfinderResolver() && st.runtimeOptions.PathfinderProvider != ""
+			if usePlugin {
+				route, err = resolvePathWithPlugin(t, hq)
+			}
+			if err != nil || len(route) == 0 {
+				pathfindingAlgorithm := st.runtimeOptions.PathfindingAlgorithm
+				switch t.RoutingMode {
+				case typedef.RoutingCheapest:
+					route, err = pathfinder.FindPathCheapest(pathfindingAlgorithm, t, hq, TerritoryMap, TradingRoutesMap, t.Guild.Tag, allies)
+				case typedef.RoutingFastest:
+					route, err = pathfinder.FindPathFastest(t, hq, TerritoryMap, TradingRoutesMap, t.Guild.Tag)
+				}
 			}
 			// Store in cache
 			pathCache[cacheKey] = struct {
@@ -297,7 +305,7 @@ func rebuildHQMap() {
 			}
 		}
 	}
-	fmt.Printf("[HQ_MAP] Rebuilt HQ map with %d entries\n", len(st.hqMap))
+	debugf("[HQ_MAP] Rebuilt HQ map with %d entries\n", len(st.hqMap))
 }
 
 // findHQTerritories finds all HQ territories for a given guild using the fast HQ map
@@ -496,7 +504,7 @@ func SetTerritoryHQ(territoryName string, isHQ bool) error {
 	st.mu.RLock()
 	if st.stateLoading {
 		st.mu.RUnlock()
-		fmt.Printf("[ERUNTIME] SetTerritoryHQ blocked during state loading for territory: %s\n", territoryName)
+		debugf("[ERUNTIME] SetTerritoryHQ blocked during state loading for territory: %s\n", territoryName)
 		return nil
 	}
 	st.mu.RUnlock()
@@ -506,12 +514,12 @@ func SetTerritoryHQ(territoryName string, isHQ bool) error {
 		return errors.New("territory not found")
 	}
 
-	fmt.Printf("[HQ_DEBUG] SetTerritoryHQ called for territory %s, isHQ=%v\n", territoryName, isHQ)
+	debugf("[HQ_DEBUG] SetTerritoryHQ called for territory %s, isHQ=%v\n", territoryName, isHQ)
 
 	// If setting as HQ, unset other HQs for the same guild
 	if isHQ {
 		if oldHQ := getHQFromMap(territory.Guild.Tag); oldHQ != nil && oldHQ != territory {
-			fmt.Printf("[HQ_DEBUG] Clearing old HQ %s for guild %s in SetTerritoryHQ\n", oldHQ.Name, oldHQ.Guild.Tag)
+			debugf("[HQ_DEBUG] Clearing old HQ %s for guild %s in SetTerritoryHQ\n", oldHQ.Name, oldHQ.Guild.Tag)
 			oldHQ.HQ = false
 			setHQInMap(oldHQ, false)
 		}
@@ -519,7 +527,7 @@ func SetTerritoryHQ(territoryName string, isHQ bool) error {
 
 	territory.HQ = isHQ
 	setHQInMap(territory, isHQ)
-	fmt.Printf("[HQ_DEBUG] Set territory %s HQ status to %v\n", territoryName, isHQ)
+	debugf("[HQ_DEBUG] Set territory %s HQ status to %v\n", territoryName, isHQ)
 
 	// Update all routes for this guild
 	// fmt.Printf("[ROUTING_DEBUG] SetTerritoryHQ: Calling UpdateAllRoutes after setting HQ status\n")
@@ -537,7 +545,7 @@ func SetTerritoryHQ(territoryName string, isHQ bool) error {
 		// Notify only the specific guild that had its HQ changed for efficiency
 		NotifyGuildSpecificUpdate(territory.Guild.Name)
 
-		fmt.Printf("[HQ_DEBUG] SetTerritoryHQ notifications sent to UI components for guild: %s\n", territory.Guild.Name)
+		debugf("[HQ_DEBUG] SetTerritoryHQ notifications sent to UI components for guild: %s\n", territory.Guild.Name)
 	}()
 
 	// Trigger auto-save after user action

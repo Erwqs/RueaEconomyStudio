@@ -43,7 +43,7 @@ func (mm *MapManager) LoadMapAsync() {
 
 // LoadMapData loads the local map image
 func (mm *MapManager) LoadMapData() error {
-	fmt.Println("Loading local map image...")
+	// fmt.Println("Loading local map image...")
 
 	// Load the embedded map image
 	file, err := assets.AssetFiles.Open("main-map.png")

@@ -152,7 +152,74 @@ func NewMenuButton(text string, options ButtonOptions, callback func()) *MenuBut
 	}
 }
 
+// SetEnabled toggles the button's enabled state.
+func (b *MenuButton) SetEnabled(enabled bool) {
+	b.options.Enabled = enabled
+}
+
+// SetText updates the button label.
+func (b *MenuButton) SetText(text string) {
+	b.text = text
+}
+
+// MenuColorButton shows a color swatch with a clickable row.
+type MenuColorButton struct {
+	BaseMenuElement
+	text     string
+	swatch   color.RGBA
+	options  ButtonOptions
+	callback func()
+	hovered  bool
+	pressed  bool
+	rect     image.Rectangle
+}
+
+func NewMenuColorButton(text string, swatch color.RGBA, options ButtonOptions, callback func()) *MenuColorButton {
+	return &MenuColorButton{
+		BaseMenuElement: NewBaseMenuElement(),
+		text:            text,
+		swatch:          swatch,
+		options:         options,
+		callback:        callback,
+	}
+}
+
+func (b *MenuColorButton) SetColor(swatch color.RGBA) {
+	b.swatch = swatch
+}
+
 func (b *MenuButton) Update(mx, my int, deltaTime float64) bool {
+	if !b.visible || !b.options.Enabled {
+		return false
+	}
+
+	b.updateAnimation(deltaTime)
+
+	oldHovered := b.hovered
+	b.hovered = mx >= b.rect.Min.X && mx < b.rect.Max.X && my >= b.rect.Min.Y && my < b.rect.Max.Y
+
+	if mx != -1 && my != -1 {
+		if px, py, pressed := primaryJustPressed(); pressed && pointInRect(px, py, b.rect) {
+			b.pressed = true
+			return true
+		}
+
+		if px, py, released := primaryJustReleased(); released {
+			wasPressed := b.pressed
+			b.pressed = false
+			if wasPressed && pointInRect(px, py, b.rect) && b.callback != nil {
+				b.callback()
+			}
+			if wasPressed {
+				return true
+			}
+		}
+	}
+
+	return b.hovered != oldHovered
+}
+
+func (b *MenuColorButton) Update(mx, my int, deltaTime float64) bool {
 	if !b.visible || !b.options.Enabled {
 		return false
 	}
@@ -229,6 +296,55 @@ func (b *MenuButton) Draw(screen *ebiten.Image, x, y, width int, font font.Face)
 
 	return height
 }
+
+func (b *MenuColorButton) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
+	if !b.visible || b.animProgress <= 0.01 {
+		return 0
+	}
+
+	height := b.options.Height
+	alpha := float32(b.animProgress)
+
+	// Store rect for click detection
+	b.rect = image.Rect(x, y, x+width, y+height)
+
+	bgColor := b.options.BackgroundColor
+	if !b.options.Enabled {
+		bgColor = color.RGBA{40, 40, 60, 255}
+	} else if b.pressed {
+		bgColor = b.options.PressedColor
+	} else if b.hovered {
+		bgColor = b.options.HoverColor
+	}
+	bgColor.A = uint8(float32(bgColor.A) * alpha)
+
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(width), float32(height), bgColor, false)
+	vector.StrokeRect(screen, float32(x), float32(y), float32(width), float32(height), b.options.BorderWidth, b.options.BorderColor, false)
+
+	textColor := b.options.TextColor
+	textColor.A = uint8(float32(textColor.A) * alpha)
+	textX := x + 15
+	textY := y + height/2 + b.options.FontSize/2 - 4
+	text.Draw(screen, b.text, font, textX, textY, textColor)
+
+	swatchSize := height - 10
+	swatchX := x + width - swatchSize - 10
+	swatchY := y + (height-swatchSize)/2
+	swatchColor := b.swatch
+	swatchColor.A = uint8(float32(swatchColor.A) * alpha)
+	vector.DrawFilledRect(screen, float32(swatchX), float32(swatchY), float32(swatchSize), float32(swatchSize), swatchColor, false)
+	vector.StrokeRect(screen, float32(swatchX), float32(swatchY), float32(swatchSize), float32(swatchSize), 2, color.RGBA{255, 255, 255, 180}, false)
+
+	return height
+}
+
+func (b *MenuColorButton) GetMinHeight() int {
+	return b.options.Height
+}
+
+func (b *MenuColorButton) IsVisible() bool { return b.visible }
+
+func (b *MenuColorButton) SetVisible(visible bool) { b.BaseMenuElement.SetVisible(visible) }
 
 func (b *MenuButton) GetMinHeight() int {
 	return b.options.Height
@@ -386,6 +502,144 @@ func (t *MenuClickableText) GetMinHeight() int {
 	return t.options.Height
 }
 
+// CheckboxOptions configures checkbox appearance and behavior
+type CheckboxOptions struct {
+	BoxSize       int
+	Height        int
+	LabelColor    color.RGBA
+	BoxColor      color.RGBA
+	CheckColor    color.RGBA
+	BorderColor   color.RGBA
+	DisabledColor color.RGBA
+	Enabled       bool
+}
+
+func DefaultCheckboxOptions() CheckboxOptions {
+	return CheckboxOptions{
+		BoxSize:       18,
+		Height:        28,
+		LabelColor:    color.RGBA{255, 255, 255, 255},
+		BoxColor:      color.RGBA{70, 70, 80, 255},
+		CheckColor:    color.RGBA{120, 200, 120, 255},
+		BorderColor:   color.RGBA{120, 120, 140, 255},
+		DisabledColor: color.RGBA{90, 90, 100, 180},
+		Enabled:       true,
+	}
+}
+
+// MenuCheckbox represents a checkbox with label
+type MenuCheckbox struct {
+	BaseMenuElement
+	label    string
+	checked  bool
+	options  CheckboxOptions
+	callback func(bool)
+	hovered  bool
+	rect     image.Rectangle
+}
+
+func NewMenuCheckbox(label string, checked bool, options CheckboxOptions, callback func(bool)) *MenuCheckbox {
+	if options.BoxSize == 0 {
+		options.BoxSize = 18
+	}
+	if options.Height == 0 {
+		options.Height = 28
+	}
+	return &MenuCheckbox{
+		BaseMenuElement: NewBaseMenuElement(),
+		label:           label,
+		checked:         checked,
+		options:         options,
+		callback:        callback,
+	}
+}
+
+func (c *MenuCheckbox) Update(mx, my int, deltaTime float64) bool {
+	if !c.visible {
+		return false
+	}
+
+	c.updateAnimation(deltaTime)
+	c.hovered = pointInRect(mx, my, c.rect)
+
+	if !c.options.Enabled {
+		return false
+	}
+
+	if px, py, pressed := primaryJustPressed(); pressed && pointInRect(px, py, c.rect) {
+		c.checked = !c.checked
+		if c.callback != nil {
+			c.callback(c.checked)
+		}
+		return true
+	}
+
+	return false
+}
+
+func (c *MenuCheckbox) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
+	if !c.visible || c.animProgress <= 0.01 {
+		return 0
+	}
+
+	height := c.options.Height
+	alpha := float32(c.animProgress)
+
+	c.rect = image.Rect(x, y, x+width, y+height)
+
+	boxSize := c.options.BoxSize
+	boxX := x
+	boxY := y + (height-boxSize)/2
+
+	boxColor := c.options.BoxColor
+	borderColor := c.options.BorderColor
+	checkColor := c.options.CheckColor
+
+	if !c.options.Enabled {
+		boxColor = c.options.DisabledColor
+		borderColor = c.options.DisabledColor
+		checkColor = c.options.DisabledColor
+	} else if c.hovered {
+		// Slightly brighten on hover
+		boxColor = color.RGBA{uint8(math.Min(255, float64(boxColor.R)+10)), uint8(math.Min(255, float64(boxColor.G)+10)), uint8(math.Min(255, float64(boxColor.B)+10)), boxColor.A}
+	}
+
+	boxColor.A = uint8(float32(boxColor.A) * alpha)
+	borderColor.A = uint8(float32(borderColor.A) * alpha)
+	checkColor.A = uint8(float32(checkColor.A) * alpha)
+
+	vector.DrawFilledRect(screen, float32(boxX), float32(boxY), float32(boxSize), float32(boxSize), boxColor, false)
+	vector.StrokeRect(screen, float32(boxX), float32(boxY), float32(boxSize), float32(boxSize), 1, borderColor, false)
+
+	if c.checked {
+		margin := float32(3)
+		vector.DrawFilledRect(screen, float32(boxX)+margin, float32(boxY)+margin, float32(boxSize)-margin*2, float32(boxSize)-margin*2, checkColor, false)
+	}
+
+	if font != nil && c.label != "" {
+		labelColor := c.options.LabelColor
+		if !c.options.Enabled {
+			labelColor = c.options.DisabledColor
+		}
+		labelColor.A = uint8(float32(labelColor.A) * alpha)
+		text.Draw(screen, c.label, font, boxX+boxSize+8, y+height/2+6, labelColor)
+	}
+
+	return height
+}
+
+func (c *MenuCheckbox) GetMinHeight() int {
+	return c.options.Height
+}
+
+func (c *MenuCheckbox) SetChecked(value bool) {
+	c.checked = value
+}
+
+func (c *MenuCheckbox) IsChecked() bool {
+	return c.checked
+}
+
 // SliderOptions configures slider appearance and behavior
 type SliderOptions struct {
 	MinValue        float64
@@ -419,39 +673,61 @@ func DefaultSliderOptions() SliderOptions {
 	}
 }
 
+const (
+	sliderValueAnimationDuration = 0.18
+	sliderDragAnimationDuration  = 0.08
+	sliderSnapOvershoot          = 0.85 // Controls how much the handle briefly overshoots when snapping
+)
+
 // MenuSlider represents a draggable slider element
 type MenuSlider struct {
 	BaseMenuElement
-	label      string
-	value      float64
-	options    SliderOptions
-	callback   func(value float64)
-	onDragEnd  func() // Called when dragging ends
-	dragging   bool
-	sliderRect image.Rectangle
+	label             string
+	value             float64
+	displayValue      float64
+	options           SliderOptions
+	callback          func(value float64)
+	onDragEnd         func() // Called when dragging ends
+	dragging          bool
+	sliderRect        image.Rectangle
+	animatingValue    bool
+	valueAnimStart    float64
+	valueAnimTarget   float64
+	valueAnimElapsed  float64
+	valueAnimDuration float64
+	valueAnimSnap     bool
 }
 
 func NewMenuSlider(label string, initialValue float64, options SliderOptions, callback func(float64)) *MenuSlider {
 	return &MenuSlider{
-		BaseMenuElement: NewBaseMenuElement(),
-		label:           label,
-		value:           initialValue,
-		options:         options,
-		callback:        callback,
+		BaseMenuElement:   NewBaseMenuElement(),
+		label:             label,
+		value:             initialValue,
+		displayValue:      initialValue,
+		options:           options,
+		callback:          callback,
+		valueAnimStart:    initialValue,
+		valueAnimTarget:   initialValue,
+		valueAnimDuration: sliderValueAnimationDuration,
 	}
 }
 
 func (s *MenuSlider) Update(mx, my int, deltaTime float64) bool {
-	if !s.visible || !s.options.Enabled {
+	if !s.visible {
 		return false
 	}
 
 	s.updateAnimation(deltaTime)
+	s.updateValueAnimation(deltaTime)
+
+	if !s.options.Enabled {
+		return false
+	}
 
 	if mx != -1 && my != -1 {
 		if px, py, pressed := primaryJustPressed(); pressed && pointInRect(px, py, s.sliderRect) {
 			s.dragging = true
-			s.updateValueFromMouse(px)
+			s.updateValueFromMouse(px, true, false)
 			return true
 		}
 	}
@@ -459,10 +735,12 @@ func (s *MenuSlider) Update(mx, my int, deltaTime float64) bool {
 	if s.dragging {
 		if primaryPressed() {
 			px, _ := primaryPointerPosition()
-			s.updateValueFromMouse(px)
+			s.updateValueFromMouse(px, true, true)
 			return true
 		}
 		s.dragging = false
+		// Snap gently when releasing the drag to emphasize the settled value
+		s.startValueAnimation(s.value, sliderValueAnimationDuration, true)
 		if s.onDragEnd != nil {
 			s.onDragEnd()
 		}
@@ -471,7 +749,7 @@ func (s *MenuSlider) Update(mx, my int, deltaTime float64) bool {
 	return false
 }
 
-func (s *MenuSlider) updateValueFromMouse(mx int) {
+func (s *MenuSlider) updateValueFromMouse(mx int, animate bool, isDrag bool) {
 	sliderWidth := s.sliderRect.Dx()
 	relativeX := mx - s.sliderRect.Min.X
 	ratio := float64(relativeX) / float64(sliderWidth)
@@ -486,10 +764,80 @@ func (s *MenuSlider) updateValueFromMouse(mx int) {
 
 	if newValue != s.value {
 		s.value = newValue
+		// For active drags, keep the handle glued to the pointer to avoid “friction”.
+		animateValue := animate && !isDrag
+		if animateValue {
+			duration := sliderValueAnimationDuration
+			snap := true
+			s.startValueAnimation(newValue, duration, snap)
+		} else {
+			s.animatingValue = false
+			s.displayValue = newValue
+			s.valueAnimElapsed = 0
+		}
 		if s.callback != nil {
 			s.callback(s.value)
 		}
 	}
+}
+
+func (s *MenuSlider) startValueAnimation(target float64, duration float64, snap bool) {
+	clampedTarget := math.Max(s.options.MinValue, math.Min(s.options.MaxValue, target))
+	startValue := s.displayValue
+	// If not currently animating, start from the stored value
+	if !s.animatingValue {
+		startValue = s.displayValue
+	}
+	if math.Abs(clampedTarget-startValue) < 1e-6 {
+		s.animatingValue = false
+		s.displayValue = clampedTarget
+		return
+	}
+
+	s.valueAnimStart = startValue
+	s.valueAnimTarget = clampedTarget
+	s.valueAnimElapsed = 0
+	s.valueAnimDuration = duration
+	if s.valueAnimDuration <= 0 {
+		s.valueAnimDuration = sliderValueAnimationDuration
+	}
+	s.valueAnimSnap = snap
+	s.animatingValue = true
+}
+
+func (s *MenuSlider) updateValueAnimation(deltaTime float64) {
+	if !s.animatingValue {
+		s.displayValue = s.value
+		return
+	}
+
+	s.valueAnimElapsed += deltaTime
+	progress := s.valueAnimElapsed / s.valueAnimDuration
+	if progress >= 1.0 {
+		s.animatingValue = false
+		s.displayValue = s.value
+		return
+	}
+
+	eased := easeInOut(progress)
+	if s.valueAnimSnap {
+		eased = easeOutBack(progress, sliderSnapOvershoot)
+	}
+	s.displayValue = s.valueAnimStart + (s.valueAnimTarget-s.valueAnimStart)*eased
+}
+
+func easeInOut(t float64) float64 {
+	if t < 0.5 {
+		return 4 * t * t * t
+	}
+	t = (t - 1)
+	return 1 + 4*t*t*t
+}
+
+func easeOutBack(t float64, s float64) float64 {
+	// Standard back easing for a light snap toward the target
+	t -= 1
+	return t*t*((s+1)*t+s) + 1
 }
 
 func (s *MenuSlider) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
@@ -524,7 +872,7 @@ func (s *MenuSlider) Draw(screen *ebiten.Image, x, y, width int, font font.Face)
 	vector.DrawFilledRect(screen, float32(sliderX), float32(sliderY-sliderHeight/2), float32(sliderWidth), float32(sliderHeight), bgColor, false)
 
 	// Draw fill
-	fillRatio := (s.value - s.options.MinValue) / (s.options.MaxValue - s.options.MinValue)
+	fillRatio := (s.displayValue - s.options.MinValue) / (s.options.MaxValue - s.options.MinValue)
 	fillWidth := float32(sliderWidth) * float32(fillRatio)
 	fillColor := s.options.FillColor
 	if !s.options.Enabled {
@@ -546,7 +894,7 @@ func (s *MenuSlider) Draw(screen *ebiten.Image, x, y, width int, font font.Face)
 
 	// Draw value if enabled
 	if s.options.ShowValue {
-		valueText := fmt.Sprintf(s.options.ValueFormat, s.value)
+		valueText := fmt.Sprintf(s.options.ValueFormat, s.displayValue)
 		valueWidth := text.BoundString(font, valueText).Dx()
 		valueX := x + width - valueWidth
 		text.Draw(screen, valueText, font, valueX, labelY, textColor)
@@ -561,6 +909,7 @@ func (s *MenuSlider) GetMinHeight() int {
 
 func (s *MenuSlider) SetValue(value float64) {
 	s.value = math.Max(s.options.MinValue, math.Min(s.options.MaxValue, value))
+	s.startValueAnimation(s.value, sliderValueAnimationDuration, true)
 }
 
 func (s *MenuSlider) SetOnDragEnd(callback func()) {
@@ -634,9 +983,21 @@ func (c *CollapsibleMenu) Button(text string, options ButtonOptions, callback fu
 	return c
 }
 
+func (c *CollapsibleMenu) ColorButton(text string, swatch color.RGBA, options ButtonOptions, callback func()) *CollapsibleMenu {
+	button := NewMenuColorButton(text, swatch, options, callback)
+	c.elements = append(c.elements, button)
+	return c
+}
+
 func (c *CollapsibleMenu) Text(text string, options TextOptions) *CollapsibleMenu {
 	textElement := NewMenuText(text, options)
 	c.elements = append(c.elements, textElement)
+	return c
+}
+
+func (c *CollapsibleMenu) Checkbox(label string, checked bool, options CheckboxOptions, callback func(bool)) *CollapsibleMenu {
+	checkbox := NewMenuCheckbox(label, checked, options, callback)
+	c.elements = append(c.elements, checkbox)
 	return c
 }
 
@@ -941,6 +1302,13 @@ func (m *EdgeMenu) Text(text string, options TextOptions) *EdgeMenu {
 	textElement := NewMenuText(text, options)
 	m.elements = append(m.elements, textElement)
 	return m
+}
+
+// Checkbox adds a checkbox to the menu
+func (m *EdgeMenu) Checkbox(label string, checked bool, options CheckboxOptions, callback func(bool)) *MenuCheckbox {
+	checkbox := NewMenuCheckbox(label, checked, options, callback)
+	m.elements = append(m.elements, checkbox)
+	return checkbox
 }
 
 // Slider adds a slider to the menu
@@ -1591,7 +1959,6 @@ func (m *EdgeMenu) Draw(screen *ebiten.Image) {
 
 		for _, element := range m.elements {
 			if element.IsVisible() {
-				// Only draw elements that are at least partially visible horizontally
 				if currentX+cardWidth > m.bounds.Min.X && currentX < m.bounds.Max.X {
 					element.Draw(screen, currentX, contentY+10, cardWidth, m.font)
 				}
@@ -1606,13 +1973,13 @@ func (m *EdgeMenu) Draw(screen *ebiten.Image) {
 			if element.IsVisible() {
 				elementHeight := element.GetMinHeight()
 
-				// Only draw elements that are at least partially visible in content area
 				if currentY+elementHeight > contentY && currentY < contentY+contentHeight {
 					element.Draw(screen, m.bounds.Min.X+20, currentY, elementWidth, m.font)
 				}
 				currentY += elementHeight + 10
 			}
 		}
+
 	}
 
 	// Draw scrollbar if needed

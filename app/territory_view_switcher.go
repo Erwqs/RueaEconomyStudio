@@ -2,9 +2,13 @@ package app
 
 import (
 	"image/color"
+	"math"
+	"sort"
+	"strings"
 	"time"
 
 	"RueaES/eruntime"
+	"RueaES/pluginhost"
 	"RueaES/typedef"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -25,6 +29,9 @@ const (
 	ViewTreasuryOverrides
 	ViewWarning
 	ViewTax
+	ViewThroughput
+	ViewAnalysis
+	ViewPluginsExtension
 )
 
 // TerritoryViewInfo holds information about each view type
@@ -44,6 +51,16 @@ type TerritoryViewSwitcher struct {
 	selectedIndex int
 	views         []TerritoryViewInfo
 	color         map[string]color.RGBA // Map of hidden guild names to their colors
+
+	throughputCache         map[string]float64 // Territory name -> summed in-guild transit value
+	throughputGuildPeak     map[string]float64 // Guild tag -> max throughput for normalization
+	throughputCacheTick     uint64             // Tick the throughput cache was built on
+	throughputCacheWallTime time.Time          // Wall-clock time the throughput cache was built
+
+	// Analysis (chokepoint) visualization
+	analysisScoresCardinal map[string]float64 // normalized 0..1 by max
+	analysisScoresOrdinal  map[string]float64 // percentile-based 0..1 for ordinal mode
+	analysisGuild          string
 }
 
 // NewTerritoryViewSwitcher creates a new territory view switcher
@@ -65,6 +82,9 @@ func NewTerritoryViewSwitcher() *TerritoryViewSwitcher {
 			{Name: "Treasury Overrides", Description: "Treasury override view", HiddenGuild: "__VIEW_TREASURY_OVERRIDES__"},
 			{Name: "Warning", Description: "Warning status view", HiddenGuild: "__VIEW_WARNING__"},
 			{Name: "Tax", Description: "Territory taxation level", HiddenGuild: "__VIEW_TAX__"},
+			{Name: "Throughput", Description: "In-guild transit load heatmap", HiddenGuild: "__VIEW_THROUGHPUT__"},
+			{Name: "Analysis", Description: "Analysis results view", HiddenGuild: "__VIEW_ANALYSIS__"},
+			{Name: "Extension", Description: "Extension provided overlays", HiddenGuild: "__VIEW_PLUGINS_EXTENSION__"},
 		},
 		color: make(map[string]color.RGBA),
 	}
@@ -75,6 +95,30 @@ func NewTerritoryViewSwitcher() *TerritoryViewSwitcher {
 	return tvs
 }
 
+// SetCurrentView sets the active view programmatically (e.g., when analysis finishes).
+func (tvs *TerritoryViewSwitcher) SetCurrentView(view TerritoryViewType) {
+	if view < ViewGuild || int(view) >= len(tvs.views) {
+		return
+	}
+	tvs.currentView = view
+	tvs.selectedIndex = int(view)
+}
+
+func scaledColor(c color.RGBA, factor float64) color.RGBA {
+	scale := func(v uint8) uint8 {
+		val := float64(v) * factor
+		if val < 0 {
+			val = 0
+		}
+		if val > 255 {
+			val = 255
+		}
+		return uint8(val)
+	}
+
+	return color.RGBA{R: scale(c.R), G: scale(c.G), B: scale(c.B), A: c.A}
+}
+
 // initializeHiddenGuilds sets up the color schemes for each view type
 func (tvs *TerritoryViewSwitcher) initializeHiddenGuilds() {
 	// Resource colors (normal production - 3600 base)
@@ -83,6 +127,9 @@ func (tvs *TerritoryViewSwitcher) initializeHiddenGuilds() {
 	tvs.color["__RESOURCE_FISH__"] = color.RGBA{R: 30, G: 144, B: 255, A: 255}   // Dodger blue (more blue)
 	tvs.color["__RESOURCE_ORE__"] = color.RGBA{R: 255, G: 127, B: 193, A: 255}   // Light pink (less pink, more white)
 	tvs.color["__RESOURCE_MULTI__"] = color.RGBA{R: 255, G: 255, B: 255, A: 255} // White for multiple resources
+	defaultEmerald := typedef.DefaultResourceColors().Emerald.ToRGBA()
+	tvs.color["__RESOURCE_EMERALD__"] = defaultEmerald
+	tvs.color["__RESOURCE_EMERALD_DOUBLE__"] = scaledColor(defaultEmerald, 0.8)
 
 	// Resource colors (double production - 7200+ base) - lighter variants
 	tvs.color["__RESOURCE_WOOD_DOUBLE__"] = color.RGBA{R: 34, G: 139, B: 34, A: 255}  // Forest green (darker)
@@ -211,6 +258,15 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorForCurrentView(territoryName 
 		// Return no color - let the normal guild coloring system handle it
 		return color.RGBA{}, false
 
+	case ViewPluginsExtension:
+		if col, ok := pluginhost.GetOverlayColor(territory.Name); ok {
+			return col, true
+		}
+		return color.RGBA{}, false
+
+	case ViewAnalysis:
+		return tvs.getAnalysisColor(territory.Name)
+
 	case ViewResource:
 		return tvs.getResourceColor(territory), true
 
@@ -235,6 +291,11 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorForCurrentView(territoryName 
 	case ViewProduction:
 		return tvs.getProductionColor(territory), true
 
+	case ViewThroughput:
+		// Build cache once per tick to avoid repeated transit scans per frame
+		tvs.ensureThroughputCache()
+		return tvs.getThroughputColor(territory), true
+
 	default:
 		return color.RGBA{}, false
 	}
@@ -244,9 +305,24 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorForCurrentView(territoryName 
 func (tvs *TerritoryViewSwitcher) GetTerritoryColorsForCurrentView(territoryNames []string) map[string]color.RGBA {
 	result := make(map[string]color.RGBA, len(territoryNames))
 
-	// If current view is guild view, return empty map (let normal guild coloring handle it)
+	// Guild view uses normal coloring; Analysis view is handled separately below
 	if tvs.currentView == ViewGuild {
 		return result
+	}
+
+	// Analysis view: compute colors directly without scanning all territories
+	if tvs.currentView == ViewAnalysis {
+		for _, name := range territoryNames {
+			if col, ok := tvs.getAnalysisColor(name); ok {
+				result[name] = col
+			}
+		}
+		return result
+	}
+
+	// Build throughput cache once if needed before the per-territory loop
+	if tvs.currentView == ViewThroughput {
+		tvs.ensureThroughputCache()
 	}
 
 	// Create a set of needed territory names for faster lookup
@@ -257,6 +333,17 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorsForCurrentView(territoryName
 
 	// Get all territories and iterate once to find matches
 	allTerritories := eruntime.GetAllTerritories()
+
+	// Fast-path plugin overlays: use cached host map and filter to needed names.
+	if tvs.currentView == ViewPluginsExtension {
+		overlays := pluginhost.CopyOverlayCache()
+		for name, col := range overlays {
+			if neededNames[name] {
+				result[name] = col
+			}
+		}
+		return result
+	}
 
 	for _, territory := range allTerritories {
 		if territory == nil || !neededNames[territory.Name] {
@@ -293,6 +380,9 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorsForCurrentView(territoryName
 		case ViewProduction:
 			territoryColor = tvs.getProductionColor(territory)
 			hasColor = true
+		case ViewThroughput:
+			territoryColor = tvs.getThroughputColor(territory)
+			hasColor = true
 		}
 
 		territory.Mu.RUnlock()
@@ -308,6 +398,17 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorsForCurrentView(territoryName
 // getResourceColor determines the color based on resource generation
 func (tvs *TerritoryViewSwitcher) getResourceColor(territory *typedef.Territory) color.RGBA {
 	resources := territory.ResourceGeneration.Base
+	options := eruntime.GetRuntimeOptions()
+
+	// Optionally highlight emerald-generating territories using the emerald palette.
+	if options.ShowEmeraldGenerators && resources.Emeralds >= 18000 {
+		emeraldColor := options.ResourceColors.Emerald.ToRGBA()
+		// City emerald territories generate 18000/h; darken to indicate the higher tier.
+		if resources.Emeralds >= 18000 {
+			emeraldColor = scaledColor(emeraldColor, 0.85)
+		}
+		return emeraldColor
+	}
 
 	// Count non-zero resources (excluding emeralds)
 	resourceCount := 0
@@ -629,6 +730,125 @@ func (tvs *TerritoryViewSwitcher) getProductionColor(territory *typedef.Territor
 	return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
 }
 
+// ensureThroughputCache builds a per-territory throughput table once per tick
+// The cache only counts transits that belong to the same guild as the territory they are on.
+func (tvs *TerritoryViewSwitcher) ensureThroughputCache() {
+	currentTick := eruntime.Tick()
+	actualTPS, _, _ := eruntime.GetTickProcessingPerformance()
+	buildStart := time.Now()
+
+	// Build at most once per interval: 120 ticks at <=120 TPS, else cap to once per real second
+	const tickInterval = uint64(120)
+	if actualTPS > 120 {
+		if !tvs.throughputCacheWallTime.IsZero() && time.Since(tvs.throughputCacheWallTime) < time.Second {
+			return
+		}
+	} else {
+		if tvs.throughputCache != nil && tvs.throughputGuildPeak != nil && currentTick-tvs.throughputCacheTick < tickInterval {
+			return
+		}
+	}
+
+	// Reset caches without reallocating on every tick
+	if tvs.throughputCache == nil {
+		tvs.throughputCache = make(map[string]float64)
+	} else {
+		for k := range tvs.throughputCache {
+			delete(tvs.throughputCache, k)
+		}
+	}
+
+	if tvs.throughputGuildPeak == nil {
+		tvs.throughputGuildPeak = make(map[string]float64)
+	} else {
+		for k := range tvs.throughputGuildPeak {
+			delete(tvs.throughputGuildPeak, k)
+		}
+	}
+
+	// Take state lock (via GetAllTerritories) before transit lock to avoid st.mu -> tm.mu inversion
+	territories := eruntime.GetAllTerritories()
+	territorySnapshotDuration := time.Since(buildStart)
+	throughputTotals := eruntime.GetInGuildTransitTotals()
+	for _, territory := range territories {
+		if territory == nil {
+			continue
+		}
+
+		territory.Mu.RLock()
+		territoryName := territory.Name
+		guildTag := territory.Guild.Tag
+		territory.Mu.RUnlock()
+
+		totalValue := throughputTotals[territoryName]
+		tvs.throughputCache[territoryName] = totalValue
+
+		if guildTag != "" && totalValue > tvs.throughputGuildPeak[guildTag] {
+			tvs.throughputGuildPeak[guildTag] = totalValue
+		}
+	}
+
+	tvs.throughputCacheTick = currentTick
+	tvs.throughputCacheWallTime = time.Now()
+
+	_ = territorySnapshotDuration
+}
+
+// getThroughputBuildInterval returns how many ticks to wait between cache rebuilds.
+// We rebuild every 120 ticks when TPS <= 120. At higher TPS, the caller caps rebuilds to 1s wall-clock.
+func (tvs *TerritoryViewSwitcher) getThroughputBuildInterval() uint64 {
+	return 120
+}
+
+// getThroughputColor returns a red-weighted gradient based on how much in-guild transit flows through a territory
+func (tvs *TerritoryViewSwitcher) getThroughputColor(territory *typedef.Territory) color.RGBA {
+	if territory == nil {
+		return color.RGBA{}
+	}
+
+	territory.Mu.RLock()
+	territoryName := territory.Name
+	guildTag := territory.Guild.Tag
+	territory.Mu.RUnlock()
+
+	// Neutral color for territories without a guild
+	if guildTag == "" {
+		return color.RGBA{R: 80, G: 80, B: 80, A: 255}
+	}
+
+	throughput := tvs.throughputCache[territoryName]
+	peak := tvs.throughputGuildPeak[guildTag]
+	if peak <= 0 {
+		return color.RGBA{R: 60, G: 60, B: 60, A: 255}
+	}
+
+	ratio := throughput / peak
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+
+	// Apply adjustable curve: gamma <1 brightens faster, >1 brightens slower
+	curve := eruntime.GetRuntimeOptions().ThroughputCurve
+	gamma := math.Pow(2, -curve) // curve>0 => gamma<1 (faster brighten); curve<0 => gamma>1 (slower)
+	if gamma <= 0 {
+		gamma = 1
+	}
+	ratio = math.Pow(ratio, gamma)
+
+	// Gradient from dark steel-blue to vivid hot red for stronger contrast
+	baseR, baseG, baseB := 50.0, 70.0, 110.0
+	peakR, peakG, peakB := 255.0, 40.0, 30.0
+
+	r := uint8(math.Round(baseR + (peakR-baseR)*ratio))
+	g := uint8(math.Round(baseG + (peakG-baseG)*ratio))
+	b := uint8(math.Round(baseB + (peakB-baseB)*ratio))
+
+	return color.RGBA{R: r, G: g, B: b, A: 255}
+}
+
 // Draw renders the modal switcher UI
 func (tvs *TerritoryViewSwitcher) Draw(screen *ebiten.Image) {
 	if !tvs.modalVisible {
@@ -725,6 +945,8 @@ func (tvs *TerritoryViewSwitcher) GetHiddenGuildNameForTerritory(territoryName s
 		return tvs.getWarningHiddenGuild(territory.Warning)
 	case ViewTax:
 		return tvs.getTaxHiddenGuild(territory)
+	case ViewAnalysis:
+		return ""
 	default:
 		return ""
 	}
@@ -733,6 +955,15 @@ func (tvs *TerritoryViewSwitcher) GetHiddenGuildNameForTerritory(territoryName s
 // getResourceHiddenGuild returns the hidden guild name for resource view
 func (tvs *TerritoryViewSwitcher) getResourceHiddenGuild(territory *typedef.Territory) string {
 	resources := territory.ResourceGeneration.Base
+	opts := eruntime.GetRuntimeOptions()
+
+	// Emerald generators can be optionally highlighted as their own color.
+	if opts.ShowEmeraldGenerators && resources.Emeralds > 0 {
+		if resources.Emeralds >= 18000 {
+			return "__RESOURCE_EMERALD_DOUBLE__"
+		}
+		return "__RESOURCE_EMERALD__"
+	}
 
 	// Count non-zero resources (excluding emeralds)
 	resourceCount := 0
@@ -849,4 +1080,143 @@ func (tvs *TerritoryViewSwitcher) getWarningHiddenGuild(warning typedef.Warning)
 func (tvs *TerritoryViewSwitcher) GetHiddenGuildColor(hiddenGuildName string) (color.RGBA, bool) {
 	col, exists := tvs.color[hiddenGuildName]
 	return col, exists
+}
+
+// SetAnalysisResults stores the latest chokepoint scores (normalized 0..1) for visualization.
+// scores should be keyed by territory name.
+func (tvs *TerritoryViewSwitcher) SetAnalysisResults(guildTag string, scores map[string]float64) {
+	if scores == nil {
+		tvs.analysisScoresCardinal = nil
+		tvs.analysisScoresOrdinal = nil
+		tvs.analysisGuild = ""
+		return
+	}
+
+	// Normalize by max importance to keep values within [0,1].
+	maxVal := 0.0
+	for _, v := range scores {
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+
+	cardinal := make(map[string]float64, len(scores))
+	for name, v := range scores {
+		if maxVal > 0 {
+			cardinal[name] = v / maxVal
+		} else {
+			cardinal[name] = 0
+		}
+	}
+
+	// Build ordinal percentiles for optional ordinal mode coloring.
+	ordinal := make(map[string]float64, len(scores))
+	if len(scores) > 1 {
+		type pair struct {
+			name  string
+			value float64
+		}
+		list := make([]pair, 0, len(scores))
+		for n, v := range cardinal {
+			list = append(list, pair{name: n, value: v})
+		}
+		sort.Slice(list, func(i, j int) bool {
+			return list[i].value < list[j].value
+		})
+
+		denom := float64(len(list) - 1)
+		if denom < 1 {
+			denom = 1
+		}
+		for idx, item := range list {
+			ordinal[item.name] = float64(idx) / denom
+		}
+	} else {
+		for n := range scores {
+			ordinal[n] = cardinal[n]
+		}
+	}
+
+	tvs.analysisScoresCardinal = cardinal
+	tvs.analysisScoresOrdinal = ordinal
+	tvs.analysisGuild = guildTag
+}
+
+// getAnalysisColor maps importance to a yellow-scale heatmap. Territories without scores are grey.
+func (tvs *TerritoryViewSwitcher) getAnalysisColor(territoryName string) (color.RGBA, bool) {
+	if tvs.analysisScoresCardinal == nil {
+		return color.RGBA{}, false
+	}
+
+	value := tvs.getAnalysisValue(territoryName)
+	if value < 0 {
+		value = 0
+	}
+	if value > 1 {
+		value = 1
+	}
+
+	// Apply user-configured curve
+	value = tvs.applyChokepointCurve(value)
+
+	// Base grey to bright yellow ramp
+	base := color.RGBA{R: 70, G: 70, B: 70, A: 255}
+	yellow := color.RGBA{R: 255, G: 255, B: 0, A: 255}
+
+	mix := func(a, b uint8, t float64) uint8 {
+		return uint8(math.Round(float64(a)*(1-t) + float64(b)*t))
+	}
+
+	col := color.RGBA{
+		R: mix(base.R, yellow.R, value),
+		G: mix(base.G, yellow.G, value),
+		B: mix(base.B, yellow.B, value),
+		A: 255,
+	}
+
+	return col, true
+}
+
+// getAnalysisValue chooses cardinal or ordinal score based on runtime settings.
+func (tvs *TerritoryViewSwitcher) getAnalysisValue(territoryName string) float64 {
+	opts := eruntime.GetRuntimeOptions()
+	useOrdinal := strings.EqualFold(opts.ChokepointMode, "Ordinal")
+
+	if useOrdinal {
+		if v, ok := tvs.analysisScoresOrdinal[territoryName]; ok {
+			return v
+		}
+	} else {
+		if v, ok := tvs.analysisScoresCardinal[territoryName]; ok {
+			return v
+		}
+	}
+	return 0
+}
+
+// applyChokepointCurve applies a gamma/log-style curve where 0 = linear, >0 brightens faster, <0 darkens.
+func (tvs *TerritoryViewSwitcher) applyChokepointCurve(val float64) float64 {
+	if val <= 0 {
+		return 0
+	}
+	if val >= 1 {
+		return 1
+	}
+	curve := eruntime.GetRuntimeOptions().ChokepointCurve
+	if curve == 0 {
+		return val
+	}
+	if curve > 0 {
+		exponent := 1.0 / (1.0 + curve) // <1 -> log-ish brightening
+		return math.Pow(val, exponent)
+	}
+	// curve < 0: inverse log (darken). Increase exponent >1
+	exponent := 1.0 - curve
+	if exponent < 0.1 {
+		exponent = 0.1
+	}
+	if exponent > 10 {
+		exponent = 10
+	}
+	return math.Pow(val, exponent)
 }

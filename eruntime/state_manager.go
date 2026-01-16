@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"time"
 
 	"RueaES/typedef"
@@ -14,7 +15,7 @@ import (
 	"github.com/pierrec/lz4"
 )
 
-var supportedStateVersion = []string{"1.0", "1.1", "1.2", "1.3", "1.4"}
+var supportedStateVersion = []string{"1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9"}
 
 // Callback functions for user data that persists through resets
 var (
@@ -24,7 +25,38 @@ var (
 	getGuildColorsCallback   func() map[string]map[string]string
 	setGuildColorsCallback   func(map[string]map[string]string)
 	mergeGuildColorsCallback func(map[string]map[string]string) // Merges guild colors
+	getPluginsCallback       func() []typedef.PluginState
+	setPluginsCallback       func([]typedef.PluginState)
 )
+
+func normalizeRuntimeOptions(opts *typedef.RuntimeOptions) {
+	defaults := typedef.DefaultResourceColors()
+
+	if opts.ResourceColors.Wood.A == 0 {
+		opts.ResourceColors.Wood = defaults.Wood
+	}
+	if opts.ResourceColors.Crop.A == 0 {
+		opts.ResourceColors.Crop = defaults.Crop
+	}
+	if opts.ResourceColors.Fish.A == 0 {
+		opts.ResourceColors.Fish = defaults.Fish
+	}
+	if opts.ResourceColors.Ore.A == 0 {
+		opts.ResourceColors.Ore = defaults.Ore
+	}
+	if opts.ResourceColors.Multi.A == 0 {
+		opts.ResourceColors.Multi = defaults.Multi
+	}
+	if opts.ResourceColors.Emerald.A == 0 {
+		opts.ResourceColors.Emerald = defaults.Emerald
+	}
+
+	// Normalize keybinds and ensure defaults are present.
+	typedef.NormalizeKeybinds(&opts.Keybinds)
+
+	// Normalize plugin keybind overrides if present.
+	typedef.NormalizePluginKeybinds(&opts.PluginKeybinds)
+}
 
 // SetLoadoutCallbacks sets the callback functions for loadout persistence
 func SetLoadoutCallbacks(getFunc func() []typedef.Loadout, setFunc func([]typedef.Loadout), mergeFunc func([]typedef.Loadout)) {
@@ -38,6 +70,12 @@ func SetGuildColorCallbacks(getFunc func() map[string]map[string]string, setFunc
 	getGuildColorsCallback = getFunc
 	setGuildColorsCallback = setFunc
 	mergeGuildColorsCallback = mergeFunc
+}
+
+// SetPluginCallbacks sets the callback functions for plugin persistence
+func SetPluginCallbacks(getFunc func() []typedef.PluginState, setFunc func([]typedef.PluginState)) {
+	getPluginsCallback = getFunc
+	setPluginsCallback = setFunc
 }
 
 // StateData represents the complete state that can be saved/loaded
@@ -61,9 +99,50 @@ type StateData struct {
 	// Transit system data (version 1.4+) - new TransitManager system
 	Transits []*Transit `json:"transits,omitempty"` // Active transits from the new TransitManager
 
+	// Transit resource interning (version 1.8+)
+	ResourcePool       []typedef.BasicResources               `json:"resourcePool,omitempty"`       // Unique resource packets shared by reference
+	TransitResourcesV2 map[string][]compressedTransitResource `json:"transitResourcesV2,omitempty"` // TerritoryID -> compressed transit resources
+	TransitsV2         []compressedTransit                    `json:"transitsV2,omitempty"`         // TransitManager entries with shared resources
+
 	// Persistent user data (version 1.3+)
 	Loadouts    []typedef.Loadout            `json:"loadouts,omitempty"`    // Loadouts persist through resets
 	GuildColors map[string]map[string]string `json:"guildColors,omitempty"` // Guild colors: guildName -> {tag, color}
+
+	// Plugins (version 1.9+)
+	Plugins []typedef.PluginState `json:"plugins,omitempty"`
+}
+
+// compressedTransitResource stores transit packets using either a pooled reference or inline resources.
+// ResourceRef is 1-based to keep zero-values omittable in JSON; subtract 1 when decoding.
+type compressedTransitResource struct {
+	ResourceRef    int                     `json:"ref,omitempty"`
+	ResourceInline *typedef.BasicResources `json:"res,omitempty"`
+	OriginID       string                  `json:"o,omitempty"`
+	DestinationID  string                  `json:"d,omitempty"`
+	NextID         string                  `json:"n,omitempty"`
+	Route          []string                `json:"r,omitempty"`
+	RouteIndex     int                     `json:"ri,omitempty"`
+	NextTax        float64                 `json:"t,omitempty"`
+	Moved          bool                    `json:"m,omitempty"`
+}
+
+// compressedTransit mirrors Transit but references resources by pool when possible.
+type compressedTransit struct {
+	ID             string                  `json:"id"`
+	ResourceRef    int                     `json:"ref,omitempty"`
+	ResourceInline *typedef.BasicResources `json:"res,omitempty"`
+	OriginID       string                  `json:"originId"`
+	DestinationID  string                  `json:"destinationId"`
+	Route          []string                `json:"route"`
+	RouteIndex     int                     `json:"routeIndex,omitempty"`
+	NextTax        float64                 `json:"nextTax,omitempty"`
+	CreatedAt      uint64                  `json:"createdAt,omitempty"`
+	Moved          bool                    `json:"moved,omitempty"`
+}
+
+// resourceKey produces a stable string key for a BasicResources value (used for interning).
+func resourceKey(br typedef.BasicResources) string {
+	return fmt.Sprintf("%.4f|%.4f|%.4f|%.4f|%.4f", br.Emeralds, br.Ores, br.Wood, br.Fish, br.Crops)
 }
 
 // SaveStateToFile saves the current state to a file with LZ4 compression
@@ -77,7 +156,7 @@ func SaveStateToFile(filepath string) error {
 
 	// Quick copy of basic state data (no deep copying yet)
 	stateData.Type = "state_save"
-	stateData.Version = "1.4"
+	stateData.Version = "1.9"
 	stateData.Timestamp = time.Now()
 	stateData.Tick = st.tick
 	stateData.RuntimeOptions = st.runtimeOptions
@@ -238,8 +317,17 @@ func SaveStateToFile(filepath string) error {
 		fmt.Printf("[STATE] Saved %d guild colors to state\n", len(stateData.GuildColors))
 	}
 
+	// Copy plugin metadata and persisted state (version 1.9+)
+	if getPluginsCallback != nil {
+		stateData.Plugins = getPluginsCallback()
+		fmt.Printf("[STATE] Saved %d plugins to state\n", len(stateData.Plugins))
+	}
+
 	// All the expensive operations (JSON marshal, compression, file write) happen
 	// without holding any locks, so users can continue working
+
+	// Compress transit payloads by interning duplicate resource packets (version 1.8+)
+	compressTransitPayloads(&stateData)
 
 	// Marshal to JSON
 	jsonData, err := json.Marshal(stateData)
@@ -263,6 +351,219 @@ func SaveStateToFile(filepath string) error {
 		filepath, len(jsonData), len(compressedData), float64(len(compressedData))/float64(len(jsonData))*100)
 
 	return nil
+}
+
+// expandCompressedTransitPayloads restores transit payloads from the compact representation.
+// It is safe to call when no compact data is present.
+func expandCompressedTransitPayloads(state *StateData) {
+	if state == nil {
+		return
+	}
+
+	resolveResource := func(ref int, inline *typedef.BasicResources, pool []typedef.BasicResources) typedef.BasicResources {
+		if inline != nil {
+			return *inline
+		}
+		if ref <= 0 {
+			return typedef.BasicResources{}
+		}
+		idx := ref - 1
+		if idx >= 0 && idx < len(pool) {
+			return pool[idx]
+		}
+		return typedef.BasicResources{}
+	}
+
+	pool := state.ResourcePool
+
+	// Restore per-territory transit resources
+	if len(state.TransitResourcesV2) > 0 && len(state.Territories) > 0 {
+		terrByID := make(map[string]*typedef.Territory, len(state.Territories))
+		for _, terr := range state.Territories {
+			if terr != nil {
+				terrByID[terr.ID] = terr
+			}
+		}
+
+		for terrID, compacted := range state.TransitResourcesV2 {
+			terr := terrByID[terrID]
+			if terr == nil {
+				continue
+			}
+
+			terr.TransitResource = make([]typedef.InTransitResources, 0, len(compacted))
+			for _, c := range compacted {
+				br := resolveResource(c.ResourceRef, c.ResourceInline, pool)
+				terr.TransitResource = append(terr.TransitResource, typedef.InTransitResources{
+					BasicResources: br,
+					OriginID:       c.OriginID,
+					DestinationID:  c.DestinationID,
+					NextID:         c.NextID,
+					Route2:         append([]string(nil), c.Route...),
+					RouteIndex:     c.RouteIndex,
+					NextTax:        c.NextTax,
+					Moved:          c.Moved,
+				})
+			}
+		}
+	}
+
+	// Restore TransitManager entries
+	if len(state.TransitsV2) > 0 {
+		rebuilt := make([]*Transit, 0, len(state.TransitsV2))
+		for _, c := range state.TransitsV2 {
+			br := resolveResource(c.ResourceRef, c.ResourceInline, pool)
+			transit := &Transit{
+				ID:             c.ID,
+				BasicResources: br,
+				OriginID:       c.OriginID,
+				DestinationID:  c.DestinationID,
+				Route:          append([]string(nil), c.Route...),
+				RouteIndex:     c.RouteIndex,
+				NextTax:        c.NextTax,
+				CreatedAt:      c.CreatedAt,
+				Moved:          c.Moved,
+			}
+			rebuilt = append(rebuilt, transit)
+		}
+		state.Transits = rebuilt
+	}
+}
+
+// compressTransitPayloads deduplicates identical BasicResources across transit packets.
+// It builds a shared resource pool for packets used more than once and rewrites transit
+// payloads to reference that pool; unique packets are stored inline. This trims the
+// serialized state size when many transits carry the same amounts.
+func compressTransitPayloads(state *StateData) {
+	if state == nil {
+		return
+	}
+
+	// First pass: count how many times each BasicResources appears.
+	resourceCounts := make(map[string]int)
+	resourceSamples := make(map[string]typedef.BasicResources)
+	collect := func(br typedef.BasicResources) {
+		key := resourceKey(br)
+		resourceCounts[key]++
+		if _, ok := resourceSamples[key]; !ok {
+			resourceSamples[key] = br
+		}
+	}
+
+	for _, territory := range state.Territories {
+		if territory == nil {
+			continue
+		}
+		for _, tr := range territory.TransitResource {
+			collect(tr.BasicResources)
+		}
+	}
+
+	for _, tr := range state.Transits {
+		if tr == nil {
+			continue
+		}
+		collect(tr.BasicResources)
+	}
+
+	// Build pool from resources that are reused.
+	keys := make([]string, 0, len(resourceCounts))
+	for key, count := range resourceCounts {
+		if count > 1 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	pool := make([]typedef.BasicResources, 0, len(keys))
+	keyToIndex := make(map[string]int, len(keys))
+	for _, key := range keys {
+		keyToIndex[key] = len(pool)
+		pool = append(pool, resourceSamples[key])
+	}
+
+	// Second pass: rewrite transit payloads to use references where possible.
+	if len(state.Territories) > 0 {
+		if state.TransitResourcesV2 == nil {
+			state.TransitResourcesV2 = make(map[string][]compressedTransitResource)
+		}
+
+		for _, territory := range state.Territories {
+			if territory == nil || len(territory.TransitResource) == 0 {
+				continue
+			}
+
+			compacted := make([]compressedTransitResource, 0, len(territory.TransitResource))
+			for _, tr := range territory.TransitResource {
+				key := resourceKey(tr.BasicResources)
+				if idx, ok := keyToIndex[key]; ok {
+					compacted = append(compacted, compressedTransitResource{
+						ResourceRef:   idx + 1,
+						OriginID:      tr.OriginID,
+						DestinationID: tr.DestinationID,
+						NextID:        tr.NextID,
+						Route:         append([]string(nil), tr.Route2...),
+						RouteIndex:    tr.RouteIndex,
+						NextTax:       tr.NextTax,
+						Moved:         tr.Moved,
+					})
+				} else {
+					resCopy := tr.BasicResources
+					compacted = append(compacted, compressedTransitResource{
+						ResourceInline: &resCopy,
+						OriginID:       tr.OriginID,
+						DestinationID:  tr.DestinationID,
+						NextID:         tr.NextID,
+						Route:          append([]string(nil), tr.Route2...),
+						RouteIndex:     tr.RouteIndex,
+						NextTax:        tr.NextTax,
+						Moved:          tr.Moved,
+					})
+				}
+			}
+
+			// Replace in-structure transit payloads with compacted form to save space.
+			state.TransitResourcesV2[territory.ID] = compacted
+			territory.TransitResource = nil
+		}
+	}
+
+	if len(state.Transits) > 0 {
+		for _, tr := range state.Transits {
+			if tr == nil {
+				continue
+			}
+
+			key := resourceKey(tr.BasicResources)
+			compacted := compressedTransit{
+				ID:            tr.ID,
+				OriginID:      tr.OriginID,
+				DestinationID: tr.DestinationID,
+				Route:         append([]string(nil), tr.Route...),
+				RouteIndex:    tr.RouteIndex,
+				NextTax:       tr.NextTax,
+				CreatedAt:     tr.CreatedAt,
+				Moved:         tr.Moved,
+			}
+
+			if idx, ok := keyToIndex[key]; ok {
+				compacted.ResourceRef = idx + 1
+			} else {
+				resCopy := tr.BasicResources
+				compacted.ResourceInline = &resCopy
+			}
+
+			state.TransitsV2 = append(state.TransitsV2, compacted)
+		}
+
+		// Clear verbose transit payloads once compact versions exist.
+		state.Transits = nil
+	}
+
+	// Only attach the pool if we actually compacted something; inline-only saves don't need it.
+	if len(state.TransitResourcesV2) > 0 || len(state.TransitsV2) > 0 {
+		state.ResourcePool = pool
+	}
 }
 
 // ValidateStateFile checks if a state file is valid without actually loading it
@@ -326,12 +627,22 @@ func LoadStateFromFile(filepath string) error {
 		"in_transit":       true,
 		"tributes":         true,
 		"loadouts":         true,
+		"plugins":          true,
 	}
 	return loadStateFromFileInternal(filepath, importOptions)
 }
 
 // loadStateFromFileInternal is the internal implementation that handles selective loading
 func loadStateFromFileInternal(filepath string, importOptions map[string]bool) error {
+	if importOptions == nil {
+		importOptions = make(map[string]bool)
+	}
+
+	// Ensure plugins import defaults to true if not specified
+	if _, ok := importOptions["plugins"]; !ok {
+		importOptions["plugins"] = true
+	}
+
 	// Halt the runtime during state loading to prevent flickering
 	wasHalted := st.halted
 	if !wasHalted {
@@ -386,11 +697,29 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 		return fmt.Errorf("unsupported version: %s", stateData.Version)
 	}
 
+	// Rehydrate transit payloads from compact form (1.8+) before applying import options
+	expandCompressedTransitPayloads(&stateData)
+
 	// Import core runtime data (if requested)
 	if importOptions["core"] {
 		st.mu.Lock()
 		st.tick = stateData.Tick
 		st.runtimeOptions = stateData.RuntimeOptions
+		if stateData.Version != "1.5" && st.runtimeOptions.MapOpacityPercent == 0 {
+			st.runtimeOptions.MapOpacityPercent = 100 // Backward compatibility for older saves
+		}
+		// Default new chokepoint options for older saves
+		if st.runtimeOptions.ChokepointEmeraldWeight == 0 {
+			st.runtimeOptions.ChokepointEmeraldWeight = 1
+		}
+		if st.runtimeOptions.ChokepointMode == "" {
+			st.runtimeOptions.ChokepointMode = "Cardinal"
+		}
+		if st.runtimeOptions.ChokepointMode == "Cardinal" && !st.runtimeOptions.ChokepointIncludeDownstream {
+			// For legacy saves that lacked the field, default to true unless explicitly stored
+			st.runtimeOptions.ChokepointIncludeDownstream = true
+		}
+		normalizeRuntimeOptions(&st.runtimeOptions)
 		st.mu.Unlock()
 		fmt.Printf("[STATE] Imported core data (tick: %d)\n", stateData.Tick)
 	} else {
@@ -540,7 +869,9 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 		RestorePointersFromIDs(st.territories)
 	}
 
-	loadCosts(&st)
+	if err := ReloadDefaultCosts(); err != nil {
+		fmt.Printf("[STATE] Failed to reload default costs: %v\n", err)
+	}
 
 	fmt.Printf("[STATE] Successfully loaded state from %s (Territories: %d, Guilds: %d, Tick: %d)\n",
 		filepath, len(st.territories), len(st.guilds), st.tick)
@@ -575,6 +906,16 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 		fmt.Printf("[STATE] Merged %d guild colors from state\n", len(stateData.GuildColors))
 	} else if !importOptions["guilds"] {
 		fmt.Printf("[STATE] Skipped importing guild colors\n")
+	}
+
+	// Load plugins - version 1.9+
+	if importOptions["plugins"] && setPluginsCallback != nil {
+		setPluginsCallback(stateData.Plugins)
+		fmt.Printf("[STATE] Imported %d plugins from state\n", len(stateData.Plugins))
+	} else if !importOptions["plugins"] {
+		fmt.Printf("[STATE] Skipped importing plugins\n")
+	} else if setPluginsCallback == nil {
+		fmt.Printf("[STATE] Plugins present in state but no callback registered\n")
 	}
 
 	// Load transits from TransitManager - version 1.4+ (if requested)

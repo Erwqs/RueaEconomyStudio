@@ -220,6 +220,77 @@ func GetTerritory(name string) *typedef.Territory {
 	return getTerritoryUnsafe(name)
 }
 
+// snapshotTerritory copies fields from a locked territory into a mutex-free snapshot.
+func snapshotTerritory(t *typedef.Territory) typedef.TerritorySnapshot {
+	return typedef.TerritorySnapshot{
+		Name:            t.Name,
+		ID:              t.ID,
+		GuildName:       t.Guild.Name,
+		GuildTag:        t.Guild.Tag,
+		HQ:              t.HQ,
+		RoutingMode:     t.RoutingMode,
+		Border:          t.Border,
+		Treasury:        float64(t.Treasury),
+		RouteTax:        t.RouteTax,
+		GenerationBonus: t.GenerationBonus,
+		Resources:       t.ResourceGeneration.Base,
+		Location:        t.Location,
+	}
+}
+
+// GetTerritorySnapshot returns a mutex-free copy of the territory.
+func GetTerritorySnapshot(name string) (typedef.TerritorySnapshot, bool) {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	t := getTerritoryUnsafe(name)
+	if t == nil {
+		return typedef.TerritorySnapshot{}, false
+	}
+
+	t.Mu.RLock()
+	snap := snapshotTerritory(t)
+	t.Mu.RUnlock()
+	return snap, true
+}
+
+// GetTerritorySnapshots returns mutex-free copies for a set of names (missing entries are skipped).
+func GetTerritorySnapshots(names []string) []typedef.TerritorySnapshot {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	out := make([]typedef.TerritorySnapshot, 0, len(names))
+	for _, name := range names {
+		t := getTerritoryUnsafe(name)
+		if t == nil {
+			continue
+		}
+		t.Mu.RLock()
+		snap := snapshotTerritory(t)
+		t.Mu.RUnlock()
+		out = append(out, snap)
+	}
+	return out
+}
+
+// GetAllTerritorySnapshots returns snapshots for every loaded territory.
+func GetAllTerritorySnapshots() []typedef.TerritorySnapshot {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+
+	out := make([]typedef.TerritorySnapshot, 0, len(st.territories))
+	for _, t := range st.territories {
+		if t == nil {
+			continue
+		}
+		t.Mu.RLock()
+		snap := snapshotTerritory(t)
+		t.Mu.RUnlock()
+		out = append(out, snap)
+	}
+	return out
+}
+
 // GetTerritoryConnections returns the direct trading route connections for a territory
 func GetTerritoryConnections(territoryName string) []string {
 	st.mu.RLock()
@@ -683,8 +754,6 @@ func SetTickRate(ticksPerSecond int) {
 }
 
 func Reset() {
-	fmt.Println("[ERUNTIME] Reset called - reinitializing state to zero")
-
 	// Stop the timer to prevent tick updates during reset
 	st.halt()
 	if st.timerChan != nil {
@@ -799,7 +868,7 @@ func Reset() {
 	st.savedSnapshots = make([][]*typedef.Territory, 0)
 
 	// Reset tribute system
-	fmt.Println("[ERUNTIME] Resetting tribute system during state reset")
+	// fmt.Println("[ERUNTIME] Resetting tribute system during state reset")
 	st.activeTributes = []*typedef.ActiveTribute{} // Clear all active tributes
 
 	// Reset all guild tribute totals
@@ -809,13 +878,26 @@ func Reset() {
 			guild.TributeOut = typedef.BasicResources{}
 		}
 	}
-	fmt.Println("[ERUNTIME] Tribute system reset complete")
+	// fmt.Println("[ERUNTIME] Tribute system reset complete")
 
-	// Reset runtime options to defaults
+	// Reset runtime options to defaults while preserving persistent toggles
 	st.runtimeOptions = typedef.RuntimeOptions{
-		TreasuryEnabled:      true,
-		EnableShm:            false,
-		PathfindingAlgorithm: typedef.PathfindingDijkstra,
+		TreasuryEnabled:             true,
+		EnableShm:                   false,
+		PathfindingAlgorithm:        typedef.PathfindingDijkstra,
+		EncodeInTransitResources:    st.runtimeOptions.EncodeInTransitResources,
+		NoHaltedMessages:            false,
+		MapOpacityPercent:           st.runtimeOptions.MapOpacityPercent,
+		ThroughputCurve:             st.runtimeOptions.ThroughputCurve,
+		ChokepointCurve:             st.runtimeOptions.ChokepointCurve,
+		ChokepointEmeraldWeight:     st.runtimeOptions.ChokepointEmeraldWeight,
+		ChokepointMode:              st.runtimeOptions.ChokepointMode,
+		ChokepointIncludeDownstream: st.runtimeOptions.ChokepointIncludeDownstream,
+		ResourceColors:              st.runtimeOptions.ResourceColors,
+		Keybinds:                    st.runtimeOptions.Keybinds,
+		ShowEmeraldGenerators:       st.runtimeOptions.ShowEmeraldGenerators,
+		PluginKeybinds:              st.runtimeOptions.PluginKeybinds,
+		ImposeCooldown:              st.runtimeOptions.ImposeCooldown,
 	}
 
 	// Recreate transit manager
@@ -859,7 +941,7 @@ func Reset() {
 		// Also notify guild manager in case HQ icons are managed there
 		NotifyGuildManagerUpdate()
 
-		fmt.Println("[ERUNTIME] Reset notifications sent to UI components")
+		// fmt.Println("[ERUNTIME] Reset notifications sent to UI components")
 	}()
 }
 
@@ -867,7 +949,7 @@ func SaveState(path string) {
 	fmt.Printf("[STATE] SaveState called with path: '%s'\n", path)
 	if path == "" {
 		// Trigger file dialogue from the app layer - this will be handled by app
-		fmt.Println("[STATE] SaveState called - triggering save dialogue")
+		// fmt.Println("[STATE] SaveState called - triggering save dialogue")
 		return
 	}
 
@@ -884,7 +966,7 @@ func LoadState(path string) {
 	fmt.Printf("[STATE] LoadState called with path: '%s'\n", path)
 	if path == "" {
 		// Trigger file dialogue from the app layer - this will be handled by app
-		fmt.Println("[STATE] LoadState called - triggering load dialogue")
+		// fmt.Println("[STATE] LoadState called - triggering load dialogue")
 		return
 	}
 
@@ -900,7 +982,7 @@ func LoadState(path string) {
 func LoadStateSelective(path string, importOptions map[string]bool) {
 	fmt.Printf("[STATE] LoadStateSelective called with path: '%s' and options: %+v\n", path, importOptions)
 	if path == "" {
-		fmt.Println("[STATE] LoadStateSelective called with empty path")
+		// fmt.Println("[STATE] LoadStateSelective called with empty path")
 		return
 	}
 
@@ -1111,7 +1193,7 @@ func SetTerritoryBonus(territoryName string, bonusType string, level int) *typed
 				}
 			}
 			if count >= 8 && territory.Options.Bonus.Set.XPSeeking == 0 {
-				panic("Cannot enable XP Seeking on more than 8 territories per guild!")
+				panic("Cannot enable XP Seeking on more than 8 territories per guild")
 			}
 		}
 		opts.Bonuses.XPSeeking = level
@@ -1128,7 +1210,7 @@ func SetTerritoryBonus(territoryName string, bonusType string, level int) *typed
 				}
 			}
 			if count >= 8 && territory.Options.Bonus.Set.TomeSeeking == 0 {
-				panic("Cannot enable Tome Seeking on more than 8 territories per guild!")
+				panic("Cannot enable Tome Seeking on more than 8 territories per guild")
 			}
 		}
 		opts.Bonuses.TomeSeeking = level
@@ -1290,9 +1372,9 @@ var autoSaveWasLoadedOnStartup = false
 func EnableAutoSave(enabled bool) {
 	autoSaveEnabled = enabled
 	if enabled {
-		fmt.Println("[AUTOSAVE] Auto-save enabled")
+		// fmt.Println("[AUTOSAVE] Auto-save enabled")
 	} else {
-		fmt.Println("[AUTOSAVE] Auto-save disabled")
+		// fmt.Println("[AUTOSAVE] Auto-save disabled")
 	}
 }
 
@@ -1325,7 +1407,7 @@ func TriggerAutoSave() {
 		if err != nil {
 			fmt.Printf("[AUTOSAVE] Failed to auto-save: %v\n", err)
 		} else {
-			fmt.Println("[AUTOSAVE] Auto-save completed successfully")
+			// fmt.Println("[AUTOSAVE] Auto-save completed successfully")
 		}
 		lastAutoSaveTime = time.Now()
 	}()
@@ -1335,12 +1417,12 @@ func TriggerAutoSave() {
 func LoadAutoSave() bool {
 	// Check if autosave.lz4 exists
 	if _, err := os.Stat("autosave.lz4"); os.IsNotExist(err) {
-		fmt.Println("[AUTOSAVE] No auto-save file found")
+		// fmt.Println("[AUTOSAVE] No auto-save file found")
 		autoSaveWasLoadedOnStartup = false
 		return false
 	}
 
-	fmt.Println("[AUTOSAVE] Auto-save file found, loading...")
+	// fmt.Println("[AUTOSAVE] Auto-save file found, loading...")
 	err := LoadStateFromFile("autosave.lz4")
 	if err != nil {
 		fmt.Printf("[AUTOSAVE] Failed to load auto-save: %v\n", err)
@@ -1348,7 +1430,7 @@ func LoadAutoSave() bool {
 		return false
 	}
 
-	fmt.Println("[AUTOSAVE] Auto-save loaded successfully")
+	// fmt.Println("[AUTOSAVE] Auto-save loaded successfully")
 	autoSaveWasLoadedOnStartup = true
 	return true
 }
@@ -1362,7 +1444,7 @@ func WasAutoSaveLoadedOnStartup() bool {
 func NotifyTerritoryColorsUpdate() {
 	if stateChangeCallback != nil {
 		stateChangeCallback()
-		fmt.Println("[ERUNTIME] Territory colors update notification sent")
+		// fmt.Println("[ERUNTIME] Territory colors update notification sent")
 	}
 }
 
@@ -1370,7 +1452,7 @@ func NotifyTerritoryColorsUpdate() {
 func NotifyGuildManagerUpdate() {
 	if guildChangeCallback != nil {
 		guildChangeCallback()
-		fmt.Println("[ERUNTIME] Guild manager update notification sent")
+		// fmt.Println("[ERUNTIME] Guild manager update notification sent")
 	}
 }
 

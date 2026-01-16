@@ -15,18 +15,23 @@ func Astar(start, target *typedef.Territory, territoryMap map[string]*typedef.Te
 		return []*typedef.Territory{start}, nil
 	}
 
+	// Build adjacency lists once to avoid repeated map lookups and allocations
+	connections := buildConnections(territoryMap, tradingRoutes)
+	reverseConnections := buildReverseConnections(territoryMap, connections)
+	allySet := buildAllySet(allies)
+
 	// Priority queue for A* algorithm
 	pq := &AstarPriorityQueue{}
 	heap.Init(pq)
 
 	// Maps to track costs and visited nodes
-	gScore := make(map[string]float64)  // Cost from start to node
-	fScore := make(map[string]float64)  // gScore + heuristic
+	gScore := make(map[string]float64) // Cost from start to node
+	fScore := make(map[string]float64) // gScore + heuristic
 	visited := make(map[string]bool)
 	previous := make(map[string]*typedef.Territory)
 
-	// Precompute heuristic distances from target using BFS
-	heuristic := computeHeuristic(target, territoryMap, tradingRoutes, sourceGuildTag)
+	// Precompute heuristic distances from target using reverse BFS
+	heuristic := computeHeuristic(target, reverseConnections, sourceGuildTag)
 
 	// Initialize starting node
 	startNode := &AstarNode{
@@ -52,8 +57,8 @@ func Astar(start, target *typedef.Territory, territoryMap map[string]*typedef.Te
 			return reconstructPath(previous, start, target), nil
 		}
 
-		// Explore neighbors
-		neighbors := GetTerritoryConnections(current, territoryMap, tradingRoutes)
+		// Explore neighbors using prebuilt adjacency
+		neighbors := connections[current.Name]
 		for _, neighbor := range neighbors {
 			if visited[neighbor.Name] {
 				continue
@@ -65,7 +70,7 @@ func Astar(start, target *typedef.Territory, territoryMap map[string]*typedef.Te
 			}
 
 			// Calculate cost for A* routing
-			edgeCost := calculateAstarCost(current, neighbor, sourceGuildTag, allies)
+			edgeCost := calculateAstarCost(current, neighbor, sourceGuildTag, allies, allySet)
 			tentativeGScore := gScore[current.Name] + edgeCost
 
 			if existingGScore, exists := gScore[neighbor.Name]; !exists || tentativeGScore < existingGScore {
@@ -126,8 +131,53 @@ func (pq *AstarPriorityQueue) Pop() interface{} {
 	return node
 }
 
+// buildConnections creates a forward adjacency list once per search to avoid repeated allocations
+func buildConnections(territoryMap map[string]*typedef.Territory, tradingRoutes map[string][]string) map[string][]*typedef.Territory {
+	connections := make(map[string][]*typedef.Territory, len(territoryMap))
+
+	for name := range territoryMap {
+		routes := tradingRoutes[name]
+		neighbors := make([]*typedef.Territory, 0, len(routes))
+		for _, routeName := range routes {
+			if connectedTerritory, exists := territoryMap[routeName]; exists {
+				neighbors = append(neighbors, connectedTerritory)
+			}
+		}
+		connections[name] = neighbors
+	}
+
+	return connections
+}
+
+// buildReverseConnections builds an incoming adjacency list for heuristic BFS
+func buildReverseConnections(territoryMap map[string]*typedef.Territory, connections map[string][]*typedef.Territory) map[string][]*typedef.Territory {
+	reverse := make(map[string][]*typedef.Territory, len(territoryMap))
+
+	for name := range territoryMap {
+		reverse[name] = nil
+	}
+
+	for fromName, neighbors := range connections {
+		from := territoryMap[fromName]
+		for _, neighbor := range neighbors {
+			reverse[neighbor.Name] = append(reverse[neighbor.Name], from)
+		}
+	}
+
+	return reverse
+}
+
+// buildAllySet converts ally slice into a set for O(1) membership checks
+func buildAllySet(allies []string) map[string]struct{} {
+	allySet := make(map[string]struct{}, len(allies))
+	for _, ally := range allies {
+		allySet[ally] = struct{}{}
+	}
+	return allySet
+}
+
 // calculateAstarCost calculates the cost for A* routing mode
-func calculateAstarCost(from, to *typedef.Territory, sourceGuildTag string, allies []string) float64 {
+func calculateAstarCost(from, to *typedef.Territory, sourceGuildTag string, allies []string, allySet map[string]struct{}) float64 {
 	// Base cost
 	cost := 1.0
 
@@ -142,14 +192,7 @@ func calculateAstarCost(from, to *typedef.Territory, sourceGuildTag string, alli
 
 	// Additional penalty for passing through non-allied territories
 	if to.Guild.Tag != sourceGuildTag {
-		isAlly := false
-		for _, ally := range allies {
-			if to.Guild.Tag == ally {
-				isAlly = true
-				break
-			}
-		}
-		if !isAlly {
+		if _, isAlly := allySet[to.Guild.Tag]; !isAlly {
 			cost += 3.0 // Penalty for non-allied territories
 		}
 	}
@@ -157,12 +200,12 @@ func calculateAstarCost(from, to *typedef.Territory, sourceGuildTag string, alli
 	return cost
 }
 
-// computeHeuristic precomputes heuristic distances from target using reverse BFS
-func computeHeuristic(target *typedef.Territory, territoryMap map[string]*typedef.Territory, tradingRoutes map[string][]string, sourceGuildTag string) map[string]float64 {
-	heuristic := make(map[string]float64)
+// computeHeuristic precomputes heuristic distances from target using reverse BFS on prebuilt edges
+func computeHeuristic(target *typedef.Territory, reverseConnections map[string][]*typedef.Territory, sourceGuildTag string) map[string]float64 {
+	heuristic := make(map[string]float64, len(reverseConnections))
 	queue := []*typedef.Territory{target}
-	visited := make(map[string]bool)
-	distances := make(map[string]int)
+	visited := make(map[string]bool, len(reverseConnections))
+	distances := make(map[string]int, len(reverseConnections))
 
 	visited[target.Name] = true
 	distances[target.Name] = 0
@@ -172,33 +215,24 @@ func computeHeuristic(target *typedef.Territory, territoryMap map[string]*typede
 		current := queue[0]
 		queue = queue[1:]
 
-		// Get all territories that connect to current (reverse connections)
-		for _, territory := range territoryMap {
-			if visited[territory.Name] {
+		for _, previous := range reverseConnections[current.Name] {
+			if visited[previous.Name] {
 				continue
 			}
 
-			// Check if territory connects to current
-			connections := GetTerritoryConnections(territory, territoryMap, tradingRoutes)
-			connected := false
-			for _, conn := range connections {
-				if conn.Name == current.Name {
-					connected = true
-					break
-				}
+			if !CanPassThroughTerritory(previous, sourceGuildTag) {
+				continue
 			}
 
-			if connected && CanPassThroughTerritory(territory, sourceGuildTag) {
-				visited[territory.Name] = true
-				distances[territory.Name] = distances[current.Name] + 1
-				heuristic[territory.Name] = float64(distances[territory.Name])
-				queue = append(queue, territory)
-			}
+			visited[previous.Name] = true
+			distances[previous.Name] = distances[current.Name] + 1
+			heuristic[previous.Name] = float64(distances[previous.Name])
+			queue = append(queue, previous)
 		}
 	}
 
 	// Set a high heuristic for unreachable territories
-	for name := range territoryMap {
+	for name := range reverseConnections {
 		if _, exists := heuristic[name]; !exists {
 			heuristic[name] = 1000.0
 		}

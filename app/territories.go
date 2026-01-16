@@ -610,6 +610,25 @@ func (tm *TerritoriesManager) getActualGuildForTerritory(territoryName string) (
 	return "", ""
 }
 
+// getEffectiveGuildForTerritory returns the guild after applying any in-progress claim edits
+func (tm *TerritoriesManager) getEffectiveGuildForTerritory(territoryName string) (string, string) {
+	actualGuildName, actualGuildTag := tm.getActualGuildForTerritory(territoryName)
+
+	if tm.territoryRenderer != nil && tm.territoryRenderer.editingGuildName != "" && tm.territoryRenderer.editingClaims != nil {
+		if claimedValue, exists := tm.territoryRenderer.editingClaims[territoryName]; exists {
+			if claimedValue {
+				actualGuildName = tm.territoryRenderer.editingGuildName
+				actualGuildTag = tm.territoryRenderer.editingGuildTag
+			} else {
+				actualGuildName = ""
+				actualGuildTag = ""
+			}
+		}
+	}
+
+	return actualGuildName, actualGuildTag
+}
+
 // getRouteToHQForTerritory returns the trading route from a territory to its HQ
 // Returns nil if territory has no route to HQ, is an HQ itself, or has no guild
 func (tm *TerritoriesManager) getRouteToHQForTerritory(territoryName string) []string {
@@ -830,7 +849,7 @@ func (tm *TerritoriesManager) SaveTerritories() error {
 		return fmt.Errorf("failed to write territories file: %v", err)
 	}
 
-	fmt.Println("Successfully saved territories data")
+	// fmt.Println("Successfully saved territories data")
 	return nil
 }
 
@@ -1075,6 +1094,17 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 	visible := tm.getVisibleTerritories(scale, viewX, viewY, float64(screenW), float64(screenH))
 	polygons := make([]OverlayPolygon, 0, len(visible)*2) // Pre-allocate for territories + routes
 
+	// Cache effective guild ownership per territory to avoid repeated lookups
+	effectiveGuildCache := make(map[string][2]string)
+	getEffectiveGuild := func(territoryName string) (string, string) {
+		if cached, ok := effectiveGuildCache[territoryName]; ok {
+			return cached[0], cached[1]
+		}
+		name, tag := tm.getEffectiveGuildForTerritory(territoryName)
+		effectiveGuildCache[territoryName] = [2]string{name, tag}
+		return name, tag
+	}
+
 	// Calculate blink phase with 330ms cycles (0.33 seconds for lighten, 0.33 seconds for darken)
 	blinkCycle := 0.66 // Total cycle time: 330ms light + 330ms dark = 660ms
 	blinkPhase := float32(math.Mod(tm.blinkTimer, blinkCycle))
@@ -1093,6 +1123,7 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 	for name := range visible {
 		territoryNames = append(territoryNames, name)
 	}
+	drawnTerritories := make([]string, 0, len(territoryNames))
 	// Sort for consistent order - this is still faster than doing it per-frame
 	// but we only do it once here instead of multiple times
 	sort.Strings(territoryNames)
@@ -1125,6 +1156,13 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 				continue
 			}
 
+			if tm.guildManager != nil {
+				actualGuildName, actualGuildTag := getEffectiveGuild(name)
+				if !tm.guildManager.IsGuildVisible(actualGuildName, actualGuildTag) {
+					continue
+				}
+			}
+
 			centerX1 := float32((border1[0]+border1[2])/2*scale + viewX)
 			centerY1 := float32((border1[1]+border1[3])/2*scale + viewY)
 
@@ -1143,6 +1181,13 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 				border2, exists := tm.TerritoryBorders[routeName]
 				if !exists {
 					continue
+				}
+
+				if tm.guildManager != nil {
+					destGuildName, destGuildTag := getEffectiveGuild(routeName)
+					if !tm.guildManager.IsGuildVisible(destGuildName, destGuildTag) {
+						continue
+					}
 				}
 
 				centerX2 := float32((border2[0]+border2[2])/2*scale + viewX)
@@ -1229,23 +1274,11 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 		// Use cached guild color for better performance
 		col := tm.getCachedGuildColor(territory.Guild.Name, frameNumber)
 
-		// Get actual guild ownership from territory claims
-		actualGuildName, actualGuildTag := tm.getActualGuildForTerritory(name)
+		// Get actual guild ownership (including any in-progress edits)
+		actualGuildName, actualGuildTag := getEffectiveGuild(name)
 
-		// Check if this territory is being edited - override persistent claims
-		if tm.territoryRenderer != nil && tm.territoryRenderer.editingGuildName != "" && tm.territoryRenderer.editingClaims != nil {
-			// Check if the territory is in the editing claims map
-			if claimedValue, exists := tm.territoryRenderer.editingClaims[name]; exists {
-				if claimedValue {
-					// Territory is claimed by the editing guild
-					actualGuildName = tm.territoryRenderer.editingGuildName
-					actualGuildTag = tm.territoryRenderer.editingGuildTag
-				} else {
-					// Territory is explicitly unclaimed (set to false) - show as no guild
-					actualGuildName = ""
-					actualGuildTag = ""
-				}
-			}
+		if tm.guildManager != nil && !tm.guildManager.IsGuildVisible(actualGuildName, actualGuildTag) {
+			continue
 		}
 
 		// Try to get color from enhanced guild manager first (if available)
@@ -1347,13 +1380,14 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 			BorderColor: borderColor,
 		}
 		polygons = append(polygons, poly)
+		drawnTerritories = append(drawnTerritories, name)
 	}
 
 	// Draw overlays using GPU
 	tm.overlayGPU.Draw(screen, mapImg, polygons, blinkPhase)
 
 	// Draw HQ icons on top of everything else (screen-space, not affected by zoom)
-	tm.drawHQOverlays(screen, scale, viewX, viewY, territoryNames)
+	tm.drawHQOverlays(screen, scale, viewX, viewY, drawnTerritories)
 }
 
 // Cleanup stops the buffer update loop - should be called when the manager is no longer needed
@@ -1439,7 +1473,7 @@ func (tm *TerritoriesManager) loadUpgradeData() {
 	}
 
 	tm.upgradeData = &upgradeData
-	fmt.Println("Successfully loaded upgrade data")
+	// fmt.Println("Successfully loaded upgrade data")
 }
 
 // loadHQImage loads the HQ icon from embedded assets
@@ -1508,6 +1542,12 @@ func (tm *TerritoriesManager) GetTerritoryAtPosition(mouseX, mouseY int, scale, 
 		minY, maxY := math.Min(y1, y2), math.Max(y1, y2)
 
 		if worldX >= minX && worldX <= maxX && worldY >= minY && worldY <= maxY {
+			if tm.guildManager != nil {
+				guildName, guildTag := tm.getEffectiveGuildForTerritory(name)
+				if !tm.guildManager.IsGuildVisible(guildName, guildTag) {
+					continue
+				}
+			}
 			candidates = append(candidates, name)
 		}
 	}
@@ -1704,7 +1744,7 @@ func (tm *TerritoriesManager) RefreshFromEruntime() error {
 	tm.bufferNeedsUpdate = true
 	tm.bufferMutex.Unlock()
 
-	fmt.Printf("[DEBUG] RefreshFromEruntime complete. Loaded %d territories, buffer marked for update\n", len(tm.Territories))
+	// fmt.Printf("[DEBUG] RefreshFromEruntime complete. Loaded %d territories, buffer marked for update\n", len(tm.Territories))
 
 	tm.isLoaded = true
 	tm.loadError = nil

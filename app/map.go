@@ -88,10 +88,6 @@ type MapView struct {
 	// EdgeMenu for territory details
 	edgeMenu *EdgeMenu
 
-	// EdgeMenu for transit resource inspector
-	transitResourceMenu   *EdgeMenu
-	transitResourceFilter string // Current filter string for transit resources
-
 	// State management menu for tick controls
 	stateManagementMenu        *StateManagementMenu
 	stateManagementMenuVisible bool // Whether the state management menu is visible
@@ -105,6 +101,10 @@ type MapView struct {
 	// Tribute menu for managing tribute system
 	tributeMenu *TributeMenu
 
+	// Analysis modal
+	analysisModal   *AnalysisModal
+	analysisRunning bool
+
 	// Claim editing functionality
 	isEditingClaims  bool            // Whether we're in claim editing mode
 	editingGuildName string          // Name of the guild being edited
@@ -115,13 +115,6 @@ type MapView struct {
 	// Input handling flags
 	justHandledEscKey        bool // Whether we just handled an ESC key in claim editing mode
 	tributeMenuHandledEscKey bool // Whether tribute menu just handled an ESC key
-
-	// Transit resources auto-refresh tracking
-	lastTransitRefreshTick uint64    // Last tick when transit resources were refreshed
-	lastTransitRefreshTime time.Time // Last real time when transit resources were refreshed
-
-	// Transit resource inspector tracking
-	lastTransitMenuRefreshTick uint64 // Last tick when transit menu was refreshed
 
 	// Transit resources caching to avoid expensive recalculations
 	cachedTransitResources map[string][]typedef.InTransitResources // Territory name -> cached transit resources
@@ -145,9 +138,6 @@ type MapView struct {
 	touchLastX    int
 	touchLastY    int
 	lastTouchTap  time.Time
-
-	// Event Editor GUI
-	eventEditor *EventEditorGUI // Event editor interface
 }
 
 // NewMapView creates a new map view component
@@ -165,7 +155,7 @@ func NewMapView() *MapView {
 		offsetY:         0,   // Will be adjusted after map loads
 		pointer:         NewPointerInput(),
 		minScale:        0.1,   // Allow zooming out more to see full map
-		maxScale:        3.0,   // Allow zooming in more for detail
+		maxScale:        5.0,   // Allow zooming in more for detail
 		showCoordinates: false, // Coordinates disabled by default
 		showTerritories: true,  // Territories enabled by default
 		selectedRegionX: -1,
@@ -192,25 +182,14 @@ func NewMapView() *MapView {
 		animSpeed:     4.0, // Animation speed (higher = faster) - made 2x slower
 
 		// Initialize Shift+Space timer
-		shiftSpaceHoldTimer: 0.0,
-		shiftSpaceInterval:  0.15, // 150ms between tick advances when holding
+		shiftSpaceHoldTimer: 0.15,
+		shiftSpaceInterval:  0.15,
 
 		// Initialize context menu
 		contextMenu: NewSelectionAnywhere(),
 
 		// Initialize EdgeMenu (hidden by default)
 		edgeMenu: NewEdgeMenu("Territory Details", DefaultEdgeMenuOptions()),
-
-		// Initialize transit resource menu (hidden by default) with bottom position
-		transitResourceMenu: NewEdgeMenu("In transit Resource Inspector", func() EdgeMenuOptions {
-			opts := DefaultEdgeMenuOptions()
-			opts.Position = EdgeMenuBottom
-			opts.Width = 0                // Full screen width
-			opts.Height = 300             // Initial height, will be updated to 1/3 screen height dynamically
-			opts.HorizontalScroll = false // Let the Container handle horizontal scrolling
-			return opts
-		}()),
-		transitResourceFilter: "", // Initialize empty filter string
 
 		// Initialize state management menu (hidden by default)
 		stateManagementMenu: NewStateManagementMenu(),
@@ -219,10 +198,8 @@ func NewMapView() *MapView {
 		territoryViewSwitcher: NewTerritoryViewSwitcher(),
 
 		// Initialize tribute menu
-		tributeMenu: NewTributeMenu(),
-
-		// Initialize event editor (will be set after mapView is created)
-		eventEditor: nil,
+		tributeMenu:   NewTributeMenu(),
+		analysisModal: NewAnalysisModal(),
 
 		// Initialize transit resource cache
 		cachedTransitResources: make(map[string][]typedef.InTransitResources),
@@ -230,11 +207,14 @@ func NewMapView() *MapView {
 		transitCacheValid:      false,
 	}
 
-	// Initialize event editor after mapView is created
-	mapView.eventEditor = NewEventEditorGUI(mapView)
-
 	// EdgeMenu already handles its own refresh mechanism via refreshMenuData()
 	// No need to set a refresh callback that would rebuild the entire menu
+
+	// Wire analysis callback
+	if mapView.analysisModal != nil {
+		mapView.analysisModal.SetOnAnalyze(mapView.runChokepointAnalysis)
+		mapView.analysisModal.SetOnHQAnalyze(mapView.runHQPlacementAnalysis)
+	}
 
 	// Start loading map data asynchronously
 	mapManager.LoadMapAsync()
@@ -257,14 +237,14 @@ func NewMapView() *MapView {
 
 	// Register state change callback to refresh territory colors when state is reset/loaded
 	eruntime.SetStateChangeCallback(func() {
-		fmt.Println("[MAP] State change callback triggered")
+		// fmt.Println("[MAP] State change callback triggered")
 
 		// Get all territories from eruntime and update their guild assignments
 		territories := eruntime.GetTerritories()
 		claimManager := GetGuildClaimManager()
 
 		if claimManager == nil {
-			fmt.Println("[MAP] Warning: GuildClaimManager is nil")
+			// fmt.Println("[MAP] Warning: GuildClaimManager is nil")
 			return
 		}
 
@@ -308,7 +288,7 @@ func NewMapView() *MapView {
 		claimManager.suspendRedraws = false
 		claimManager.TriggerRedraw()
 
-		fmt.Println("[MAP] Territory guild assignments updated after state change")
+		// fmt.Println("[MAP] Territory guild assignments updated after state change")
 	})
 
 	return mapView
@@ -367,58 +347,32 @@ func (m *MapView) Update(screenW, screenH int) {
 		m.pointer.Update()
 	}
 
-	// Check if we need to refresh transit resources (every 60 ticks)
-	currentTick := eruntime.Elapsed()
-	currentTime := time.Now()
-
-	// Rate limiting: Only update if:
-	// 1. It's a tick that's divisible by 60 (game logic requirement)
-	// 2. We haven't updated this exact tick before
-	// 3. At least 500ms have passed since last update (prevents excessive CPU/GPU usage)
-	timeSinceLastRefresh := currentTime.Sub(m.lastTransitRefreshTime)
-	if currentTick > 0 && currentTick%60 == 0 &&
-		currentTick != m.lastTransitRefreshTick &&
-		timeSinceLastRefresh >= 500*time.Millisecond {
-		// Only refresh if a territory menu is currently open
-		// Use the EdgeMenu's internal refresh mechanism instead of rebuilding the entire menu
-		if m.edgeMenu.IsVisible() && m.edgeMenu.GetCurrentTerritory() != "" {
-			// The EdgeMenu already handles periodic updates via refreshMenuData() in its Update method
-			// No need to call populateTerritoryMenu here as it completely rebuilds the menu
-		}
-		m.lastTransitRefreshTick = currentTick
-		m.lastTransitRefreshTime = currentTime
+	// Short-circuit all other UI when the color picker modal is open
+	if m.stateManagementMenu != nil && m.stateManagementMenu.mapColorPicker != nil && m.stateManagementMenu.mapColorPicker.IsVisible() {
+		m.stateManagementMenu.Update(deltaTime)
+		return
 	}
 
-	// Check if transit resource menu needs refreshing (every 60 ticks = 1 minute)
-	if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() &&
-		(m.lastTransitMenuRefreshTick == 0 || currentTick-m.lastTransitMenuRefreshTick >= 60) {
-		m.populateTransitResourceMenu()
-		m.lastTransitMenuRefreshTick = currentTick
-	}
+	analysisModalOpen := m.analysisModal != nil && m.analysisModal.IsVisible()
+	binds := eruntime.GetRuntimeOptions().Keybinds
 
-	// Update menus in top-to-bottom order (transit menu should be on top when visible)
-	transitMenuHandledInput := false
+	// Update menus in top-to-bottom order
 	edgeMenuHandledInput := false
 	stateMenuHandledInput := false
 
-	// Update transit resource menu first - it should be on top when visible
-	if m.transitResourceMenu != nil {
-		// Update the dimensions to be full width and 1/3 of screen height before updating
-		m.transitResourceMenu.options.Width = screenW
-		m.transitResourceMenu.options.Height = screenH / 3
-		transitMenuHandledInput = m.transitResourceMenu.Update(screenW, screenH, deltaTime)
-	}
-
-	// Update EdgeMenu second - only if transit menu didn't handle input
-	if !transitMenuHandledInput && m.edgeMenu != nil {
+	if m.edgeMenu != nil && !analysisModalOpen {
 		edgeMenuHandledInput = m.edgeMenu.Update(screenW, screenH, deltaTime)
 	}
 
-	// Update state management menu last - if it handles input, don't process map input
-	if !transitMenuHandledInput && !edgeMenuHandledInput && m.stateManagementMenu != nil {
+	if !edgeMenuHandledInput && m.stateManagementMenu != nil && !analysisModalOpen {
 		stateMenuHandledInput = m.stateManagementMenu.menu.Update(screenW, screenH, deltaTime)
 		// Update stats periodically
 		m.stateManagementMenu.Update(deltaTime)
+	}
+
+	// Let the color picker capture input when open
+	if !analysisModalOpen && m.stateManagementMenu != nil && m.stateManagementMenu.HandleInput() {
+		stateMenuHandledInput = true
 	}
 
 	// Update tribute menu - it should be above the map but below other menus
@@ -445,84 +399,129 @@ func (m *MapView) Update(screenW, screenH int) {
 		m.territoryViewSwitcher.Update()
 	}
 
-	// Handle event editor input first (E key to open)
-	if !tributeMenuHandledInput && m.HandleEventEditorInput() {
-		return // Don't process other input this frame
-	}
+	// Handle Analysis modal toggle with A key
+	if bindingJustPressed(binds.AnalysisModal) {
+		// If the modal is visible, only close it when no text input is focused
+		if m.analysisModal != nil && m.analysisModal.IsVisible() {
+			if m.analysisModal.HasTextInputFocused() {
+				// Ignore the toggle so users can type "A" into the dropdown
+				return
+			}
+			m.analysisModal.Hide()
+			return
+		}
 
-	// Update event editor if visible (handles ESC and mouse back button to close)
-	if m.IsEventEditorVisible() {
-		eventEditorHandledInput := m.UpdateEventEditor(screenW, screenH)
-		if eventEditorHandledInput {
-			return // Event editor handled input, don't process map input
+		// Block opening if any text input is focused
+		textInputFocused := false
+
+		// Check if guild manager is open and has text input focused
+		if m.territoriesManager != nil {
+			guildManager := m.territoriesManager.guildManager
+			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+				textInputFocused = true
+			}
+		}
+
+		// Check if loadout manager is open and has text input focused
+		loadoutManager := GetLoadoutManager()
+		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		// Check if state management menu has text input focused
+		if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() && m.stateManagementMenu.menu.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		if !textInputFocused {
+			m.ToggleAnalysisModal()
+			return
 		}
 	}
 
 	// Handle P key and MouseButton4 BEFORE checking if input was handled
 	// Toggle state management menu with P key
-	if !tributeMenuHandledInput && inpututil.IsKeyJustPressed(ebiten.KeyP) {
-		// Check if any text input is currently focused before opening state management menu
-		textInputFocused := false
+	if !tributeMenuHandledInput && bindingJustPressed(binds.StateMenu) {
+		if analysisModalOpen {
+			// Ignore P while analysis modal is open
+		} else {
+			// Check if any text input is currently focused before opening state management menu
+			textInputFocused := false
 
-		// Check if guild manager is open and has text input focused
-		if m.territoriesManager != nil {
-			guildManager := m.territoriesManager.guildManager
-			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+			// Check if guild manager is open and has text input focused
+			if m.territoriesManager != nil {
+				guildManager := m.territoriesManager.guildManager
+				if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+					textInputFocused = true
+				}
+			}
+
+			// Check if loadout manager is open and has text input focused
+			loadoutManager := GetLoadoutManager()
+			if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
 				textInputFocused = true
 			}
-		}
 
-		// Check if loadout manager is open and has text input focused
-		loadoutManager := GetLoadoutManager()
-		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
-			textInputFocused = true
-		}
+			// Check if analysis modal is open and has text input focused
+			if m.analysisModal != nil && m.analysisModal.IsVisible() && m.analysisModal.HasTextInputFocused() {
+				textInputFocused = true
+			}
 
-		// Check if transit resource menu is open and has text input focused
-		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
-			textInputFocused = true
-		}
+			// Check if state management menu has text input focused
+			if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() && m.stateManagementMenu.menu.HasTextInputFocused() {
+				textInputFocused = true
+			}
 
-		// Only toggle state management menu if no text input is focused and event editor is not visible
-		if !textInputFocused && !m.IsEventEditorVisible() {
-			m.ToggleStateManagementMenu()
-			return // Don't process other input this frame
+			// Only toggle state management menu if no text input is focused
+			if !textInputFocused {
+				m.ToggleStateManagementMenu()
+				return // Don't process other input this frame
+			}
 		}
 	}
 
 	// Handle MouseButton4 (forward button) to open state management menu
 	if !tributeMenuHandledInput && inpututil.IsMouseButtonJustPressed(ebiten.MouseButton4) {
-		// Check if any text input is currently focused before opening state management menu
-		textInputFocused := false
+		if analysisModalOpen {
+			// Ignore forward mouse button while analysis modal is open
+		} else {
+			// Check if any text input is currently focused before opening state management menu
+			textInputFocused := false
 
-		// Check if guild manager is open and has text input focused
-		if m.territoriesManager != nil {
-			guildManager := m.territoriesManager.guildManager
-			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+			// Check if guild manager is open and has text input focused
+			if m.territoriesManager != nil {
+				guildManager := m.territoriesManager.guildManager
+				if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+					textInputFocused = true
+				}
+			}
+
+			// Check if loadout manager is open and has text input focused
+			loadoutManager := GetLoadoutManager()
+			if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
 				textInputFocused = true
 			}
-		}
 
-		// Check if loadout manager is open and has text input focused
-		loadoutManager := GetLoadoutManager()
-		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
-		// Check if transit resource menu is open and has text input focused
-		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
-		// Only toggle state management menu if no text input is focused and event editor is not visible
-		if !textInputFocused && !m.IsEventEditorVisible() {
-			m.ToggleStateManagementMenu()
-			return // Don't process other input this frame
+			// Only toggle state management menu if no text input is focused
+			if !textInputFocused {
+				m.ToggleStateManagementMenu()
+				return // Don't process other input this frame
+			}
 		}
 	}
 
-	// If EdgeMenu, transit menu, tribute menu, or state menu handled input, don't process map input
-	if edgeMenuHandledInput || transitMenuHandledInput || tributeMenuHandledInput || stateMenuHandledInput {
+	// Block other input while Analysis modal is open, but allow closing with ESC
+	if m.analysisModal != nil && m.analysisModal.IsVisible() {
+		mx, my := ebiten.CursorPosition()
+		m.analysisModal.Update(mx, my, deltaTime)
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButton3) {
+			m.analysisModal.Hide()
+		}
+		return
+	}
+
+	// If EdgeMenu, tribute menu, or state menu handled input, don't process map input
+	if edgeMenuHandledInput || tributeMenuHandledInput || stateMenuHandledInput {
 		return
 	}
 
@@ -531,15 +530,10 @@ func (m *MapView) Update(screenW, screenH int) {
 		return
 	}
 
-	// Process user input first - always accept wheel input (unless event editor is maximized)
+	// Process user input first - always accept wheel input
 	_, wheelY := ebiten.Wheel()
 	if wheelY != 0 {
 		mx, my := ebiten.CursorPosition()
-
-		// Block map zoom if event editor is visible but not in minimal mode OR if territory picker is active
-		if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
-			return
-		}
 
 		// Check if EdgeMenu is consuming wheel input first
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
@@ -562,8 +556,8 @@ func (m *MapView) Update(screenW, screenH int) {
 		m.handleSmoothZoom(wheelY, mx, my)
 	}
 
-	// Handle keyboard zoom with +/- keys (using smooth zoom) - block if event editor is maximized or territory picker is active
-	if !tributeMenuHandledInput && (!m.IsEventEditorVisible() || (m.IsEventEditorVisible() && m.IsEventEditorInMinimalMode())) && !m.IsTerritoryPickerActive() {
+	// Handle keyboard zoom with +/- keys (using smooth zoom)
+	if !tributeMenuHandledInput {
 		if inpututil.IsKeyJustPressed(ebiten.KeyEqual) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadAdd) {
 			m.handleSmoothZoom(3.0, screenW/2, screenH/2)
 		}
@@ -573,7 +567,7 @@ func (m *MapView) Update(screenW, screenH int) {
 	}
 
 	// Toggle territory display with T key
-	if !tributeMenuHandledInput && inpututil.IsKeyJustPressed(ebiten.KeyT) {
+	if !tributeMenuHandledInput && bindingJustPressed(binds.TerritoryToggle) {
 		// Check if any text input is currently focused before toggling territories
 		textInputFocused := false
 
@@ -591,54 +585,14 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Check if transit resource menu is open and has text input focused
-		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
 		// Only toggle territories if no text input is focused
 		if !textInputFocused {
 			m.ToggleTerritories()
 		}
 	}
 
-	// Toggle transit resource inspector with I key
-	if !tributeMenuHandledInput && inpututil.IsKeyJustPressed(ebiten.KeyI) {
-		// Check if any text input is currently focused before toggling transit resource menu
-		textInputFocused := false
-
-		// Check if guild manager is open and has text input focused
-		if m.territoriesManager != nil {
-			guildManager := m.territoriesManager.guildManager
-			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
-				textInputFocused = true
-			}
-		}
-
-		// Check if loadout manager is open and has text input focused
-		loadoutManager := GetLoadoutManager()
-		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
-		// Check if transit resource menu is open and has text input focused
-		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
-		// Only toggle transit resource menu if no text input is focused and event editor is not open
-		if !textInputFocused && !m.IsEventEditorVisible() && m.transitResourceMenu != nil {
-			if m.transitResourceMenu.IsVisible() {
-				m.transitResourceMenu.Hide()
-			} else {
-				m.populateTransitResourceMenu()
-				m.transitResourceMenu.Show()
-			}
-		}
-	}
-
 	// Toggle tribute menu with B key
-	if !tributeMenuHandledInput && inpututil.IsKeyJustPressed(ebiten.KeyB) {
+	if !tributeMenuHandledInput && bindingJustPressed(binds.TributeMenu) {
 		// Check if any text input is currently focused before toggling tribute menu
 		textInputFocused := false
 
@@ -656,13 +610,8 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Check if transit resource menu is open and has text input focused
-		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
-		// Only toggle tribute menu if no text input is focused and event editor is not open
-		if !textInputFocused && !m.IsEventEditorVisible() && m.tributeMenu != nil {
+		// Only toggle tribute menu if no text input is focused
+		if !textInputFocused && m.tributeMenu != nil {
 			if m.tributeMenu.IsVisible() {
 				m.tributeMenu.Hide()
 			} else {
@@ -690,11 +639,6 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Check if transit resource menu is open and has text input focused
-		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() && m.transitResourceMenu.HasTextInputFocused() {
-			textInputFocused = true
-		}
-
 		// Check if EdgeMenu is open and has text input focused
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.HasTextInputFocused() {
 			textInputFocused = true
@@ -705,13 +649,8 @@ func (m *MapView) Update(screenW, screenH int) {
 			textInputFocused = true
 		}
 
-		// Only process spacebar if:
-		// 1. No text input is focused
-		// 2. Event editor is not visible (or in minimal mode)
-		// 3. Territory picker is not active
-		if !textInputFocused &&
-			(!m.IsEventEditorVisible() || (m.IsEventEditorVisible() && m.IsEventEditorInMinimalMode())) &&
-			!m.IsTerritoryPickerActive() {
+		// Only process spacebar if no text input is focused
+		if !textInputFocused {
 
 			// Check for Shift+Space (add ticks when halted)
 			shift := ebiten.IsKeyPressed(ebiten.KeyShift) || ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
@@ -817,6 +756,23 @@ func (m *MapView) Update(screenW, screenH int) {
 		// Note: ESC and Enter are handled by the loadout manager's Update method
 	}
 
+	// Handle plugin territory selector overlay keyboard shortcuts
+	selectorOverlay := GetActiveTerritorySelector()
+	if selectorOverlay != nil && selectorOverlay.IsVisible() {
+		// Same ctrl-drag area selection flow as loadout/claim modes
+		ctrlPressed := ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight)
+
+		if ctrlPressed && !m.isAreaSelecting {
+			m.startAreaSelection()
+		} else if !ctrlPressed && m.isAreaSelecting {
+			m.endAreaSelection()
+		}
+
+		if m.isAreaSelecting {
+			m.updateAreaSelection()
+		}
+	}
+
 	// Handle escape key to close EdgeMenu or side menu
 	if !tributeMenuHandledInput && inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		// First check if state management menu is open
@@ -825,13 +781,6 @@ func (m *MapView) Update(screenW, screenH int) {
 			m.stateManagementMenuVisible = false
 			return
 		}
-
-		// Then check if transit resource menu is open
-		// if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
-		// 	m.transitResourceMenu.Hide()
-		// 	m.justHandledEscKey = true
-		// 	return
-		// }
 
 		// Then check if EdgeMenu is open
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
@@ -890,13 +839,6 @@ func (m *MapView) Update(screenW, screenH int) {
 			m.stateManagementMenuVisible = false
 			return
 		}
-
-		// Then check if transit resource menu is open
-		// if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
-		// 	m.transitResourceMenu.Hide()
-		// 	m.justHandledEscKey = true
-		// 	return
-		// }
 
 		// Then check if EdgeMenu is open
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
@@ -1047,11 +989,24 @@ func (m *MapView) Draw(screen *ebiten.Image) {
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(m.scale, m.scale)
 
+	// Apply map opacity from runtime options (0-100%)
+	mapOpts := eruntime.GetRuntimeOptions()
+	alpha := mapOpts.MapOpacityPercent / 100.0
+	if alpha < 0 {
+		alpha = 0
+	}
+	if alpha > 1 {
+		alpha = 1
+	}
+	op.ColorM.Scale(1, 1, 1, alpha)
+
 	// Just use the current offset without any adjustment - centering is handled in CenterTerritory
 	op.GeoM.Translate(m.offsetX, m.offsetY)
 
-	// Draw the map image
-	screen.DrawImage(mapImage, op)
+	// Draw the map image if visible
+	if alpha > 0 {
+		screen.DrawImage(mapImage, op)
+	}
 
 	// Draw overlay elements after drawing the map
 	m.drawOverlayElements(screen)
@@ -1083,10 +1038,6 @@ func (m *MapView) drawOverlayElements(screen *ebiten.Image) {
 	}
 
 	// Draw transit resource menu
-	if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
-		m.transitResourceMenu.Draw(screen)
-	}
-
 	// Draw state management menu
 	if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() {
 		m.stateManagementMenu.menu.Draw(screen)
@@ -1118,8 +1069,15 @@ func (m *MapView) drawOverlayElements(screen *ebiten.Image) {
 		m.drawAreaSelection(screen)
 	}
 
-	// Draw event editor GUI if visible (should be on top of most elements)
-	m.DrawEventEditor(screen)
+	// Draw analysis modal
+	if m.analysisModal != nil && m.analysisModal.IsVisible() {
+		m.analysisModal.Draw(screen, m.screenW, m.screenH)
+	}
+
+	// Draw overlays owned by the state management menu (e.g., color picker)
+	if m.stateManagementMenu != nil {
+		m.stateManagementMenu.DrawExtras(screen)
+	}
 
 	// Draw territory view switcher modal (should be on top of everything)
 	if m.territoryViewSwitcher != nil {
@@ -1545,11 +1503,6 @@ func (m *MapView) handlePrimaryPress(mx, my int) bool {
 	m.lastMouseX = mx
 	m.lastMouseY = my
 
-	if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
-		m.dragging = true
-		return true
-	}
-
 	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
 		return true
 	}
@@ -1574,11 +1527,6 @@ func (m *MapView) handlePrimaryPress(mx, my int) bool {
 // handlePrimaryRelease centralizes logic for left/tap release handling.
 // Returns true when the caller should stop further input processing this frame.
 func (m *MapView) handlePrimaryRelease(mx, my int, currentTime time.Time) bool {
-	if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
-		m.dragging = false
-		return true
-	}
-
 	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
 		return true
 	}
@@ -1592,6 +1540,7 @@ func (m *MapView) handlePrimaryRelease(mx, my int, currentTime time.Time) bool {
 	}
 
 	dragDistance := math.Hypot(float64(mx-m.lastMouseX), float64(my-m.lastMouseY))
+	selectorOverlay := GetActiveTerritorySelector()
 
 	if m.dragging && dragDistance < 5 {
 		isDoubleClick := currentTime.Sub(m.lastClickTime) < 500*time.Millisecond
@@ -1620,12 +1569,6 @@ func (m *MapView) handlePrimaryRelease(mx, my int, currentTime time.Time) bool {
 			}
 		}
 
-		if isDoubleClick && m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode() {
-			m.lastClickTime = currentTime
-			m.dragging = false
-			return true
-		}
-
 		if m.isEditingClaims {
 			buttonWidth := 100
 			buttonHeight := 30
@@ -1648,6 +1591,14 @@ func (m *MapView) handlePrimaryRelease(mx, my int, currentTime time.Time) bool {
 		}
 
 		shouldHandleTerritorySelection := true
+		if selectorOverlay != nil && selectorOverlay.IsVisible() {
+			applyRect, cancelRect := selectorOverlay.buttonRects()
+			if selectorOverlay.IsBannerArea(mx, my) || applyRect.Contains(mx, my) || cancelRect.Contains(mx, my) {
+				m.lastClickTime = currentTime
+				m.dragging = false
+				return true
+			}
+		}
 		if m.isEditingClaims {
 			buttonWidth := 100
 			buttonHeight := 30
@@ -1683,6 +1634,13 @@ func (m *MapView) handlePrimaryRelease(mx, my int, currentTime time.Time) bool {
 					return true
 				}
 
+				if selectorOverlay != nil && selectorOverlay.IsVisible() && territoryClicked != "" {
+					selectorOverlay.ToggleTerritorySelection(territoryClicked)
+					m.lastClickTime = currentTime
+					m.dragging = false
+					return true
+				}
+
 				if isDoubleClick && territoryClicked == "" {
 					if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
 						m.edgeMenu.Hide()
@@ -1698,7 +1656,7 @@ func (m *MapView) handlePrimaryRelease(mx, my int, currentTime time.Time) bool {
 					}
 				}
 
-				if isDoubleClick && territoryClicked != "" && !m.isEditingClaims && !m.IsEventEditorVisible() {
+				if isDoubleClick && territoryClicked != "" && !m.isEditingClaims {
 					m.CenterTerritory(territoryClicked)
 
 					currentSelected := ""
@@ -1757,17 +1715,22 @@ func (m *MapView) handleContextMenuRequest(mx, my int) bool {
 	fmt.Printf("Right-click detected at (%d, %d)\n", mx, my)
 
 	if m.isEditingClaims {
-		fmt.Println("Right-click ignored - in claim editing mode")
+		// fmt.Println("Right-click ignored - in claim editing mode")
 		return true
 	}
 
 	if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsApplyingLoadout() {
-		fmt.Println("Right-click ignored - in loadout application mode")
+		// fmt.Println("Right-click ignored - in loadout application mode")
+		return true
+	}
+
+	if selector := GetActiveTerritorySelector(); selector != nil && selector.IsVisible() {
+		// fmt.Println("Right-click ignored - in territory selector mode")
 		return true
 	}
 
 	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
-		fmt.Println("Right-click in EdgeMenu area, ignoring")
+		// fmt.Println("Right-click in EdgeMenu area, ignoring")
 		return true
 	}
 
@@ -1775,12 +1738,12 @@ func (m *MapView) handleContextMenuRequest(mx, my int) bool {
 		sidebarWidth := int(m.territoriesManager.GetSideMenuWidth())
 		sidebarX := m.screenW - sidebarWidth
 		if mx >= sidebarX {
-			fmt.Println("Right-click in sidebar area, ignoring")
+			// fmt.Println("Right-click in sidebar area, ignoring")
 			return true
 		}
 	}
 
-	fmt.Println("Setting up context menu...")
+	// fmt.Println("Setting up context menu...")
 	m.setupContextMenu(mx, my)
 	m.contextMenu.Show(mx, my, m.screenW, m.screenH)
 	fmt.Printf("Context menu shown at (%d, %d), visible: %v\n", mx, my, m.contextMenu.IsVisible())
@@ -1820,7 +1783,8 @@ func (m *MapView) handlePointerEvents(screenW int) bool {
 	}
 
 	loadoutManager := GetLoadoutManager()
-	autoAreaSelection := m.isEditingClaims || (loadoutManager != nil && loadoutManager.IsApplyingLoadout())
+	selectorOverlay := GetActiveTerritorySelector()
+	autoAreaSelection := m.isEditingClaims || (loadoutManager != nil && loadoutManager.IsApplyingLoadout()) || (selectorOverlay != nil && selectorOverlay.IsVisible())
 
 	for _, ev := range m.pointer.Events() {
 		if ev.IsMouse {
@@ -1829,10 +1793,6 @@ func (m *MapView) handlePointerEvents(screenW int) bool {
 
 		switch ev.Type {
 		case PointerPinchZoom:
-			if (m.IsEventEditorVisible() && !m.IsEventEditorInMinimalMode()) || m.IsTerritoryPickerActive() {
-				continue
-			}
-
 			mx := ev.Position.X
 			my := ev.Position.Y
 
@@ -1948,7 +1908,7 @@ func (m *MapView) ResetView() {
 	// Animate to the centered position and scale
 	m.animateToScale(resetScale, centeredOffsetX, centeredOffsetY)
 
-	fmt.Println("Animating map view to centered position")
+	// fmt.Println("Animating map view to centered position")
 }
 
 // ToggleCoordinates toggles the coordinate labels display
@@ -1965,6 +1925,8 @@ func (m *MapView) ToggleTerritories() {
 
 // AddMarker adds a new marker to the map
 func (m *MapView) AddMarker(x, y float64, label string, markerColor color.RGBA, size float64) {
+	return 
+	// unused now
 	marker := Marker{
 		X:         x,
 		Y:         y,
@@ -1980,7 +1942,7 @@ func (m *MapView) AddMarker(x, y float64, label string, markerColor color.RGBA, 
 // ClearMarkers removes all markers from the map
 func (m *MapView) ClearMarkers() {
 	m.markers = make([]Marker, 0)
-	fmt.Println("All markers cleared")
+	// fmt.Println("All markers cleared")
 }
 
 // GetMapCoordinates converts screen coordinates to world coordinates
@@ -2240,7 +2202,7 @@ func (m *MapView) onTerritoryChanged(territoryName string) {
 		// Update tower stats and trading routes, don't rebuild the entire menu to avoid breaking sliders
 		m.edgeMenu.UpdateTowerStats(territoryName)
 		m.edgeMenu.UpdateTradingRoutes(territoryName)
-		fmt.Printf("[DEBUG] Tower stats and trading routes updated for: %s\n", territoryName)
+		// fmt.Printf("[DEBUG] Tower stats and trading routes updated for: %s\n", territoryName)
 	}
 }
 
@@ -2248,6 +2210,7 @@ func (m *MapView) onTerritoryChanged(territoryName string) {
 func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 	// Clear any existing items
 	m.contextMenu = NewSelectionAnywhere()
+	binds := eruntime.GetRuntimeOptions().Keybinds
 
 	// Check if we clicked on a territory using the same logic as HandleMouseClick
 	clickedTerritory := ""
@@ -2302,19 +2265,16 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 	} else {
 		// Context menu for empty map area
 		m.contextMenu.
-			Option("Open Guild Manager", "G", !m.IsEventEditorVisible(), func() {
+			Option("Open Guild Manager", binds.GuildManager, true, func() {
 				m.territoriesManager.guildManager.Show()
 			}).
-			Option("Open State Management", "P", !m.IsEventEditorVisible(), func() {
+			Option("Open State Management", binds.StateMenu, true, func() {
 				m.stateManagementMenu.Show()
 			}).
-			Option("Open Resource Inspector", "I", !m.IsEventEditorVisible(), func() {
-				m.transitResourceMenu.Show()
-			}).
-			Option("Open Tribute Menu", "B", !m.IsEventEditorVisible(), func() {
+			Option("Open Tribute Menu", binds.TributeMenu, true, func() {
 				m.tributeMenu.Show()
 			}).
-			Option("Open Loadout Manager", "L", !m.IsEventEditorVisible(), func() {
+			Option("Open Loadout Manager", binds.LoadoutManager, true, func() {
 				GetLoadoutManager().Show()
 			})
 
@@ -3323,13 +3283,6 @@ func (m *MapView) IsEdgeMenuOpen() bool {
 	return m.edgeMenu != nil && m.edgeMenu.IsVisible()
 }
 
-// IsTransitResourceMenuOpen returns whether the transit resource menu is currently open
-func (m *MapView) IsTransitResourceMenuOpen() bool {
-	// Transit Resource Menu is disabled
-	return false
-	// return m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible()
-}
-
 // IsStateManagementMenuOpen returns whether the state management menu is currently open
 func (m *MapView) IsStateManagementMenuOpen() bool {
 	return m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible()
@@ -3338,11 +3291,6 @@ func (m *MapView) IsStateManagementMenuOpen() bool {
 // ToggleStateManagementMenu toggles the state management menu visibility
 func (m *MapView) ToggleStateManagementMenu() {
 	if m.stateManagementMenu == nil {
-		return
-	}
-
-	// Don't toggle if event editor is open
-	if m.IsEventEditorVisible() {
 		return
 	}
 
@@ -3359,6 +3307,169 @@ func (m *MapView) ToggleStateManagementMenu() {
 	} else {
 		m.stateManagementMenu.menu.Hide()
 	}
+}
+
+// ToggleAnalysisModal toggles the analysis modal visibility
+func (m *MapView) ToggleAnalysisModal() {
+	if m.analysisModal == nil {
+		return
+	}
+
+	// Refresh guild options when opening to ensure we show current HQ guilds only
+	if !m.analysisModal.IsVisible() {
+		m.refreshAnalysisGuildOptions()
+	}
+
+	m.analysisModal.Toggle()
+}
+
+// refreshAnalysisGuildOptions populates the analysis dropdown with guilds that have an HQ.
+func (m *MapView) refreshAnalysisGuildOptions() {
+	if m.analysisModal == nil {
+		return
+	}
+
+	territories := eruntime.GetTerritories()
+	seen := make(map[string]FilterableDropdownOption)
+
+	for _, territory := range territories {
+		if territory == nil {
+			continue
+		}
+
+		territory.Mu.RLock()
+		guildName := strings.TrimSpace(territory.Guild.Name)
+		guildTag := strings.TrimSpace(territory.Guild.Tag)
+		territory.Mu.RUnlock()
+		if guildTag == "" || strings.EqualFold(guildTag, "NONE") {
+			continue
+		}
+
+		display := guildName
+		if display == "" {
+			display = guildTag
+		}
+		if guildName != "" && guildTag != "" {
+			display = fmt.Sprintf("%s [%s]", guildName, guildTag)
+		}
+
+		if _, exists := seen[guildTag]; !exists {
+			seen[guildTag] = FilterableDropdownOption{Display: display, Value: guildTag, Data: guildName}
+		}
+	}
+
+	options := make([]FilterableDropdownOption, 0, len(seen))
+	for _, opt := range seen {
+		options = append(options, opt)
+	}
+
+	m.analysisModal.SetGuildOptions(options)
+}
+
+// runChokepointAnalysis executes the chokepoint algorithm for the chosen guild and updates the Analysis view.
+func (m *MapView) runChokepointAnalysis(guildTag string) {
+	if m.analysisModal == nil {
+		return
+	}
+
+	guildTag = strings.TrimSpace(guildTag)
+	if guildTag == "" {
+		m.analysisModal.SetStatus("Select a guild to analyse")
+		return
+	}
+
+	if m.analysisRunning {
+		m.analysisModal.SetStatus("Analysis already running...")
+		return
+	}
+
+	m.analysisRunning = true
+	m.analysisModal.SetAnalyzing(true)
+	m.analysisModal.SetStatus(fmt.Sprintf("Analysing %s...", guildTag))
+	defer func() {
+		m.analysisRunning = false
+		m.analysisModal.SetAnalyzing(false)
+	}()
+
+	reports, err := eruntime.ComputeChokepointsForGuild(guildTag)
+	if err != nil {
+		m.analysisModal.SetStatus(err.Error())
+		return
+	}
+
+	if len(reports) == 0 {
+		m.analysisModal.SetStatus("No chokepoints found (ensure HQ and routes exist)")
+		return
+	}
+
+	scores := make(map[string]float64, len(reports))
+	for name, rep := range reports {
+		scores[name] = rep.Importance
+	}
+
+	if m.territoryViewSwitcher != nil {
+		m.territoryViewSwitcher.SetAnalysisResults(guildTag, scores)
+		m.territoryViewSwitcher.SetCurrentView(ViewAnalysis)
+	}
+
+	m.analysisModal.SetStatus("Analysis complete. Switch to Analysis view to visualize.")
+}
+
+// runHQPlacementAnalysis finds the top HQ candidates for the chosen guild and pushes them to the Analysis view.
+func (m *MapView) runHQPlacementAnalysis(guildTag string) {
+	if m.analysisModal == nil {
+		return
+	}
+
+	guildTag = strings.TrimSpace(guildTag)
+	if guildTag == "" {
+		m.analysisModal.SetStatus("Select a guild to analyse")
+		return
+	}
+
+	if m.analysisRunning {
+		m.analysisModal.SetStatus("Analysis already running...")
+		return
+	}
+
+	m.analysisRunning = true
+	m.analysisModal.SetAnalyzing(true)
+	m.analysisModal.SetStatus(fmt.Sprintf("Finding HQ spots for %s...", guildTag))
+	defer func() {
+		m.analysisRunning = false
+		m.analysisModal.SetAnalyzing(false)
+	}()
+
+	candidates, err := eruntime.ComputeHQSuggestionsForGuild(guildTag)
+	if err != nil {
+		m.analysisModal.SetStatus(err.Error())
+		return
+	}
+
+	if len(candidates) == 0 {
+		m.analysisModal.SetStatus("No HQ candidates found")
+		return
+	}
+
+	limit := 5
+	if len(candidates) < limit {
+		limit = len(candidates)
+	}
+
+	scores := make(map[string]float64, limit)
+	ordered := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		cand := candidates[i]
+		scores[cand.Name] = cand.Score
+		ordered = append(ordered, cand.Name)
+	}
+
+	if m.territoryViewSwitcher != nil {
+		m.territoryViewSwitcher.SetAnalysisResults(guildTag, scores)
+		m.territoryViewSwitcher.SetCurrentView(ViewAnalysis)
+	}
+
+	m.analysisModal.SetStatus(fmt.Sprintf("Top HQ spots: %s", strings.Join(ordered, ", ")))
 }
 
 // GetTerritoriesManager returns the territories manager
@@ -3484,10 +3595,6 @@ func (m *MapView) StopClaimEditing() {
 
 	// Return to guild management interface after saving
 	if m.territoriesManager != nil {
-		// Hide transit resource menu when returning to guild management
-		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
-			m.transitResourceMenu.Hide()
-		}
 		// Use a goroutine to open guild management after a brief delay
 		// This ensures the editing state is fully cleared first
 		go func() {
@@ -3524,10 +3631,6 @@ func (m *MapView) CancelClaimEditing() {
 
 	// Return to guild management interface instead of main map view
 	if m.territoriesManager != nil {
-		// Hide transit resource menu when returning to guild management
-		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
-			m.transitResourceMenu.Hide()
-		}
 		// Use a goroutine to open guild management after a brief delay
 		// This ensures the editing state is fully cleared first
 		go func() {
@@ -3544,10 +3647,6 @@ func (m *MapView) CancelClaimEditing() {
 	// This ensures that the ESC key event is fully processed first
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		// Hide transit resource menu when reopening guild management
-		if m.transitResourceMenu != nil && m.transitResourceMenu.IsVisible() {
-			m.transitResourceMenu.Hide()
-		}
 		// Reopen the guild management menu after a slight delay
 		if territoriesManager != nil {
 			fmt.Printf("[MAP] Reopening guild management menu after claim edit cancellation\n")
@@ -3801,7 +3900,7 @@ func (m *MapView) drawAreaSelection(screen *ebiten.Image) {
 
 // startAreaSelection begins area selection mode
 func (m *MapView) startAreaSelection() {
-	fmt.Println("[MAP] Starting area selection mode")
+	// fmt.Println("[MAP] Starting area selection mode")
 	m.isAreaSelecting = true
 	m.areaSelectDragging = false
 	m.areaSelectTempHighlight = make(map[string]bool)
@@ -3813,7 +3912,7 @@ func (m *MapView) startAreaSelection() {
 // endAreaSelection ends area selection mode without applying selections
 // (selections are applied immediately when mouse is released)
 func (m *MapView) endAreaSelection() {
-	fmt.Println("[MAP] Ending area selection mode")
+	// fmt.Println("[MAP] Ending area selection mode")
 
 	// Clear temporary state only - selections were already applied on mouse release
 	m.isAreaSelecting = false
@@ -4058,9 +4157,11 @@ func (m *MapView) applyRealtimeAreaSelection() {
 func (m *MapView) applyCurrentAreaSelection() {
 	// Apply final selection/deselection for all temporarily highlighted territories
 	if m.areaSelectTempHighlight != nil {
-		// Check if we're in loadout application mode
+		// Check if we're in loadout application mode or plugin territory selection mode
 		loadoutManager := GetLoadoutManager()
 		isLoadoutMode := loadoutManager != nil && loadoutManager.IsApplyingLoadout()
+		selectorOverlay := GetActiveTerritorySelector()
+		isSelectorMode := selectorOverlay != nil && selectorOverlay.IsVisible()
 
 		for territoryName, highlighted := range m.areaSelectTempHighlight {
 			if highlighted {
@@ -4072,6 +4173,12 @@ func (m *MapView) applyCurrentAreaSelection() {
 					} else {
 						// Selection mode: add territory to loadout selection
 						loadoutManager.AddTerritorySelection(territoryName)
+					}
+				} else if isSelectorMode {
+					if m.areaSelectIsDeselecting {
+						selectorOverlay.RemoveTerritorySelection(territoryName)
+					} else {
+						selectorOverlay.AddTerritorySelection(territoryName)
 					}
 				} else if m.isEditingClaims {
 					// Handle claim editing mode area selection
@@ -4101,16 +4208,21 @@ func (m *MapView) applyCurrentAreaSelection() {
 		}
 
 		// Update the territory renderer with the updated loadout selection (only for loadout application mode)
-		if isLoadoutMode && m.territoriesManager != nil && m.territoriesManager.IsLoaded() && m.territoriesManager.territoryRenderer != nil {
-			if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsApplyingLoadout() {
-				if renderer := m.territoriesManager.GetRenderer(); renderer != nil {
-					selectedTerritories := loadoutManager.GetSelectedTerritories()
-					applyingLoadoutName := loadoutManager.GetApplyingLoadoutName()
-					renderer.SetLoadoutApplicationMode(applyingLoadoutName, selectedTerritories)
-					// Force a redraw to show the highlighting
-					if cache := renderer.GetTerritoryCache(); cache != nil {
-						cache.ForceRedraw()
-					}
+		if (isLoadoutMode || isSelectorMode) && m.territoriesManager != nil && m.territoriesManager.IsLoaded() && m.territoriesManager.territoryRenderer != nil {
+			if renderer := m.territoriesManager.GetRenderer(); renderer != nil {
+				selectedTerritories := make(map[string]bool)
+				displayName := ""
+				if isLoadoutMode {
+					selectedTerritories = loadoutManager.GetSelectedTerritories()
+					displayName = loadoutManager.GetApplyingLoadoutName()
+				} else if isSelectorMode {
+					selectedTerritories = selectorOverlay.GetSelectedTerritories()
+					displayName = selectorOverlay.Title
+				}
+				renderer.SetLoadoutApplicationMode(displayName, selectedTerritories)
+				// Force a redraw to show the highlighting
+				if cache := renderer.GetTerritoryCache(); cache != nil {
+					cache.ForceRedraw()
 				}
 			}
 		}

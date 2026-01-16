@@ -22,7 +22,7 @@ To get things started quick, you want to import all guilds the first time you ru
 - Manually editable resource storage at runtime, so your experiment isn't limited by available resource
 - Loadouts, apply mode (just like in game) and merge mode
 - Tribute system with an option to spawn in or void resource through "Nil Sink/Source" guild instead of from other guild on map
-- In-Transit resource inspector, see where all the resources in transit system go!
+- Resource inspector: removed (planned redesign)
 - Scriptable, write your own JavaScript code to be run within the simulation context
 
 # Keybinds
@@ -30,7 +30,7 @@ To get things started quick, you want to import all guilds the first time you ru
 - `P` **State management**: this menu lets you control the tick rate, modify the logic/calculation/behavior or save and load state session to and from file
 - `L` **Loadout menu**: create loadout to apply to many territories, there are two application modes: **apply** whice overrides the previous territory setting and apply the loadout's one and **merge** which merge non-zero data from loadout to territory
 - `B` **Tribute configuration**: set up your tribute here. you can set up a tribute between 2 guilds on the map or spawn in tribute from nothing to the hq (source) or simulate sending out tribute to non-existent guild on the map (sink)
-- `I` **Resource inspector**: unfinished and abandoned in transit resource inspector and editor
+- `I` **Resource inspector**: removed for now
 - `S` **Script**: run your diy javascript code that will be interacted with the economy simulator here
 - `Tab` **Territory view switcher**: switch between guild view, resource view, defence and more!
 

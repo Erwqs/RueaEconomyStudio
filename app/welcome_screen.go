@@ -78,14 +78,14 @@ func (ws *WelcomeScreen) Show() {
 	ws.visible = true
 	ws.modal.Show()
 	ws.scrollOffset = 0
-	fmt.Println("[WELCOME] Welcome screen shown")
+	// fmt.Println("[WELCOME] Welcome screen shown")
 }
 
 // Hide hides the welcome screen
 func (ws *WelcomeScreen) Hide() {
 	ws.visible = false
 	ws.modal.Hide()
-	fmt.Println("[WELCOME] Welcome screen hidden")
+	// fmt.Println("[WELCOME] Welcome screen hidden")
 }
 
 // IsVisible returns whether the welcome screen is visible
@@ -312,7 +312,6 @@ func (ws *WelcomeScreen) drawContent(screen *ebiten.Image, x, y, width, height i
 			"Manually editable resource storage at runtime, so your experiment isn't limited by available resource",
 			"Loadouts, apply mode (just like in game) and merge mode",
 			"Tribute system with an option to spawn in or void resource through \"Nil Sink/Source\" guild instead of from other guild on map",
-			"In-Transit resource inspector, see where all the resources in transit system go!",
 			"Scriptable, write your own JavaScript code to be run within the simulation context",
 		}, x, currentY, width, y, height, color.RGBA{144, 238, 144, 255})
 
@@ -323,7 +322,6 @@ func (ws *WelcomeScreen) drawContent(screen *ebiten.Image, x, y, width, height i
 			"P - State management: this menu lets you control the tick rate, modify the logic/calculation/behavior or save and load state session to and from file",
 			"L - Loadout menu: create loadout to apply to many territories, there are two application modes: apply which overrides the previous territory setting and apply the loadout's one and merge which merge non-zero data from loadout to territory",
 			"B - Tribute configuration: set up your tribute here. you can set up a tribute between 2 guilds on the map or spawn in tribute from nothing to the hq (source) or simulate sending out tribute to non-existent guild on the map (sink)",
-			"I - Resource inspector: unfinished and abandoned in transit resource inspector and editor",
 			"S - Script: run your diy javascript code that will be interacted with the economy simulator here",
 			"Tab - Territory view switcher: switch between guild view, resource view, defence and more!",
 		}, x, currentY, width, y, height, color.RGBA{173, 216, 230, 255})
@@ -387,7 +385,6 @@ func (ws *WelcomeScreen) calculateMaxScroll(x, y, width, height int) {
 		"Manually editable resource storage at runtime, so your experiment isn't limited by available resource",
 		"Loadouts, apply mode (just like in game) and merge mode",
 		"Tribute system with an option to spawn in or void resource through \"Nil Sink/Source\" guild instead of from other guild on map",
-		"In-Transit resource inspector, see where all the resources in transit system go!",
 		"Scriptable, write your own JavaScript code to be run within the simulation context",
 	}
 	currentY += 45 // section title spacing
@@ -406,7 +403,6 @@ func (ws *WelcomeScreen) calculateMaxScroll(x, y, width, height int) {
 		"P - State management: this menu lets you control the tick rate, modify the logic/calculation/behavior or save and load state session to and from file",
 		"L - Loadout menu: create loadout to apply to many territories, there are two application modes: apply which overrides the previous territory setting and apply the loadout's one and merge which merge non-zero data from loadout to territory",
 		"B - Tribute configuration: set up your tribute here. you can set up a tribute between 2 guilds on the map or spawn in tribute from nothing to the hq (source) or simulate sending out tribute to non-existent guild on the map (sink)",
-		"I - Resource inspector: unfinished and abandoned in transit resource inspector and editor",
 		"S - Script: run your diy javascript code that will be interacted with the economy simulator here",
 		"Tab - Territory view switcher: switch between guild view, resource view, defence and more!",
 	}

@@ -539,9 +539,6 @@ func (s *State) handleKeyEvent(event KeyEvent) {
 			// 		// Check if EdgeMenu is open first
 			// 		if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().IsEdgeMenuOpen() {
 			// 			// Do nothing - the map view will handle closing the EdgeMenu
-			// 		} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().IsTransitResourceMenuOpen() {
-			// 			// Do nothing - the map view will handle closing the transit resource menu
-			// 		} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().IsEditingClaims() {
 			// 			// Do nothing - the map view will handle cancelling claim edit mode
 			// 		} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().JustHandledEscKey() {
 			// 			// Do nothing - the map view already handled the ESC key
@@ -619,6 +616,9 @@ func (s *State) Draw(screen *ebiten.Image) {
 		globalFileManager.Draw(screen)
 	}
 
+	// Draw dropdown lists after all UI so they sit above labels/sections; keep toasts/panic above.
+	FlushDropdownOverlays(screen)
+
 	// Draw toasts on top of everything else
 	GetToastManager().Draw(screen)
 
@@ -678,6 +678,19 @@ func New() *Game {
 			}
 		},
 	)
+
+	// Initialize plugin persistence callbacks
+	if gameplayModule != nil && gameplayModule.GetPluginManager() != nil {
+		pm := gameplayModule.GetPluginManager()
+		eruntime.SetPluginCallbacks(
+			func() []typedef.PluginState {
+				return pm.GetPluginsForSave()
+			},
+			func(plugins []typedef.PluginState) {
+				pm.ApplySavedPlugins(plugins)
+			},
+		)
+	}
 
 	game := &Game{
 		state: &State{

@@ -5,6 +5,9 @@ import (
 	"image/color"
 	"time"
 
+	"RueaES/eruntime"
+	"RueaES/pluginhost"
+
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -21,6 +24,7 @@ type GameplayModule struct {
 	mapView            *MapView              // Added map view component
 	guildManager       *EnhancedGuildManager // Added enhanced guild manager component
 	scriptManager      *ScriptManager        // Added script manager component
+	pluginManager      *PluginManager        // Native extension manager
 }
 
 // NewGameplayModule creates a new gameplay module
@@ -38,6 +42,9 @@ func NewGameplayModule(inputManager *InputManager) *GameplayModule {
 	// Create a new ScriptManager
 	scriptManager := NewScriptManager()
 
+	// Create a new PluginManager
+	pluginManager := NewPluginManager()
+
 	// Initialize the GuildClaimManager
 	_ = GetGuildClaimManager() // Ensure the singleton is created
 
@@ -53,6 +60,7 @@ func NewGameplayModule(inputManager *InputManager) *GameplayModule {
 		mapView:            mapView,
 		guildManager:       guildManager,
 		scriptManager:      scriptManager,
+		pluginManager:      pluginManager,
 	}
 
 	// Set the guildManager in the territories manager
@@ -160,6 +168,19 @@ mouseEventsProcessed:
 		}
 	}
 
+	// Update plugin modals or manager
+	if !inputHandled && gm.pluginManager != nil {
+		if gm.pluginManager.modalOverlay != nil && gm.pluginManager.modalOverlay.IsVisible() {
+			inputHandled = gm.pluginManager.modalOverlay.Update()
+		}
+		if !inputHandled && gm.pluginManager.territorySelectorOverlay != nil && gm.pluginManager.territorySelectorOverlay.IsVisible() {
+			inputHandled = gm.pluginManager.territorySelectorOverlay.Update()
+		}
+		if !inputHandled && gm.pluginManager.IsVisible() {
+			inputHandled = gm.pluginManager.Update()
+		}
+	}
+
 	// Update welcome screen and check if it handled the input
 	if !inputHandled {
 		welcomeScreen := GetWelcomeScreen()
@@ -174,73 +195,57 @@ mouseEventsProcessed:
 	}
 }
 
+// textInputFocusedAnywhere reports whether any UI text field is active; used to pause keybind handling while typing.
+func (gm *GameplayModule) textInputFocusedAnywhere() bool {
+	// Plugin modal inputs
+	if gm.pluginManager != nil && gm.pluginManager.modalOverlay != nil && gm.pluginManager.modalOverlay.IsVisible() {
+		if gm.pluginManager.modalOverlay.HasTextInputFocused() {
+			return true
+		}
+	}
+
+	// Map-bound UIs
+	if gm.mapView != nil {
+		if gm.mapView.edgeMenu != nil && gm.mapView.edgeMenu.IsVisible() && gm.mapView.edgeMenu.HasTextInputFocused() {
+			return true
+		}
+		if gm.mapView.territoriesManager != nil {
+			if guildManager := gm.mapView.territoriesManager.guildManager; guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+				return true
+			}
+		}
+		if gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+			return true
+		}
+		if gm.mapView.analysisModal != nil && gm.mapView.analysisModal.IsVisible() && gm.mapView.analysisModal.HasTextInputFocused() {
+			return true
+		}
+		if gm.mapView.stateManagementMenu != nil && gm.mapView.stateManagementMenu.menu.IsVisible() && gm.mapView.stateManagementMenu.menu.HasTextInputFocused() {
+			return true
+		}
+	}
+
+	// Global managers
+	if lm := GetLoadoutManager(); lm != nil && lm.IsVisible() && lm.HasTextInputFocused() {
+		return true
+	}
+	return false
+}
+
 // handleKeyEvent processes individual key events
 func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
+	// Suppress keybinds entirely while typing in any focused text input.
+	if gm.textInputFocusedAnywhere() {
+		return
+	}
 	// Update key hold states
 	gm.keyHoldStates[event.Key] = event.Pressed
 
-	// Handle one-time key press actions
 	if event.Pressed {
-		switch event.Key {
-		case ebiten.KeySpace:
-			// fmt.Printf("[GAMEPLAY] Player jumped!\n")
-		case ebiten.KeyShift:
-			gm.moveSpeed = 4.0 // Run speed
-		case ebiten.KeyR:
-			// Check if any text input is currently focused before resetting map view
-			textInputFocused := false
+		binds := eruntime.GetRuntimeOptions().Keybinds
 
-			// Check if guild manager is open and has text input focused
-			if gm.mapView != nil && gm.mapView.territoriesManager != nil {
-				guildManager := gm.mapView.territoriesManager.guildManager
-				if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
-					textInputFocused = true
-				}
-			}
-
-			// Check if loadout manager is open and has text input focused
-			loadoutManager := GetLoadoutManager()
-			if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
-				textInputFocused = true
-			}
-
-			// Check if transit resource menu is open and has text input focused
-			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
-				textInputFocused = true
-			}
-
-			// Check if tribute menu is open and has text input focused
-			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
-				textInputFocused = true
-			}
-
-			// Reset map view only if no text input is focused
-			if !textInputFocused && gm.mapView != nil {
-				gm.mapView.ResetView()
-			}
-		case ebiten.KeyEqual, ebiten.KeyNumpadAdd:
-			// Check if tribute menu is active and has text input focused
-			textInputFocused := false
-			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
-				textInputFocused = true
-			}
-			// Zoom in with smooth zoom
-			if !textInputFocused && gm.mapView != nil {
-				mx, my := ebiten.CursorPosition()
-				gm.mapView.handleSmoothZoom(3.0, mx, my)
-			}
-		case ebiten.KeyMinus, ebiten.KeyNumpadSubtract:
-			// Check if tribute menu is active and has text input focused
-			textInputFocused := false
-			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
-				textInputFocused = true
-			}
-			// Zoom out with smooth zoom
-			if !textInputFocused && gm.mapView != nil {
-				mx, my := ebiten.CursorPosition()
-				gm.mapView.handleSmoothZoom(-3.0, mx, my)
-			}
-		case ebiten.KeyC:
+		switch {
+		case bindingMatches(event.Key, binds.Coordinates):
 			// Check if tribute menu is active and has text input focused
 			textInputFocused := false
 			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
@@ -250,7 +255,7 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 			if !textInputFocused && gm.mapView != nil {
 				gm.mapView.ToggleCoordinates()
 			}
-		case ebiten.KeyM:
+		case bindingMatches(event.Key, binds.AddMarker):
 			// Check if tribute menu is active and has text input focused
 			textInputFocused := false
 			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
@@ -263,7 +268,7 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 				markerName := fmt.Sprintf("M%d", int(mapX))
 				gm.mapView.AddMarker(mapX, mapY, markerName, color.RGBA{255, 0, 0, 255}, 10)
 			}
-		case ebiten.KeyX:
+		case bindingMatches(event.Key, binds.ClearMarkers):
 			// Check if tribute menu is active and has text input focused
 			textInputFocused := false
 			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
@@ -273,7 +278,7 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 			if !textInputFocused && gm.mapView != nil {
 				gm.mapView.ClearMarkers()
 			}
-		case ebiten.KeyG:
+		case bindingMatches(event.Key, binds.GuildManager):
 			// Check if any text input is currently focused before opening guild manager
 			textInputFocused := false
 
@@ -291,54 +296,36 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 				textInputFocused = true
 			}
 
-			// Check if transit resource menu is open and has text input focused
-			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
-				textInputFocused = true
-			}
-
 			// Check if tribute menu is open and has text input focused
 			if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
 				textInputFocused = true
 			}
 
-			// Only open guild manager if no text input is focused and event editor is not open
-			if !textInputFocused && !gm.mapView.IsEventEditorVisible() {
+			// Only open guild manager if no text input is focused
+			if !textInputFocused && gm.mapView != nil {
 				// Open guild editor/management only if not already open
-				if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+				if gm.mapView.territoriesManager != nil {
 					// Check if guild manager is already visible
 					if !gm.mapView.territoriesManager.guildManager.IsVisible() {
-						// Hide transit resource menu when entering guild management mode
-						if gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() {
-							gm.mapView.transitResourceMenu.Hide()
-						}
 						gm.mapView.territoriesManager.OpenGuildManagement()
 					}
 				}
 			}
-		case ebiten.KeyL:
+		case bindingMatches(event.Key, binds.LoadoutManager):
 			// Check if any text input is currently focused before opening loadout manager
 			textInputFocused := false
 
 			// Check if guild manager is open and has text input focused
 			if gm.mapView != nil && gm.mapView.territoriesManager != nil {
 				guildManager := gm.mapView.territoriesManager.guildManager
-				if guildManager.IsVisible() {
-					if guildManager.HasTextInputFocused() {
-						textInputFocused = true
-					}
+				if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+					textInputFocused = true
 				}
 			}
 
 			// Check if loadout manager is open and has text input focused
 			loadoutManager := GetLoadoutManager()
-			if loadoutManager != nil && loadoutManager.IsVisible() {
-				if loadoutManager.HasTextInputFocused() {
-					textInputFocused = true
-				}
-			}
-
-			// Check if transit resource menu is open and has text input focused
-			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
+			if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
 				textInputFocused = true
 			}
 
@@ -347,40 +334,27 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 				textInputFocused = true
 			}
 
-			// Only open loadout manager if no text input is focused and event editor is not open
-			if !textInputFocused && !gm.mapView.IsEventEditorVisible() {
+			// Only open loadout manager if no text input is focused
+			if !textInputFocused && gm.mapView != nil {
 				if loadoutManager != nil && !loadoutManager.IsVisible() {
-					// Hide transit resource menu when entering loadout application mode
-					if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() {
-						gm.mapView.transitResourceMenu.Hide()
-					}
 					loadoutManager.Show()
 				}
 			}
-		case ebiten.KeyS:
+		case bindingMatches(event.Key, binds.ScriptManager):
 			// Check if any text input is currently focused before opening script manager
 			textInputFocused := false
 
 			// Check if guild manager is open and has text input focused
 			if gm.mapView != nil && gm.mapView.territoriesManager != nil {
 				guildManager := gm.mapView.territoriesManager.guildManager
-				if guildManager.IsVisible() {
-					if guildManager.HasTextInputFocused() {
-						textInputFocused = true
-					}
+				if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+					textInputFocused = true
 				}
 			}
 
 			// Check if loadout manager is open and has text input focused
 			loadoutManager := GetLoadoutManager()
-			if loadoutManager != nil && loadoutManager.IsVisible() {
-				if loadoutManager.HasTextInputFocused() {
-					textInputFocused = true
-				}
-			}
-
-			// Check if transit resource menu is open and has text input focused
-			if gm.mapView != nil && gm.mapView.transitResourceMenu != nil && gm.mapView.transitResourceMenu.IsVisible() && gm.mapView.transitResourceMenu.HasTextInputFocused() {
+			if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
 				textInputFocused = true
 			}
 
@@ -389,13 +363,13 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 				textInputFocused = true
 			}
 
-			// Only open script manager if no text input is focused and event editor is not open
-			if !textInputFocused && !gm.mapView.IsEventEditorVisible() {
+			// Only open script manager if no text input is focused
+			if !textInputFocused && gm.mapView != nil {
 				if gm.scriptManager != nil && !gm.scriptManager.IsVisible() {
 					gm.scriptManager.Show()
 				}
 			}
-		case ebiten.KeyH:
+		case bindingMatches(event.Key, binds.RouteHighlight):
 			// Toggle route highlighting feature - only if no text input is focused
 			textInputFocused := false
 
@@ -428,6 +402,94 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 					AutoClose(time.Second * 2).
 					Show()
 			}
+		default:
+			if gm.dispatchPluginKeybind(event.Key) {
+				break
+			}
+			switch event.Key {
+			case ebiten.KeySpace:
+				// fmt.Printf("[GAMEPLAY] Player jumped!\n")
+			case ebiten.KeyShift:
+				gm.moveSpeed = 4.0 // Run speed
+			case ebiten.KeyR:
+				// Check if any text input is currently focused before resetting map view
+				textInputFocused := false
+
+				// Check if guild manager is open and has text input focused
+				if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+					guildManager := gm.mapView.territoriesManager.guildManager
+					if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+						textInputFocused = true
+					}
+				}
+
+				// Check if loadout manager is open and has text input focused
+				loadoutManager := GetLoadoutManager()
+				if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+					textInputFocused = true
+				}
+
+				// Check if tribute menu is open and has text input focused
+				if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+					textInputFocused = true
+				}
+
+				// Reset map view only if no text input is focused
+				if !textInputFocused && gm.mapView != nil {
+					gm.mapView.ResetView()
+				}
+			case ebiten.KeyEqual, ebiten.KeyNumpadAdd:
+				// Check if tribute menu is active and has text input focused
+				textInputFocused := false
+				if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+					textInputFocused = true
+				}
+				// Zoom in with smooth zoom
+				if !textInputFocused && gm.mapView != nil {
+					mx, my := ebiten.CursorPosition()
+					gm.mapView.handleSmoothZoom(3.0, mx, my)
+				}
+			case ebiten.KeyMinus, ebiten.KeyNumpadSubtract:
+				// Check if tribute menu is active and has text input focused
+				textInputFocused := false
+				if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+					textInputFocused = true
+				}
+				// Zoom out with smooth zoom
+				if !textInputFocused && gm.mapView != nil {
+					mx, my := ebiten.CursorPosition()
+					gm.mapView.handleSmoothZoom(-3.0, mx, my)
+				}
+			case ebiten.KeyF8:
+				// Open plugin manager unless a text input is focused
+				textInputFocused := false
+
+				if gm.mapView != nil && gm.mapView.analysisModal != nil && gm.mapView.analysisModal.IsVisible() && gm.mapView.analysisModal.HasTextInputFocused() {
+					textInputFocused = true
+				}
+
+				if gm.mapView != nil && gm.mapView.territoriesManager != nil {
+					guildManager := gm.mapView.territoriesManager.guildManager
+					if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+						textInputFocused = true
+					}
+				}
+
+				loadoutManager := GetLoadoutManager()
+				if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+					textInputFocused = true
+				}
+
+				if gm.mapView != nil && gm.mapView.tributeMenu != nil && gm.mapView.tributeMenu.IsVisible() && gm.mapView.tributeMenu.HasTextInputFocused() {
+					textInputFocused = true
+				}
+
+				if !textInputFocused {
+					if gm.pluginManager != nil && !gm.pluginManager.IsVisible() {
+						gm.pluginManager.Show()
+					}
+				}
+			}
 		}
 	} else {
 		// Handle key release actions
@@ -436,6 +498,23 @@ func (gm *GameplayModule) handleKeyEvent(event KeyEvent) {
 			gm.moveSpeed = 2.0 // Walk speed
 		}
 	}
+}
+
+// dispatchPluginKeybind checks plugin-registered keybinds and triggers callbacks when matched.
+func (gm *GameplayModule) dispatchPluginKeybind(key ebiten.Key) bool {
+	opts := eruntime.GetRuntimeOptions()
+	bindings := opts.PluginKeybinds
+	for _, kb := range pluginhost.ListPluginKeybinds() {
+		binding := ""
+		if bindings != nil {
+			binding = bindings[kb.PluginID+"::"+kb.ID]
+		}
+		if bindingMatches(key, binding) {
+			pluginhost.TriggerPluginKeybind(kb.PluginID, kb.ID)
+			return true
+		}
+	}
+	return false
 }
 
 // handleMouseButtonEvent processes mouse button events
@@ -473,6 +552,11 @@ func (gm *GameplayModule) GetMapView() *MapView {
 	return gm.mapView
 }
 
+// GetPluginManager exposes the native plugin manager.
+func (gm *GameplayModule) GetPluginManager() *PluginManager {
+	return gm.pluginManager
+}
+
 // Draw renders the gameplay elements on the screen
 func (gm *GameplayModule) Draw(screen *ebiten.Image) {
 	if !gm.active {
@@ -494,6 +578,15 @@ func (gm *GameplayModule) Draw(screen *ebiten.Image) {
 		gm.scriptManager.Draw(screen)
 	}
 
+	// Draw plugin manager or active plugin modal/territory overlay
+	if gm.pluginManager != nil {
+		if gm.pluginManager.IsVisible() ||
+			(gm.pluginManager.modalOverlay != nil && gm.pluginManager.modalOverlay.IsVisible()) ||
+			(gm.pluginManager.territorySelectorOverlay != nil && gm.pluginManager.territorySelectorOverlay.IsVisible()) {
+			gm.pluginManager.Draw(screen)
+		}
+	}
+
 	// Draw loadout manager if it exists and is visible
 	loadoutManager := GetLoadoutManager()
 	if loadoutManager != nil && loadoutManager.IsVisible() {
@@ -505,6 +598,7 @@ func (gm *GameplayModule) Draw(screen *ebiten.Image) {
 	if welcomeScreen != nil && welcomeScreen.IsVisible() {
 		welcomeScreen.Draw(screen)
 	}
+
 }
 
 // ToggleRouteHighlighting toggles the white route highlighting feature for hovered territories
@@ -514,9 +608,9 @@ func (gm *GameplayModule) ToggleRouteHighlighting() bool {
 		newState := !currentState
 		gm.mapView.territoriesManager.SetShowHoveredRoutes(newState)
 		if newState {
-			fmt.Println("[FEATURE] Route highlighting enabled - hover over territories to see routes to HQ in white")
+			// fmt.Println("[FEATURE] Route highlighting enabled - hover over territories to see routes to HQ in white")
 		} else {
-			fmt.Println("[FEATURE] Route highlighting disabled")
+			// fmt.Println("[FEATURE] Route highlighting disabled")
 		}
 		return newState
 	}
@@ -528,9 +622,9 @@ func (gm *GameplayModule) SetRouteHighlighting(enabled bool) {
 	if gm.mapView != nil && gm.mapView.territoriesManager != nil {
 		gm.mapView.territoriesManager.SetShowHoveredRoutes(enabled)
 		if enabled {
-			fmt.Println("[FEATURE] Route highlighting enabled")
+			// fmt.Println("[FEATURE] Route highlighting enabled")
 		} else {
-			fmt.Println("[FEATURE] Route highlighting disabled")
+			// fmt.Println("[FEATURE] Route highlighting disabled")
 		}
 	}
 }

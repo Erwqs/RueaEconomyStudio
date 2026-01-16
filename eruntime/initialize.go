@@ -129,29 +129,8 @@ func loadTerritoryClaims() {
 	}
 }
 
-func loadCosts(st *state) {
-	f, err := assets.AssetFiles.ReadFile("upgrades.json")
-	if err != nil {
-		panic("failed to read upgrades.json: " + err.Error())
-	}
-
-	var costs typedef.Costs
-	err = json.Unmarshal(f, &costs)
-	if err != nil {
-		panic("failed to unmarshal upgrades.json: " + err.Error())
-	}
-
-	st.costs = costs
-}
-
 func initializeTerritory(name string, tj typedef.TerritoryJSON) (*typedef.Territory, error) {
 	return typedef.NewTerritory(name, tj) // Default guild
-}
-
-// Loads the state from ETF file
-func loadFromETF(path string) error {
-	// Load ETF file and decode it into the state
-	return nil
 }
 
 func (s *state) load(newState *state) {

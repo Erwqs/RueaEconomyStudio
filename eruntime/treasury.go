@@ -1,6 +1,8 @@
 package eruntime
 
-import "RueaES/typedef"
+import (
+	"RueaES/typedef"
+)
 
 func calculateTreasury(territory *typedef.Territory) float64 {
 	bonusMultiplier := 1.0
@@ -141,7 +143,10 @@ func updateTreasuryLevel(territory *typedef.Territory) {
 		return
 	}
 
-	territory.Mu.Lock()
+	if !territory.Mu.TryLock() {
+		// Avoid blocking the tick thread; skip this territory this tick
+		return
+	}
 	defer territory.Mu.Unlock()
 
 	// Don't update treasury for territories with no guild or "No Guild"

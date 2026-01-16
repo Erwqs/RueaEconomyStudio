@@ -25,6 +25,7 @@ type EnhancedGuildData struct {
 	Name  string `json:"name"`
 	Tag   string `json:"tag"`
 	Color string `json:"color"` // Hex color representation (e.g., "#FF0000")
+	Show  bool   `json:"show"`
 }
 
 // EnhancedTextInput represents a text input field with placeholder support
@@ -419,6 +420,7 @@ type EnhancedGuildManager struct {
 	tagInput           *EnhancedTextInput
 	guilds             []EnhancedGuildData
 	filteredGuilds     []EnhancedGuildData
+	noneGuildVisible   bool
 	scrollOffset       int
 	hoveredIndex       int
 	selectedIndex      int
@@ -488,21 +490,22 @@ func NewEnhancedGuildManager() *EnhancedGuildManager {
 	tagInput := TextInput("Tag...", modalX+240, modalY+70, 50, 35, 4)
 
 	gm := &EnhancedGuildManager{
-		visible:         false,
-		nameInput:       nameInput,
-		tagInput:        tagInput,
-		guilds:          []EnhancedGuildData{},
-		filteredGuilds:  []EnhancedGuildData{},
-		scrollOffset:    0,
-		hoveredIndex:    -1,
-		selectedIndex:   -1,
-		guildFilePath:   "guilds.json",
-		modalX:          modalX,
-		modalY:          modalY,
-		modalWidth:      modalWidth,
-		modalHeight:     modalHeight,
-		justOpened:      false,
-		framesSinceOpen: 0,
+		visible:          false,
+		nameInput:        nameInput,
+		tagInput:         tagInput,
+		guilds:           []EnhancedGuildData{},
+		filteredGuilds:   []EnhancedGuildData{},
+		noneGuildVisible: true,
+		scrollOffset:     0,
+		hoveredIndex:     -1,
+		selectedIndex:    -1,
+		guildFilePath:    "guilds.json",
+		modalX:           modalX,
+		modalY:           modalY,
+		modalWidth:       modalWidth,
+		modalHeight:      modalHeight,
+		justOpened:       false,
+		framesSinceOpen:  0,
 		statusMessageManager: StatusMessageManager{
 			Messages: []StatusMessage{},
 		},
@@ -943,6 +946,14 @@ keyEventsProcessed:
 					Height: 20,
 				}
 
+				// Show/hide toggle area
+				showToggleRect := Rect{
+					X:      gm.modalX + gm.modalWidth - 190,
+					Y:      itemY + 5,
+					Width:  60,
+					Height: 25,
+				}
+
 				// Edit claim button area
 				editClaimRect := Rect{
 					X:      gm.modalX + gm.modalWidth - 90,
@@ -958,6 +969,16 @@ keyEventsProcessed:
 					// Handle click on color button
 					if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 						gm.openColorPickerForGuild(itemIndex)
+						return true
+					}
+				}
+
+				// Check show/hide toggle
+				if mx >= showToggleRect.X && mx < showToggleRect.X+showToggleRect.Width &&
+					my >= showToggleRect.Y && my < showToggleRect.Y+showToggleRect.Height {
+
+					if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+						gm.setGuildVisibilityByIndex(itemIndex, !gm.filteredGuilds[itemIndex].Show)
 						return true
 					}
 				}
@@ -1078,6 +1099,38 @@ keyEventsProcessed:
 				gm.showOnMapGuildsOnly = !gm.showOnMapGuildsOnly
 				// Re-filter the guilds with the new setting
 				gm.filterGuilds()
+				return true
+			}
+		}
+
+		// Handle global show/hide button click
+		globalToggleRect := Rect{
+			X:      gm.modalX + 170,
+			Y:      gm.modalY + 125,
+			Width:  95,
+			Height: 25,
+		}
+
+		if mx >= globalToggleRect.X && mx < globalToggleRect.X+globalToggleRect.Width &&
+			my >= globalToggleRect.Y && my < globalToggleRect.Y+globalToggleRect.Height {
+			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+				gm.setAllGuildVisibility(!gm.areAllGuildsVisible())
+				return true
+			}
+		}
+
+		// Handle invert visibility button click
+		invertRect := Rect{
+			X:      gm.modalX + 275,
+			Y:      gm.modalY + 125,
+			Width:  85,
+			Height: 25,
+		}
+
+		if mx >= invertRect.X && mx < invertRect.X+invertRect.Width &&
+			my >= invertRect.Y && my < invertRect.Y+invertRect.Height {
+			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+				gm.invertGuildVisibility()
 				return true
 			}
 		}
@@ -1281,6 +1334,64 @@ func (gm *EnhancedGuildManager) Draw(screen *ebiten.Image) {
 		toggleButtonRect.Y+(toggleButtonRect.Height+toggleTextBounds.Dy())/2-2,
 		toggleTextColor)
 
+	// Draw global visibility toggle
+	allVisible := gm.areAllGuildsVisible()
+	globalToggleText := "Hide All"
+	if !allVisible {
+		globalToggleText = "Show All"
+	}
+
+	globalToggleRect := Rect{
+		X:      gm.modalX + 170,
+		Y:      gm.modalY + 125,
+		Width:  95,
+		Height: 25,
+	}
+
+	globalToggleColor := color.RGBA{70, 70, 80, 255}
+	if mx >= globalToggleRect.X && mx < globalToggleRect.X+globalToggleRect.Width &&
+		my >= globalToggleRect.Y && my < globalToggleRect.Y+globalToggleRect.Height {
+		globalToggleColor = color.RGBA{90, 90, 100, 255}
+	}
+
+	vector.DrawFilledRect(screen, float32(globalToggleRect.X), float32(globalToggleRect.Y),
+		float32(globalToggleRect.Width), float32(globalToggleRect.Height), globalToggleColor, false)
+
+	vector.StrokeRect(screen, float32(globalToggleRect.X), float32(globalToggleRect.Y),
+		float32(globalToggleRect.Width), float32(globalToggleRect.Height), 2, EnhancedUIColors.Border, false)
+
+	globalToggleBounds := text.BoundString(contentFont, globalToggleText)
+	text.Draw(screen, globalToggleText, contentFont,
+		globalToggleRect.X+(globalToggleRect.Width-globalToggleBounds.Dx())/2,
+		globalToggleRect.Y+(globalToggleRect.Height+globalToggleBounds.Dy())/2-2,
+		EnhancedUIColors.Text)
+
+	// Draw invert visibility button
+	invertRect := Rect{
+		X:      gm.modalX + 275,
+		Y:      gm.modalY + 125,
+		Width:  85,
+		Height: 25,
+	}
+
+	invertColor := color.RGBA{70, 70, 80, 255}
+	if mx >= invertRect.X && mx < invertRect.X+invertRect.Width &&
+		my >= invertRect.Y && my < invertRect.Y+invertRect.Height {
+		invertColor = color.RGBA{90, 90, 100, 255}
+	}
+
+	vector.DrawFilledRect(screen, float32(invertRect.X), float32(invertRect.Y),
+		float32(invertRect.Width), float32(invertRect.Height), invertColor, false)
+
+	vector.StrokeRect(screen, float32(invertRect.X), float32(invertRect.Y),
+		float32(invertRect.Width), float32(invertRect.Height), 2, EnhancedUIColors.Border, false)
+
+	invertBounds := text.BoundString(contentFont, "Invert")
+	text.Draw(screen, "Invert", contentFont,
+		invertRect.X+(invertRect.Width-invertBounds.Dx())/2,
+		invertRect.Y+(invertRect.Height+invertBounds.Dy())/2-2,
+		EnhancedUIColors.Text)
+
 	// Draw guild list heading
 	listHeading := fmt.Sprintf("Guilds (%d)", len(gm.filteredGuilds))
 	text.Draw(screen, listHeading, contentFont, gm.modalX+30, gm.modalY+165+contentOffset, EnhancedUIColors.Text)
@@ -1353,6 +1464,49 @@ func (gm *EnhancedGuildManager) Draw(screen *ebiten.Image) {
 				float32(colorButtonY),
 				float32(colorButtonSize),
 				float32(colorButtonSize), 2, EnhancedUIColors.Border, false)
+
+			// Draw show/hide toggle
+			showToggleRect := Rect{
+				X:      gm.modalX + gm.modalWidth - 190,
+				Y:      itemY + 5,
+				Width:  60,
+				Height: 25,
+			}
+
+			showToggleColor := color.RGBA{70, 70, 80, 255}
+			showToggleText := "Hidden"
+			if guild.Show {
+				showToggleColor = color.RGBA{80, 192, 80, 255}
+				showToggleText = "Shown"
+			}
+
+			if mx >= showToggleRect.X && mx < showToggleRect.X+showToggleRect.Width &&
+				my >= showToggleRect.Y && my < showToggleRect.Y+showToggleRect.Height {
+				if guild.Show {
+					showToggleColor = color.RGBA{100, 227, 100, 255}
+				} else {
+					showToggleColor = color.RGBA{90, 90, 100, 255}
+				}
+			}
+
+			vector.DrawFilledRect(screen,
+				float32(showToggleRect.X),
+				float32(showToggleRect.Y),
+				float32(showToggleRect.Width),
+				float32(showToggleRect.Height),
+				showToggleColor, false)
+
+			vector.StrokeRect(screen,
+				float32(showToggleRect.X),
+				float32(showToggleRect.Y),
+				float32(showToggleRect.Width),
+				float32(showToggleRect.Height), 1, EnhancedUIColors.Border, false)
+
+			showTextBounds := text.BoundString(contentFont, showToggleText)
+			text.Draw(screen, showToggleText, contentFont,
+				showToggleRect.X+(showToggleRect.Width-showTextBounds.Dx())/2,
+				showToggleRect.Y+(showToggleRect.Height+showTextBounds.Dy())/2-2,
+				EnhancedUIColors.Text)
 
 			// Draw edit claim button
 			editClaimButtonRect := Rect{
@@ -1550,6 +1704,9 @@ func (gm *EnhancedGuildManager) addGuild(name, tag string) {
 	if len(tag) < 3 || len(tag) > 4 {
 		return
 	}
+	if strings.EqualFold(tag, "NONE") {
+		return
+	}
 
 	// Check for duplicates
 	for _, guild := range gm.guilds {
@@ -1563,6 +1720,7 @@ func (gm *EnhancedGuildManager) addGuild(name, tag string) {
 		Name:  name,
 		Tag:   tag,
 		Color: "#FFAA00", // Default yellow color
+		Show:  true,
 	}
 
 	gm.guilds = append(gm.guilds, newGuild)
@@ -1592,6 +1750,11 @@ func (gm *EnhancedGuildManager) addGuild(name, tag string) {
 // removeGuild removes a guild from the list
 func (gm *EnhancedGuildManager) removeGuild(index int) {
 	if index < 0 || index >= len(gm.filteredGuilds) {
+		return
+	}
+
+	// Never remove the synthetic None guild entry
+	if strings.EqualFold(gm.filteredGuilds[index].Tag, "NONE") {
 		return
 	}
 
@@ -1629,21 +1792,42 @@ func (gm *EnhancedGuildManager) loadGuildsFromFile() {
 		gm.guilds = []EnhancedGuildData{}
 		gm.filteredGuilds = []EnhancedGuildData{}
 	} else {
-		var guilds []EnhancedGuildData
+		type guildFileEntry struct {
+			Name  string `json:"name"`
+			Tag   string `json:"tag"`
+			Color string `json:"color"`
+			Show  *bool  `json:"show"`
+		}
+
+		var guilds []guildFileEntry
 		if err := json.Unmarshal(data, &guilds); err != nil {
 			// Invalid JSON, start with empty list
 			gm.guilds = []EnhancedGuildData{}
 			gm.filteredGuilds = []EnhancedGuildData{}
 		} else {
-			// Ensure all guilds have a color (for backward compatibility)
-			for i := range guilds {
-				if guilds[i].Color == "" {
-					guilds[i].Color = "#FFAA00" // Default yellow
+			converted := make([]EnhancedGuildData, 0, len(guilds))
+			for _, entry := range guilds {
+				show := true
+				if entry.Show != nil {
+					show = *entry.Show
 				}
+				color := entry.Color
+				if color == "" {
+					color = "#FFAA00" // Default yellow
+				}
+
+				converted = append(converted, EnhancedGuildData{
+					Name:  entry.Name,
+					Tag:   entry.Tag,
+					Color: color,
+					Show:  show,
+				})
 			}
-			gm.guilds = guilds
+			gm.guilds = converted
 		}
 	}
+
+	gm.ensureNoneGuildEntry()
 
 	// Create maps of existing guilds for fast lookup (preserves local colors)
 	existingGuildsByTag := make(map[string]*EnhancedGuildData)
@@ -1691,6 +1875,7 @@ func (gm *EnhancedGuildManager) loadGuildsFromFile() {
 			Name:  guildName,
 			Tag:   guildTag,
 			Color: "#FFAA00", // Default yellow color for new guilds
+			Show:  true,
 		}
 		gm.guilds = append(gm.guilds, newGuild)
 		newGuildsAdded = true
@@ -1708,8 +1893,37 @@ func (gm *EnhancedGuildManager) loadGuildsFromFile() {
 	copy(gm.filteredGuilds, gm.guilds)
 }
 
+// ensureNoneGuildEntry keeps the synthetic "No Guild" entry in sync and defaults to visible when missing
+func (gm *EnhancedGuildManager) ensureNoneGuildEntry() {
+	// found := false
+
+	for i := range gm.guilds {
+		if strings.EqualFold(gm.guilds[i].Tag, "NONE") {
+			// found = true
+			if gm.guilds[i].Name == "" {
+				gm.guilds[i].Name = "No Guild"
+			}
+			if gm.guilds[i].Color == "" {
+				gm.guilds[i].Color = "#888888"
+			}
+			gm.noneGuildVisible = gm.guilds[i].Show
+			return
+		}
+	}
+
+	// If not present, append a default entry and mirror current visibility flag
+	gm.guilds = append(gm.guilds, EnhancedGuildData{
+		Name:  "No Guild",
+		Tag:   "NONE",
+		Color: "#888888",
+		Show:  gm.noneGuildVisible,
+	})
+}
+
 // saveGuildsToFile saves guilds to JSON file
 func (gm *EnhancedGuildManager) saveGuildsToFile() {
+	gm.ensureNoneGuildEntry()
+
 	data, err := json.MarshalIndent(gm.guilds, "", "  ")
 	if err != nil {
 		return
@@ -2210,10 +2424,13 @@ func (gm *EnhancedGuildManager) SetAllGuildColors(guildColors map[string]map[str
 			Name:  name,
 			Tag:   tag,
 			Color: color,
+			Show:  true,
 		})
 	}
 
+	gm.ensureNoneGuildEntry()
 	gm.cachesDirty = true
+	gm.filterGuilds()
 	gm.saveGuildsToFile()
 }
 
@@ -2244,11 +2461,14 @@ func (gm *EnhancedGuildManager) MergeGuildColors(guildColors map[string]map[stri
 				Name:  name,
 				Tag:   tag,
 				Color: color,
+				Show:  true,
 			})
 		}
 	}
 
+	gm.ensureNoneGuildEntry()
 	gm.cachesDirty = true
+	gm.filterGuilds()
 	gm.saveGuildsToFile()
 }
 
@@ -2307,6 +2527,107 @@ func (gm *EnhancedGuildManager) GetGuildColor(name, tag string) (color.RGBA, boo
 	}
 
 	return EnhancedUIColors.Text, false
+}
+
+// IsGuildVisible reports whether a guild (or the synthetic NONE guild) should be shown on the map
+func (gm *EnhancedGuildManager) IsGuildVisible(name, tag string) bool {
+	if gm == nil {
+		return true
+	}
+
+	// Treat empty tag/name and NONE as the synthetic no-guild entry
+	if (name == "" && tag == "") || strings.EqualFold(tag, "NONE") {
+		return gm.noneGuildVisible
+	}
+
+	gm.ensureCachesValid()
+
+	if name != "" && tag != "" {
+		if guild, found := gm.guildByNameTag[name+"|"+tag]; found {
+			return guild.Show
+		}
+	}
+
+	if name != "" {
+		if guild, found := gm.guildByName[name]; found {
+			return guild.Show
+		}
+	}
+
+	if tag != "" {
+		if guild, found := gm.guildByTag[tag]; found {
+			return guild.Show
+		}
+	}
+
+	return true
+}
+
+// setGuildVisibilityByIndex updates the visibility flag for a guild in both filtered and main lists
+func (gm *EnhancedGuildManager) setGuildVisibilityByIndex(guildIndex int, visible bool) {
+	if guildIndex < 0 || guildIndex >= len(gm.filteredGuilds) {
+		return
+	}
+
+	target := gm.filteredGuilds[guildIndex]
+
+	for i := range gm.guilds {
+		if gm.guilds[i].Name == target.Name && gm.guilds[i].Tag == target.Tag {
+			gm.guilds[i].Show = visible
+			if strings.EqualFold(gm.guilds[i].Tag, "NONE") {
+				gm.noneGuildVisible = visible
+			}
+			break
+		}
+	}
+
+	gm.filteredGuilds[guildIndex].Show = visible
+	gm.cachesDirty = true
+	gm.saveGuildsToFile()
+}
+
+// setAllGuildVisibility sets the same visibility across all guilds (including NONE)
+func (gm *EnhancedGuildManager) setAllGuildVisibility(visible bool) {
+	gm.ensureNoneGuildEntry()
+
+	for i := range gm.guilds {
+		gm.guilds[i].Show = visible
+		if strings.EqualFold(gm.guilds[i].Tag, "NONE") {
+			gm.noneGuildVisible = visible
+		}
+	}
+
+	gm.cachesDirty = true
+	gm.filterGuilds()
+	gm.saveGuildsToFile()
+}
+
+// invertGuildVisibility flips the visibility flag for every guild
+func (gm *EnhancedGuildManager) invertGuildVisibility() {
+	gm.ensureNoneGuildEntry()
+
+	for i := range gm.guilds {
+		gm.guilds[i].Show = !gm.guilds[i].Show
+		if strings.EqualFold(gm.guilds[i].Tag, "NONE") {
+			gm.noneGuildVisible = gm.guilds[i].Show
+		}
+	}
+
+	gm.cachesDirty = true
+	gm.filterGuilds()
+	gm.saveGuildsToFile()
+}
+
+// areAllGuildsVisible returns true if every guild (including NONE) is visible
+func (gm *EnhancedGuildManager) areAllGuildsVisible() bool {
+	gm.ensureNoneGuildEntry()
+
+	for i := range gm.guilds {
+		if !gm.guilds[i].Show {
+			return false
+		}
+	}
+	return true
 }
 
 // runAPIImport imports guilds and territories from the API
@@ -2397,11 +2718,16 @@ func (gm *EnhancedGuildManager) runAPIImport() {
 func (gm *EnhancedGuildManager) clearAllGuilds() {
 	// Clear the guilds slice
 	gm.guilds = []EnhancedGuildData{}
+	gm.noneGuildVisible = true
+	gm.ensureNoneGuildEntry()
 	gm.cachesDirty = true // Invalidate caches when clearing
 	gm.filteredGuilds = []EnhancedGuildData{}
 	gm.selectedIndex = -1
 	gm.hoveredIndex = -1
 	gm.scrollOffset = 0
+
+	// Rebuild filtered list to include the synthetic None entry
+	gm.filterGuilds()
 
 	// Save the empty list to file
 	gm.saveGuildsToFile()

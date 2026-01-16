@@ -143,7 +143,7 @@ func (sm *SettingsModule) handleKeyEvent(event KeyEvent) {
 		sm.saveSettings()
 	case ebiten.KeyEscape:
 		sm.SetActive(false)
-		fmt.Println("[SETTINGS] Settings menu closed")
+		// fmt.Println("[SETTINGS] Settings menu closed")
 	}
 }
 
@@ -165,16 +165,16 @@ func (sm *SettingsModule) IsActive() bool {
 
 // printHelp displays available settings controls
 func (sm *SettingsModule) printHelp() {
-	fmt.Println("[SETTINGS] Controls:")
-	fmt.Println("  +/-     : Adjust volume")
-	fmt.Println("  F       : Toggle FPS display")
-	fmt.Println("  W       : Cycle window mode")
-	fmt.Println("  V       : Toggle VSync")
-	fmt.Println("  A       : Toggle auto save")
-	fmt.Println("  L       : Cycle language")
-	fmt.Println("  R       : Reset to defaults")
-	fmt.Println("  S       : Save settings")
-	fmt.Println("  ESC     : Close settings")
+	// fmt.Println("[SETTINGS] Controls:")
+	// fmt.Println("  +/-     : Adjust volume")
+	// fmt.Println("  F       : Toggle FPS display")
+	// fmt.Println("  W       : Cycle window mode")
+	// fmt.Println("  V       : Toggle VSync")
+	// fmt.Println("  A       : Toggle auto save")
+	// fmt.Println("  L       : Cycle language")
+	// fmt.Println("  R       : Reset to defaults")
+	// fmt.Println("  S       : Save settings")
+	// fmt.Println("  ESC     : Close settings")
 	fmt.Printf("[SETTINGS] Current - Volume: %d%%, Show FPS: %t, Window: %s, VSync: %t, Auto Save: %t, Language: %s\n",
 		sm.volume, sm.showFPS, sm.windowMode, sm.vsync, sm.autoSave, sm.language)
 }
@@ -187,7 +187,7 @@ func (sm *SettingsModule) resetToDefaults() {
 	sm.vsync = true
 	sm.autoSave = true
 	sm.language = "English"
-	fmt.Println("[SETTINGS] Settings reset to defaults")
+	// fmt.Println("[SETTINGS] Settings reset to defaults")
 }
 
 // saveSettings simulates saving settings to a file

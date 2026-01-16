@@ -9,6 +9,12 @@ import (
 // update() handles resource generation, territorial defences
 // should be called every second
 func (s *state) update() {
+	// External calculators must run sequentially to avoid races with the engine's parallel mode.
+	if s.externalCalculatorActive {
+		s.updateSequential()
+		return
+	}
+
 	// Choose processing method based on configuration
 	if s.useParallelProcessing {
 		s.updateParallel()
@@ -57,17 +63,10 @@ func (s *state) updateParallel() {
 					continue
 				}
 
-				// All territory processing functions already use individual territory locks
-				// so parallel processing is safe
-
-				// Calculate generation potential for this territory (this handles affordability checks internally)
-				_, _, _, _ = calculateGeneration(territory)
-
-				// Actually perform the resource generation/consumption
+				
 				doGenerate(territory)
-
-				// Calculate tower stats based on At upgrade levels (step 5)
 				territory.TowerStats = calculateTowerStats(territory)
+				
 				updateTreasuryLevel(territory)
 				updateGenerationBonus(territory)
 			}

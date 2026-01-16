@@ -43,6 +43,7 @@ type FilterableDropdown struct {
 	hoveredIndex    int
 	maxVisibleItems int
 	scrollOffset    int
+	placeholder     string
 
 	// Visual properties
 	backgroundColor color.RGBA
@@ -58,6 +59,8 @@ type FilterableDropdown struct {
 	containerBounds image.Rectangle
 	openUpward      bool
 }
+
+var dropdownOverlayQueue []*FilterableDropdown
 
 // NewFilterableDropdown creates a new filterable dropdown component
 func NewFilterableDropdown(x, y, width, height int, options []FilterableDropdownOption, onSelected func(FilterableDropdownOption)) *FilterableDropdown {
@@ -86,6 +89,7 @@ func NewFilterableDropdown(x, y, width, height int, options []FilterableDropdown
 		selectedColor:   color.RGBA{100, 150, 255, 100},
 		onSelected:      onSelected,
 		openUpward:      false,
+		placeholder:     "Select or type...",
 	}
 
 	// Copy all options to filtered initially
@@ -477,10 +481,47 @@ func (fd *FilterableDropdown) Draw(screen *ebiten.Image) {
 	// Draw dropdown header (text input)
 	fd.drawHeader(screen)
 
-	// Draw dropdown items if open
+	// Queue dropdown list to be drawn in the global overlay pass so it sits above all UI.
 	if fd.IsOpen {
-		fd.drawItems(screen)
+		queueDropdownOverlay(fd)
 	}
+}
+
+// DrawHeaderOnly renders just the input/header without any open list.
+func (fd *FilterableDropdown) DrawHeaderOnly(screen *ebiten.Image) {
+	fd.drawHeader(screen)
+}
+
+// SetPlaceholder overrides the hint text shown when no value is selected.
+func (fd *FilterableDropdown) SetPlaceholder(text string) {
+	fd.placeholder = text
+}
+
+// DrawOverlay redraws only the open menu portion so it can be layered above other UI.
+func (fd *FilterableDropdown) DrawOverlay(screen *ebiten.Image) {
+	if !fd.IsOpen {
+		return
+	}
+
+	fd.drawItems(screen)
+}
+
+// queueDropdownOverlay records an open dropdown so its list can be drawn after all other UI.
+func queueDropdownOverlay(fd *FilterableDropdown) {
+	if fd == nil {
+		return
+	}
+	dropdownOverlayQueue = append(dropdownOverlayQueue, fd)
+}
+
+// FlushDropdownOverlays draws all queued dropdown lists above the rest of the UI and clears the queue.
+func FlushDropdownOverlays(screen *ebiten.Image) {
+	for _, fd := range dropdownOverlayQueue {
+		if fd != nil && fd.IsOpen {
+			fd.drawItems(screen)
+		}
+	}
+	dropdownOverlayQueue = dropdownOverlayQueue[:0]
 }
 
 // drawHeader draws the main dropdown header (text input field)
@@ -500,7 +541,7 @@ func (fd *FilterableDropdown) drawHeader(screen *ebiten.Image) {
 	font := loadWynncraftFont(16)
 	textToShow := fd.inputText
 	if textToShow == "" && !fd.InputFocused {
-		textToShow = "Select or type guild name..."
+		textToShow = fd.placeholder
 		text.Draw(screen, textToShow, font, fd.X+8, fd.Y+fd.Height/2+4, color.RGBA{120, 120, 120, 255})
 	} else {
 		// Draw selection highlight first if there's a selection

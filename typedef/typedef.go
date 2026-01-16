@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"image/color"
 	"strconv"
 	"sync"
 )
@@ -68,8 +69,8 @@ const (
 type PathfindingAlgorithm int8
 
 const (
-	PathfindingDijkstra      PathfindingAlgorithm = iota // Breadth-First Search (fastest, ignores cost)
-	PathfindingAstar                             // Dijkstra's algorithm (cheapest route)
+	PathfindingDijkstra PathfindingAlgorithm = iota // Breadth-First Search (fastest, ignores cost)
+	PathfindingAstar                                // Dijkstra's algorithm (cheapest route)
 	PathfindingFloodFill
 )
 
@@ -563,6 +564,22 @@ type Territory struct {
 	Mu sync.RWMutex
 }
 
+// TerritorySnapshot is a lightweight, mutex-free copy suitable for external consumers (plugins, UI helpers).
+type TerritorySnapshot struct {
+	Name            string
+	ID              string
+	GuildName       string
+	GuildTag        string
+	HQ              bool
+	RoutingMode     Routing
+	Border          Border
+	Treasury        float64
+	RouteTax        float64
+	GenerationBonus float64
+	Resources       BasicResources
+	Location        LocationObject
+}
+
 // NewTerritory creates a new Territory instance from the given TerritoryJSON.
 func NewTerritory(name string, t TerritoryJSON) (*Territory, error) {
 	// Convert BasicResourcesBroken to BasicResources
@@ -725,6 +742,46 @@ type Loadout struct {
 	TerritoryOptions
 }
 
+// RGBAColor stores a color in 0-255 channels for JSON persistence.
+type RGBAColor struct {
+	R uint8 `json:"R"`
+	G uint8 `json:"G"`
+	B uint8 `json:"B"`
+	A uint8 `json:"A"`
+}
+
+// ToRGBA converts the persisted color to the standard color.RGBA type.
+func (c RGBAColor) ToRGBA() color.RGBA {
+	return color.RGBA{R: c.R, G: c.G, B: c.B, A: c.A}
+}
+
+// RGBAColorFromColor converts a runtime color into a persisted RGBAColor.
+func RGBAColorFromColor(c color.RGBA) RGBAColor {
+	return RGBAColor{R: c.R, G: c.G, B: c.B, A: c.A}
+}
+
+// ResourceColorOptions groups map colors for resource views.
+type ResourceColorOptions struct {
+	Wood    RGBAColor `json:"Wood"`
+	Crop    RGBAColor `json:"Crop"`
+	Fish    RGBAColor `json:"Fish"`
+	Ore     RGBAColor `json:"Ore"`
+	Multi   RGBAColor `json:"Multi"`
+	Emerald RGBAColor `json:"Emerald"`
+}
+
+// DefaultResourceColors returns the baseline map palette.
+func DefaultResourceColors() ResourceColorOptions {
+	return ResourceColorOptions{
+		Wood:    RGBAColor{R: 50, G: 205, B: 50, A: 255},   // Lime green
+		Crop:    RGBAColor{R: 255, G: 215, B: 0, A: 255},   // Gold
+		Fish:    RGBAColor{R: 30, G: 144, B: 255, A: 255},  // Dodger blue
+		Ore:     RGBAColor{R: 255, G: 127, B: 193, A: 255}, // Light pink
+		Multi:   RGBAColor{R: 255, G: 255, B: 255, A: 255}, // White
+		Emerald: RGBAColor{R: 0, G: 255, B: 0, A: 255},     // Pure green
+	}
+}
+
 // Tracks user options and settings
 type RuntimeOptions struct {
 	TreasuryEnabled bool // If true, the treasury is enabled and will be used for resource generation and storage
@@ -738,7 +795,43 @@ type RuntimeOptions struct {
 
 	PathfindingAlgorithm PathfindingAlgorithm // Pathfinding algorithm to use for routing
 
+	// Map visibility controls
+	MapOpacityPercent float64 `json:"MapOpacityPercent"` // 0-100, 100 = fully visible map, 0 = hide map (territories still rendered)
+
+	// Throughput view tuning (gamma-style curve). 0 = linear, >0 brightens faster, <0 brightens slower.
+	ThroughputCurve float64 `json:"ThroughputCurve"`
+
+	// Chokepoint visualization tuning (gamma-style curve). 0 = linear.
+	ChokepointCurve float64 `json:"ChokepointCurve"`
+
+	// Weight multiplier for emerald production relative to resources in chokepoint scoring.
+	ChokepointEmeraldWeight float64 `json:"ChokepointEmeraldWeight"`
+
+	// Chokepoint scoring mode: "Cardinal" (importance-based) or "Ordinal" (percentile-based coloring).
+	ChokepointMode string `json:"ChokepointMode"`
+
+	// Whether to include downstream production when weighting chokepoint importance.
+	ChokepointIncludeDownstream bool `json:"ChokepointIncludeDownstream"`
+
+	// Customizable map colors for resource view and emerald production.
+	ResourceColors ResourceColorOptions `json:"ResourceColors"`
+
+	// Whether emerald-generating territories should be highlighted with the emerald palette in Resource view.
+	ShowEmeraldGenerators bool `json:"ShowEmeraldGenerators"`
+
+	// Selected pathfinder provider (empty string = built-in engine pathfinder).
+	PathfinderProvider string `json:"PathfinderProvider"`
+
+	// Selected cost provider (empty string = built-in costs from assets/upgrades.json).
+	CostProvider string `json:"CostProvider"`
+
 	ImposeCooldown bool // whether 10 mins is imposed
+
+	// User-configurable keyboard shortcuts for common UI actions.
+	Keybinds Keybinds `json:"keybinds"`
+
+	// PluginKeybinds stores per-plugin keybind overrides keyed by "pluginID::bindID".
+	PluginKeybinds map[string]string `json:"pluginKeybinds,omitempty"`
 }
 
 func _round_down4(x float64) float64 {
@@ -753,4 +846,34 @@ func _round_down2(x float64) float64 {
 
 func _round_down_nearest(x float64) float64 {
 	return float64(int(x))
+}
+
+// KeybindLabel returns a friendly label for a configured key.
+func (k Keybinds) KeybindLabel(name string) string {
+	switch name {
+	case "analysis":
+		return k.AnalysisModal
+	case "state":
+		return k.StateMenu
+	case "tribute":
+		return k.TributeMenu
+	case "guild":
+		return k.GuildManager
+	case "loadout":
+		return k.LoadoutManager
+	case "script":
+		return k.ScriptManager
+	case "territory":
+		return k.TerritoryToggle
+	case "coords":
+		return k.Coordinates
+	case "add_marker":
+		return k.AddMarker
+	case "clear_markers":
+		return k.ClearMarkers
+	case "route_highlight":
+		return k.RouteHighlight
+	default:
+		return ""
+	}
 }

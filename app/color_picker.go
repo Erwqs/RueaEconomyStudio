@@ -211,11 +211,12 @@ func NewColorPicker(x, y, width, height int) *ColorPicker {
 		guildIndex: -1,
 	}
 
-	// Create input fields - position them correctly
-	cp.hexInput = TextInput("#FF0000", x+80, y+390, 100, 25, 7) // Positioned near hex label
-	cp.rInput = TextInput("255", x+width-70, y+305, 50, 25, 3)  // Next to R slider, bigger height
-	cp.gInput = TextInput("0", x+width-70, y+330, 50, 25, 3)    // Next to G slider, bigger height
-	cp.bInput = TextInput("0", x+width-70, y+355, 50, 25, 3)    // Next to B slider, bigger height
+	// Create input fields - initial positions relative to constructor; will be re-laid on Show
+	cp.hexInput = TextInput("#FF0000", x+80, y+390, 100, 25, 7)
+	cp.rInput = TextInput("255", x+width-70, y+305, 50, 25, 3)
+	cp.gInput = TextInput("0", x+width-70, y+330, 50, 25, 3)
+	cp.bInput = TextInput("0", x+width-70, y+355, 50, 25, 3)
+	cp.layoutInputs()
 
 	cp.updateFromRGB()
 	return cp
@@ -225,6 +226,7 @@ func NewColorPicker(x, y, width, height int) *ColorPicker {
 func (cp *ColorPicker) Show(guildIndex int, currentColor string) {
 	cp.visible = true
 	cp.guildIndex = guildIndex
+	cp.layoutInputs()
 
 	// Parse current color if provided
 	if currentColor != "" && len(currentColor) == 7 && currentColor[0] == '#' {
@@ -237,6 +239,26 @@ func (cp *ColorPicker) Show(guildIndex int, currentColor string) {
 	}
 
 	cp.updateInputFields()
+}
+
+// layoutInputs repositions text inputs based on current picker origin/size.
+func (cp *ColorPicker) layoutInputs() {
+	if cp.hexInput != nil {
+		cp.hexInput.X = cp.x + 80
+		cp.hexInput.Y = cp.y + 390
+	}
+	if cp.rInput != nil {
+		cp.rInput.X = cp.x + cp.width - 70
+		cp.rInput.Y = cp.y + 305
+	}
+	if cp.gInput != nil {
+		cp.gInput.X = cp.x + cp.width - 70
+		cp.gInput.Y = cp.y + 330
+	}
+	if cp.bInput != nil {
+		cp.bInput.X = cp.x + cp.width - 70
+		cp.bInput.Y = cp.y + 355
+	}
 }
 
 // Hide hides the color picker
@@ -261,7 +283,7 @@ func (cp *ColorPicker) Update() bool {
 	// Handle input field focus clicks first (before any dragging)
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		// Check hex input
-		hexBounds := image.Rect(cp.x+80, cp.y+390, cp.x+180, cp.y+415)
+		hexBounds := image.Rect(cp.hexInput.X, cp.hexInput.Y, cp.hexInput.X+cp.hexInput.Width, cp.hexInput.Y+cp.hexInput.Height)
 		if mx >= hexBounds.Min.X && mx < hexBounds.Max.X && my >= hexBounds.Min.Y && my < hexBounds.Max.Y {
 			// If not already focused, clear the value and select all
 			if !cp.hexInput.Focused {
@@ -276,7 +298,7 @@ func (cp *ColorPicker) Update() bool {
 		}
 
 		// Check R input
-		rBounds := image.Rect(cp.x+cp.width-70, cp.y+305, cp.x+cp.width-20, cp.y+330)
+		rBounds := image.Rect(cp.rInput.X, cp.rInput.Y, cp.rInput.X+cp.rInput.Width, cp.rInput.Y+cp.rInput.Height)
 		if mx >= rBounds.Min.X && mx < rBounds.Max.X && my >= rBounds.Min.Y && my < rBounds.Max.Y {
 			// If not already focused, clear the value
 			if !cp.rInput.Focused {
@@ -291,7 +313,7 @@ func (cp *ColorPicker) Update() bool {
 		}
 
 		// Check G input
-		gBounds := image.Rect(cp.x+cp.width-70, cp.y+330, cp.x+cp.width-20, cp.y+355)
+		gBounds := image.Rect(cp.gInput.X, cp.gInput.Y, cp.gInput.X+cp.gInput.Width, cp.gInput.Y+cp.gInput.Height)
 		if mx >= gBounds.Min.X && mx < gBounds.Max.X && my >= gBounds.Min.Y && my < gBounds.Max.Y {
 			// If not already focused, clear the value
 			if !cp.gInput.Focused {
@@ -306,7 +328,7 @@ func (cp *ColorPicker) Update() bool {
 		}
 
 		// Check B input
-		bBounds := image.Rect(cp.x+cp.width-70, cp.y+355, cp.x+cp.width-20, cp.y+380)
+		bBounds := image.Rect(cp.bInput.X, cp.bInput.Y, cp.bInput.X+cp.bInput.Width, cp.bInput.Y+cp.bInput.Height)
 		if mx >= bBounds.Min.X && mx < bBounds.Max.X && my >= bBounds.Min.Y && my < bBounds.Max.Y {
 			// If not already focused, clear the value
 			if !cp.bInput.Focused {

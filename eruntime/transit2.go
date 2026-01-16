@@ -34,6 +34,24 @@ type TransitManager struct {
 	nextID uint64
 }
 
+// TransitSnapshot is a read-only copy of a transit suitable for external consumers.
+// It mirrors the fields persisted in state while avoiding pointers into runtime data.
+type TransitSnapshot struct {
+	ID              string
+	Resources       typedef.BasicResources
+	OriginID        string
+	OriginName      string
+	DestinationID   string
+	DestinationName string
+	NextID          string
+	NextName        string
+	Route           []string
+	RouteIndex      int
+	NextTax         float64
+	CreatedAt       uint64
+	Moved           bool
+}
+
 // NewTransitManager creates a new transit manager
 func NewTransitManager() *TransitManager {
 	return &TransitManager{
@@ -109,6 +127,7 @@ func (tm *TransitManager) ProcessAllTransits() {
 	for _, transitID := range completedTransits {
 		tm.removeTransit(transitID)
 	}
+
 }
 
 // moveTransitForward moves a single transit to its next position
@@ -266,6 +285,59 @@ func (tm *TransitManager) GetTransitsAtTerritory(territoryID string) []*Transit 
 	return result
 }
 
+// snapshotAtTerritory returns deep-copied transit snapshots for a territory.
+func (tm *TransitManager) snapshotAtTerritory(territoryID string) []TransitSnapshot {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	transits := tm.atTerritory[territoryID]
+	snaps := make([]TransitSnapshot, 0, len(transits))
+	for _, transit := range transits {
+		if transit == nil {
+			continue
+		}
+
+		snap := TransitSnapshot{
+			ID:            transit.ID,
+			Resources:     transit.BasicResources,
+			OriginID:      transit.OriginID,
+			DestinationID: transit.DestinationID,
+			Route:         append([]string(nil), transit.Route...),
+			RouteIndex:    transit.RouteIndex,
+			NextTax:       transit.NextTax,
+			CreatedAt:     transit.CreatedAt,
+			Moved:         transit.Moved,
+		}
+
+		if transit.RouteIndex+1 < len(transit.Route) {
+			snap.NextID = transit.Route[transit.RouteIndex+1]
+		}
+
+		// Resolve human-readable names while the transit manager lock is held to avoid races.
+		if terr := st.getTerritoryByID(snap.OriginID); terr != nil {
+			terr.Mu.RLock()
+			snap.OriginName = terr.Name
+			terr.Mu.RUnlock()
+		}
+		if terr := st.getTerritoryByID(snap.DestinationID); terr != nil {
+			terr.Mu.RLock()
+			snap.DestinationName = terr.Name
+			terr.Mu.RUnlock()
+		}
+		if snap.NextID != "" {
+			if terr := st.getTerritoryByID(snap.NextID); terr != nil {
+				terr.Mu.RLock()
+				snap.NextName = terr.Name
+				terr.Mu.RUnlock()
+			}
+		}
+
+		snaps = append(snaps, snap)
+	}
+
+	return snaps
+}
+
 // GetAllTransits returns a copy of all active transits
 func (tm *TransitManager) GetAllTransits() map[string]*Transit {
 	tm.mu.RLock()
@@ -320,7 +392,6 @@ func (tm *TransitManager) LoadTransits(transits []*Transit) {
 		}
 	}
 
-	fmt.Printf("[TRANSIT] Loaded %d transits into TransitManager\n", len(transits))
 }
 
 // Helper function to get territory by ID using O(1) map lookup
@@ -613,6 +684,20 @@ func findRouteFromHQToTerritoryV2(hq *typedef.Territory, dest *typedef.Territory
 
 // Compatibility functions for UI and other systems that need transit information
 
+// GetTransitSnapshotsForTerritory returns snapshot copies of active transits for the given territory name.
+func GetTransitSnapshotsForTerritory(territoryName string) []TransitSnapshot {
+	if st.transitManager == nil {
+		return nil
+	}
+
+	territory := GetTerritory(territoryName)
+	if territory == nil {
+		return nil
+	}
+
+	return st.transitManager.snapshotAtTerritory(territory.ID)
+}
+
 // GetTransitResourcesForTerritory returns transit resources at a territory in the old format
 // This is for backward compatibility with UI code
 func GetTransitResourcesForTerritory(territory *typedef.Territory) []typedef.InTransitResources {
@@ -648,6 +733,73 @@ func GetTransitResourcesForTerritory(territory *typedef.Territory) []typedef.InT
 	}
 
 	return result
+}
+
+// GetInGuildTransitTotals returns a snapshot of total in-guild transit value per territory.
+// It avoids building route slices and only sums transits where the owning guild matches
+// the guild of the territory the transit is currently on.
+func GetInGuildTransitTotals() map[string]float64 {
+	transits := st.transitManager.GetAllTransits()
+
+	// Cache territory lookups to avoid repeated locking for the same IDs
+	type territoryInfo struct {
+		name  string
+		guild string
+	}
+
+	infoCache := make(map[string]territoryInfo)
+	getInfo := func(id string) territoryInfo {
+		if cached, ok := infoCache[id]; ok {
+			return cached
+		}
+
+		territory := st.getTerritoryByID(id)
+		if territory == nil {
+			infoCache[id] = territoryInfo{}
+			return territoryInfo{}
+		}
+
+		territory.Mu.RLock()
+		info := territoryInfo{name: territory.Name, guild: territory.Guild.Tag}
+		territory.Mu.RUnlock()
+
+		infoCache[id] = info
+		return info
+	}
+
+	totals := make(map[string]float64)
+
+	for _, transit := range transits {
+		if transit == nil {
+			continue
+		}
+
+		// Identify the territory the transit is currently on
+		if transit.RouteIndex < 0 || transit.RouteIndex >= len(transit.Route) {
+			continue
+		}
+		currentTerritoryID := transit.Route[transit.RouteIndex]
+		currentInfo := getInfo(currentTerritoryID)
+
+		if currentInfo.guild == "" {
+			continue
+		}
+
+		// Determine owning guild from origin, falling back to destination
+		ownerInfo := getInfo(transit.OriginID)
+		if ownerInfo.guild == "" {
+			ownerInfo = getInfo(transit.DestinationID)
+		}
+
+		if ownerInfo.guild == "" || ownerInfo.guild != currentInfo.guild {
+			continue
+		}
+
+		res := transit.BasicResources
+		totals[currentInfo.name] += res.Emeralds + res.Ores + res.Wood + res.Fish + res.Crops
+	}
+
+	return totals
 }
 
 func scaleResources(res typedef.BasicResources, factor float64) typedef.BasicResources {

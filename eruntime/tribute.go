@@ -229,6 +229,53 @@ func EnableTribute(tributeID string) error {
 	return fmt.Errorf("tribute with ID '%s' not found", tributeID)
 }
 
+// UpdateTribute updates an existing tribute's amounts or interval.
+// A nil amount or interval leaves that field unchanged.
+func UpdateTribute(tributeID string, amount *typedef.BasicResources, interval *uint32) error {
+	if amount == nil && interval == nil {
+		return fmt.Errorf("no update payload provided")
+	}
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	var tribute *typedef.ActiveTribute
+	for _, t := range st.activeTributes {
+		if t != nil && t.ID == tributeID {
+			tribute = t
+			break
+		}
+	}
+
+	if tribute == nil {
+		return fmt.Errorf("tribute with ID '%s' not found", tributeID)
+	}
+
+	if amount != nil {
+		if amount.Crops < 0 || amount.Fish < 0 || amount.Ores < 0 || amount.Wood < 0 || amount.Emeralds < 0 {
+			return fmt.Errorf("tribute amounts cannot be negative")
+		}
+		tribute.AmountPerHour = *amount
+		tribute.AmountPerMinute = typedef.BasicResources{
+			Emeralds: amount.Emeralds / 60.0,
+			Ores:     amount.Ores / 60.0,
+			Wood:     amount.Wood / 60.0,
+			Fish:     amount.Fish / 60.0,
+			Crops:    amount.Crops / 60.0,
+		}
+	}
+
+	if interval != nil {
+		if *interval == 0 {
+			return fmt.Errorf("interval minutes must be greater than 0")
+		}
+		tribute.IntervalMinutes = *interval
+	}
+
+	recalculateGuildTributes()
+	return nil
+}
+
 // processTributes handles tribute transfers on each 60-tick cycle (called from update2)
 func (s *state) processTributes() {
 	if len(s.activeTributes) == 0 {

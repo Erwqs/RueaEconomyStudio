@@ -42,6 +42,9 @@ type state struct {
 	// Processing mode configuration
 	useParallelProcessing bool
 
+	// When an external calculator is registered, all updates must run sequentially to avoid races.
+	externalCalculatorActive bool
+
 	costs typedef.Costs
 
 	runtimeOptions typedef.RuntimeOptions
@@ -77,8 +80,18 @@ func init() {
 		savedSnapshots: make([][]*typedef.Territory, 0),
 		tick:           0,
 		runtimeOptions: typedef.RuntimeOptions{
-			TreasuryEnabled:      true,
-			PathfindingAlgorithm: typedef.PathfindingDijkstra, // Default to Dijkstra (cheapest route)
+			TreasuryEnabled:             true,
+			PathfindingAlgorithm:        typedef.PathfindingDijkstra, // Default to Dijkstra (cheapest route)
+			PathfinderProvider:          "",
+			MapOpacityPercent:           100,
+			ThroughputCurve:             0,
+			ChokepointCurve:             0,
+			ChokepointEmeraldWeight:     1,
+			ChokepointMode:              "Cardinal",
+			ChokepointIncludeDownstream: true,
+			ResourceColors:              typedef.DefaultResourceColors(),
+			ShowEmeraldGenerators:       false,
+			Keybinds:                    typedef.DefaultKeybinds(),
 		},
 		transitManager:        NewTransitManager(),
 		hqMap:                 make(map[string]*typedef.Territory),
@@ -91,7 +104,9 @@ func init() {
 	go st.processQueuedTicks()
 
 	loadTerritories()
-	loadCosts(&st)
+	if err := ReloadDefaultCosts(); err != nil {
+		panic("failed to load default costs: " + err.Error())
+	}
 	fmt.Println("[ERUNTIME] Bootstrap complete. Loaded", len(st.territories), "territories and", len(st.guilds), "guilds.")
 
 	// Start the timer for resource generation

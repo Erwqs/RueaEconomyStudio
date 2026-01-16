@@ -1,10 +1,10 @@
 package eruntime
 
 import (
-	"fmt"
 	"runtime"
 	"time"
 )
+
 var StateTick = make(chan uint64)
 
 // Start creates a timer ticker that calls update() every tick
@@ -25,6 +25,31 @@ func (s *state) start() {
 
 		}
 	}()
+
+	// Watchdog to detect stalls in tick processing
+	// go func() {
+	// 	lastTick := uint64(0)
+	// 	lastProgress := time.Now()
+	// 	buf := make([]byte, 1<<20)
+
+	// 	for range time.Tick(2 * time.Second) {
+	// 		current := Tick()
+	// 		if current != lastTick {
+	// 			lastTick = current
+	// 			lastProgress = time.Now()
+	// 			continue
+	// 		}
+
+	// 		if time.Since(lastProgress) > 2*time.Second {
+	// 			if err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 2); err != nil {
+	// 				if m := runtime.Stack(buf, true); m > 0 {
+	// 					// _, _ = os.Stdout.Write(buf[:m])
+	// 				}
+	// 			}
+	// 			lastProgress = time.Now()
+	// 		}
+	// 	}
+	// }()
 }
 
 // Stop stops the timer ticker and destroy the timer
@@ -79,7 +104,6 @@ func (s *state) processQueuedTicks() {
 		// Process resource deliveries BEFORE consumption on minute boundaries
 		// This ensures territories receive HQ shipments before consuming resources
 		if s.tick%60 == 0 {
-			fmt.Printf("[DELIVERY_DEBUG] Resource delivery triggered at tick %d\n", s.tick)
 			s.update2()
 		}
 		s.update()

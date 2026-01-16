@@ -84,6 +84,7 @@ func (gm *EnhancedGuildManager) ImportGuildsFromAPI() (int, int, error) {
 				Name:  guildInfo.Name,
 				Tag:   tag,
 				Color: color,
+				Show:  true,
 			}
 			gm.guilds = append(gm.guilds, newGuild)
 			gm.cachesDirty = true // Invalidate caches when adding from API

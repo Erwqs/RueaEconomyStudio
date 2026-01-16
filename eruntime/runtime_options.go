@@ -3,6 +3,7 @@ package eruntime
 import "RueaES/typedef"
 
 func SetRuntimeOptions(options typedef.RuntimeOptions) {
+	normalizeRuntimeOptions(&options)
 	oldOptions := st.runtimeOptions
 	st.runtimeOptions = options
 

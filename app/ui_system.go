@@ -100,18 +100,20 @@ type ButtonStyle struct {
 
 // UITextInput represents a text input field
 type UITextInput struct {
-	Value       string
-	Placeholder string
-	X, Y        int
-	Width       int
-	Height      int
-	MaxLength   int
-	Focused     bool
-	OnChange    func(value string)
-	OnEnter     func(value string)
-	font        font.Face
-	cursorPos   int
-	blinkTimer  time.Time
+	Value          string
+	Placeholder    string
+	X, Y           int
+	Width          int
+	Height         int
+	MaxLength      int
+	Focused        bool
+	OnChange       func(value string)
+	OnEnter        func(value string)
+	font           font.Face
+	cursorPos      int
+	selectionStart int
+	selectionEnd   int
+	blinkTimer     time.Time
 }
 
 // UIColorPicker represents a color picker component
@@ -430,14 +432,16 @@ func (b *UIButton) GetBounds() image.Rectangle {
 // NewUITextInput creates a new text input field
 func NewUITextInput(placeholder string, x, y, width int, maxLength int) *UITextInput {
 	return &UITextInput{
-		Placeholder: placeholder,
-		X:           x,
-		Y:           y,
-		Width:       width,
-		Height:      UIInputHeight,
-		MaxLength:   maxLength,
-		font:        loadWynncraftFont(14),
-		blinkTimer:  time.Now(),
+		Placeholder:    placeholder,
+		X:              x,
+		Y:              y,
+		Width:          width,
+		Height:         UIInputHeight,
+		MaxLength:      maxLength,
+		font:           loadWynncraftFont(14),
+		blinkTimer:     time.Now(),
+		selectionStart: -1,
+		selectionEnd:   -1,
 	}
 }
 
@@ -450,6 +454,8 @@ func (t *UITextInput) Update(mx, my int) bool {
 	if _, _, pressed := primaryJustPressed(); pressed {
 		t.Focused = wasClicked
 		if wasClicked {
+			t.selectionStart = -1
+			t.selectionEnd = -1
 			// Position cursor based on click position
 			// This is a simplified version - could be improved with proper text metrics
 			clickOffset := px - bounds.Min.X - 5
@@ -490,40 +496,92 @@ func (t *UITextInput) Update(mx, my int) bool {
 		return true
 	}
 
-	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) && t.cursorPos > 0 {
-		t.Value = t.Value[:t.cursorPos-1] + t.Value[t.cursorPos:]
-		t.cursorPos--
-		if t.OnChange != nil {
-			t.OnChange(t.Value)
-		}
+	ctrlPressed := ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight)
+	if ctrlPressed && inpututil.IsKeyJustPressed(ebiten.KeyA) {
+		// Select all text
+		t.selectionStart = 0
+		t.selectionEnd = len(t.Value)
+		t.cursorPos = t.selectionEnd
 		return true
 	}
 
-	if inpututil.IsKeyJustPressed(ebiten.KeyDelete) && t.cursorPos < len(t.Value) {
-		t.Value = t.Value[:t.cursorPos] + t.Value[t.cursorPos+1:]
-		if t.OnChange != nil {
-			t.OnChange(t.Value)
+	// Helper to delete current selection, if any
+	deleteSelection := func() bool {
+		if t.selectionStart >= 0 && t.selectionEnd >= 0 && t.selectionStart != t.selectionEnd {
+			start, end := t.selectionStart, t.selectionEnd
+			if start > end {
+				start, end = end, start
+			}
+			if start < 0 {
+				start = 0
+			}
+			if end > len(t.Value) {
+				end = len(t.Value)
+			}
+			t.Value = t.Value[:start] + t.Value[end:]
+			t.cursorPos = start
+			t.selectionStart = -1
+			t.selectionEnd = -1
+			if t.OnChange != nil {
+				t.OnChange(t.Value)
+			}
+			return true
 		}
-		return true
+		return false
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
+		if deleteSelection() {
+			return true
+		}
+		if t.cursorPos > 0 {
+			t.Value = t.Value[:t.cursorPos-1] + t.Value[t.cursorPos:]
+			t.cursorPos--
+			if t.OnChange != nil {
+				t.OnChange(t.Value)
+			}
+			return true
+		}
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyDelete) {
+		if deleteSelection() {
+			return true
+		}
+		if t.cursorPos < len(t.Value) {
+			t.Value = t.Value[:t.cursorPos] + t.Value[t.cursorPos+1:]
+			if t.OnChange != nil {
+				t.OnChange(t.Value)
+			}
+			return true
+		}
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) && t.cursorPos > 0 {
 		t.cursorPos--
+		t.selectionStart = -1
+		t.selectionEnd = -1
 		return true
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) && t.cursorPos < len(t.Value) {
 		t.cursorPos++
+		t.selectionStart = -1
+		t.selectionEnd = -1
 		return true
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyHome) {
 		t.cursorPos = 0
+		t.selectionStart = -1
+		t.selectionEnd = -1
 		return true
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnd) {
 		t.cursorPos = len(t.Value)
+		t.selectionStart = -1
+		t.selectionEnd = -1
 		return true
 	}
 
@@ -538,6 +596,11 @@ func (t *UITextInput) Update(mx, my int) bool {
 				char = rune('a' + int(key-ebiten.KeyA))
 			}
 			if len(t.Value) < t.MaxLength {
+				if t.selectionStart >= 0 && t.selectionEnd >= 0 && t.selectionStart != t.selectionEnd {
+					if deleteSelection() {
+						// deletion already triggered OnChange
+					}
+				}
 				t.Value = t.Value[:t.cursorPos] + string(char) + t.Value[t.cursorPos:]
 				t.cursorPos++
 				if t.OnChange != nil {
@@ -552,6 +615,11 @@ func (t *UITextInput) Update(mx, my int) bool {
 		if inpututil.IsKeyJustPressed(key) {
 			char := rune('0' + int(key-ebiten.Key0))
 			if len(t.Value) < t.MaxLength {
+				if t.selectionStart >= 0 && t.selectionEnd >= 0 && t.selectionStart != t.selectionEnd {
+					if deleteSelection() {
+						// already handled onChange
+					}
+				}
 				t.Value = t.Value[:t.cursorPos] + string(char) + t.Value[t.cursorPos:]
 				t.cursorPos++
 				if t.OnChange != nil {
@@ -574,6 +642,11 @@ func (t *UITextInput) Update(mx, my int) bool {
 
 	for key, char := range specialKeys {
 		if inpututil.IsKeyJustPressed(key) && len(t.Value) < t.MaxLength {
+			if t.selectionStart >= 0 && t.selectionEnd >= 0 && t.selectionStart != t.selectionEnd {
+				if deleteSelection() {
+					// already handled onChange
+				}
+			}
 			t.Value = t.Value[:t.cursorPos] + string(char) + t.Value[t.cursorPos:]
 			t.cursorPos++
 			if t.OnChange != nil {
