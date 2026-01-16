@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"RueaES/typedef"
@@ -56,6 +57,121 @@ func normalizeRuntimeOptions(opts *typedef.RuntimeOptions) {
 
 	// Normalize plugin keybind overrides if present.
 	typedef.NormalizePluginKeybinds(&opts.PluginKeybinds)
+}
+
+// sanitizeLoadedState normalizes guild names/tags and territory names to strip banned phrases from loaded saves.
+func sanitizeLoadedState(state *StateData) {
+	rewrite := func(value string) string {
+		lower := strings.ToLower(value)
+		if strings.Contains(lower, "new moon") {
+			value, lower, _ = replaceInsensitivePreserveCase(value, lower, "new moon", "full moon")
+		}
+		if strings.Contains(lower, "newm") {
+			value, lower, _ = replaceInsensitivePreserveCase(value, lower, "newm", "fumo")
+		}
+		return value
+	}
+
+	// Update guilds
+	for _, g := range state.Guilds {
+		if g == nil {
+			continue
+		}
+		g.Name = rewrite(g.Name)
+		g.Tag = rewrite(g.Tag)
+	}
+
+	// Update guild color entries (keyed by guild name)
+	if len(state.GuildColors) > 0 {
+		updated := make(map[string]map[string]string, len(state.GuildColors))
+		for name, data := range state.GuildColors {
+			newName := rewrite(name)
+			if data == nil {
+				updated[newName] = nil
+				continue
+			}
+
+			newData := make(map[string]string, len(data))
+			for k, v := range data {
+				if k == "tag" {
+					newData[k] = rewrite(v)
+				} else {
+					newData[k] = v
+				}
+			}
+			updated[newName] = newData
+		}
+
+		state.GuildColors = updated
+	}
+
+	// Update territories and linked names
+	for _, t := range state.Territories {
+		if t == nil {
+			continue
+		}
+
+		t.Name = rewrite(t.Name)
+		t.Guild.Name = rewrite(t.Guild.Name)
+		t.Guild.Tag = rewrite(t.Guild.Tag)
+
+		if len(t.ConnectedTerritories) > 0 {
+			for i, name := range t.ConnectedTerritories {
+				t.ConnectedTerritories[i] = rewrite(name)
+			}
+		}
+
+		if len(t.TradingRoutesJSON) > 0 {
+			for i, route := range t.TradingRoutesJSON {
+				for j, name := range route {
+					t.TradingRoutesJSON[i][j] = rewrite(name)
+				}
+			}
+		}
+
+		if len(t.TransitResource) > 0 {
+			for i := range t.TransitResource {
+				tr := &t.TransitResource[i]
+				tr.OriginID = rewrite(tr.OriginID)
+				tr.DestinationID = rewrite(tr.DestinationID)
+				tr.NextID = rewrite(tr.NextID)
+				if len(tr.Route2) > 0 {
+					for j, name := range tr.Route2 {
+						tr.Route2[j] = rewrite(name)
+					}
+				}
+			}
+		}
+	}
+}
+
+// replaceInsensitivePreserveCase swaps target occurrences regardless of case while leaving other characters untouched.
+// This is duplicated here to avoid importing app logic into eruntime.
+func replaceInsensitivePreserveCase(value, lowerValue, target, replacement string) (string, string, bool) {
+	targetLower := strings.ToLower(target)
+	if !strings.Contains(lowerValue, targetLower) {
+		return value, lowerValue, false
+	}
+
+	var b strings.Builder
+	start := 0
+	replaced := false
+
+	for {
+		idx := strings.Index(lowerValue[start:], targetLower)
+		if idx == -1 {
+			break
+		}
+		idx += start
+		b.WriteString(value[start:idx])
+		b.WriteString(replacement)
+		start = idx + len(target)
+		replaced = true
+	}
+
+	b.WriteString(value[start:])
+	newValue := b.String()
+	return newValue, strings.ToLower(newValue), replaced
 }
 
 // SetLoadoutCallbacks sets the callback functions for loadout persistence
@@ -696,6 +812,9 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 		}
 		return fmt.Errorf("unsupported version: %s", stateData.Version)
 	}
+
+	// Sanitize loaded names to strip banned guild/territory strings while preserving other content.
+	sanitizeLoadedState(&stateData)
 
 	// Rehydrate transit payloads from compact form (1.8+) before applying import options
 	expandCompressedTransitPayloads(&stateData)

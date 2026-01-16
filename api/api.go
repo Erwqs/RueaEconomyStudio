@@ -476,6 +476,53 @@ func convertTradingRoutes(routes [][]string) [][]string {
 	return routes
 }
 
+// sanitizeAPIValue rewrites banned phrases from inbound API payloads while keeping other characters intact.
+func sanitizeAPIValue(value string) string {
+	lower := strings.ToLower(value)
+	if strings.Contains(lower, "new moon") {
+		value, lower, _ = replaceInsensitivePreserveCase(value, lower, "new moon", "full moon")
+	}
+	if strings.Contains(lower, "newm") {
+		value, lower, _ = replaceInsensitivePreserveCase(value, lower, "newm", "fumo")
+	}
+	return value
+}
+
+func sanitizeAPISlice(values []string) []string {
+	for i, v := range values {
+		values[i] = sanitizeAPIValue(v)
+	}
+	return values
+}
+
+// replaceInsensitivePreserveCase swaps target occurrences regardless of case while leaving other characters untouched.
+func replaceInsensitivePreserveCase(value, lowerValue, target, replacement string) (string, string, bool) {
+	targetLower := strings.ToLower(target)
+	if !strings.Contains(lowerValue, targetLower) {
+		return value, lowerValue, false
+	}
+
+	var b strings.Builder
+	start := 0
+	replaced := false
+
+	for {
+		idx := strings.Index(lowerValue[start:], targetLower)
+		if idx == -1 {
+			break
+		}
+		idx += start
+		b.WriteString(value[start:idx])
+		b.WriteString(replacement)
+		start = idx + len(target)
+		replaced = true
+	}
+
+	b.WriteString(value[start:])
+	newValue := b.String()
+	return newValue, strings.ToLower(newValue), replaced
+}
+
 // Message handlers
 
 func (api *API) handleSetGuild(client *WSClient, message WSMessage) error {
@@ -483,6 +530,10 @@ func (api *API) handleSetGuild(client *WSClient, message WSMessage) error {
 	if err := api.parseMessageData(message.Data, &data); err != nil {
 		return err
 	}
+
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
+	data.GuildName = sanitizeAPIValue(data.GuildName)
+	data.GuildTag = sanitizeAPIValue(data.GuildTag)
 
 	// Get the current territory to check if guild is actually changing
 	currentTerritory := eruntime.GetTerritory(data.TerritoryName)
@@ -701,6 +752,8 @@ func (api *API) handleSetTerritoryOptions(client *WSClient, message WSMessage) e
 		return err
 	}
 
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
+
 	eruntime.Set(data.TerritoryName, data.Options)
 
 	// Send acknowledgment
@@ -724,6 +777,8 @@ func (api *API) handleSetHQ(client *WSClient, message WSMessage) error {
 	if err := api.parseMessageData(message.Data, &data); err != nil {
 		return err
 	}
+
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
 
 	options := typedef.TerritoryOptions{HQ: true}
 	eruntime.Set(data.TerritoryName, options)
@@ -749,6 +804,8 @@ func (api *API) handleModifyStorage(client *WSClient, message WSMessage) error {
 	if err := api.parseMessageData(message.Data, &data); err != nil {
 		return err
 	}
+
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
 
 	eruntime.ModifyStorageState(data.TerritoryName, &data.NewState)
 
@@ -1090,6 +1147,8 @@ func (api *API) handleSetTerritoryBonuses(client *WSClient, message WSMessage) e
 		return err
 	}
 
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
+
 	// Get current territory options and update bonuses
 	territory := eruntime.GetTerritory(data.TerritoryName)
 	if territory == nil {
@@ -1129,6 +1188,8 @@ func (api *API) handleSetTerritoryUpgrades(client *WSClient, message WSMessage) 
 	if err := api.parseMessageData(message.Data, &data); err != nil {
 		return err
 	}
+
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
 
 	// Get current territory options and update upgrades
 	territory := eruntime.GetTerritory(data.TerritoryName)
@@ -1170,6 +1231,8 @@ func (api *API) handleSetTerritoryTax(client *WSClient, message WSMessage) error
 		return err
 	}
 
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
+
 	// Get current territory options and update tax
 	territory := eruntime.GetTerritory(data.TerritoryName)
 	if territory == nil {
@@ -1209,6 +1272,8 @@ func (api *API) handleSetTerritoryBorder(client *WSClient, message WSMessage) er
 	if err := api.parseMessageData(message.Data, &data); err != nil {
 		return err
 	}
+
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
 
 	// Get current territory options and update border
 	territory := eruntime.GetTerritory(data.TerritoryName)
@@ -1250,6 +1315,8 @@ func (api *API) handleSetTerritoryRoutingMode(client *WSClient, message WSMessag
 		return err
 	}
 
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
+
 	// Get current territory options and update routing mode
 	territory := eruntime.GetTerritory(data.TerritoryName)
 	if territory == nil {
@@ -1290,6 +1357,8 @@ func (api *API) handleSetTerritoryTreasury(client *WSClient, message WSMessage) 
 		return err
 	}
 
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
+
 	// Get current territory to update treasury override
 	territory := eruntime.GetTerritory(data.TerritoryName)
 	if territory == nil {
@@ -1326,6 +1395,9 @@ func (api *API) handleCreateTribute(client *WSClient, message WSMessage) error {
 	if err := api.parseMessageData(message.Data, &data); err != nil {
 		return err
 	}
+
+	data.FromGuildTag = sanitizeAPIValue(data.FromGuildTag)
+	data.ToGuildTag = sanitizeAPIValue(data.ToGuildTag)
 
 	// Convert guild tags to guild names
 	fromGuildName, err := api.getGuildNameByTag(data.FromGuildTag)
@@ -1626,6 +1698,9 @@ func (api *API) handleCreateGuild(client *WSClient, message WSMessage) error {
 		return err
 	}
 
+	data.Name = sanitizeAPIValue(data.Name)
+	data.Tag = sanitizeAPIValue(data.Tag)
+
 	// Check if guild already exists
 	existingGuilds := eruntime.GetGuildsInternal()
 	for _, guild := range existingGuilds {
@@ -1675,6 +1750,8 @@ func (api *API) handleDeleteGuild(client *WSClient, message WSMessage) error {
 	if err := api.parseMessageData(message.Data, &data); err != nil {
 		return err
 	}
+
+	data.GuildTag = sanitizeAPIValue(data.GuildTag)
 
 	// Find and remove guild
 	err := api.removeGuildFromState(data.GuildTag)
@@ -1747,6 +1824,8 @@ func (api *API) handleSearchGuilds(client *WSClient, message WSMessage) error {
 		return err
 	}
 
+	data.Query = sanitizeAPIValue(data.Query)
+
 	guilds := eruntime.GetGuildsInternal()
 	var matchedGuilds []*GuildStateSafe
 
@@ -1811,6 +1890,10 @@ func (api *API) handleEditGuild(client *WSClient, message WSMessage) error {
 		return err
 	}
 
+	data.OldTag = sanitizeAPIValue(data.OldTag)
+	data.Name = sanitizeAPIValue(data.Name)
+	data.Tag = sanitizeAPIValue(data.Tag)
+
 	guilds := eruntime.GetGuildsInternal()
 	var targetGuild *typedef.Guild
 
@@ -1855,6 +1938,9 @@ func (api *API) handleSetGuildAllies(client *WSClient, message WSMessage) error 
 	if err := api.parseMessageData(message.Data, &data); err != nil {
 		return err
 	}
+
+	data.GuildTag = sanitizeAPIValue(data.GuildTag)
+	data.AllyTags = sanitizeAPISlice(data.AllyTags)
 
 	guilds := eruntime.GetGuildsInternal()
 	var targetGuild *typedef.Guild

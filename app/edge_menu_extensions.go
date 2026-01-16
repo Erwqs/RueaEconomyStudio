@@ -229,18 +229,38 @@ func (t *MenuTextInput) Update(mx, my int, deltaTime float64) bool {
 		}
 	}
 
+	sanitizedChanged, flagged := t.applyTextSanitization()
+
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) && t.callback != nil {
+		if flagged {
+			showAdvertisingToast()
+		}
 		t.callback(t.value)
 		t.focused = false
 		return true
 	}
 
-	// Call callback if value changed
-	if oldValue != t.value && t.callback != nil {
+	if flagged {
+		showAdvertisingToast()
+	}
+
+	valueChanged := oldValue != t.value || sanitizedChanged
+	if valueChanged && t.callback != nil {
 		t.callback(t.value)
 	}
 
-	return oldValue != t.value
+	return valueChanged
+}
+
+func (t *MenuTextInput) applyTextSanitization() (bool, bool) {
+	sanitized, changed, flagged := sanitizeTextValue(t.value)
+	if changed {
+		t.value = sanitized
+		if t.cursorPos > len(t.value) {
+			t.cursorPos = len(t.value)
+		}
+	}
+	return changed, flagged
 }
 
 func (t *MenuTextInput) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {

@@ -236,6 +236,15 @@ func (tb *ToastBuilder) calculateLayout() {
 
 		for i := range regularButtons {
 			button := &regularButtons[i]
+			// Auto-size button width to fit text with padding
+			if font != nil {
+				textWidth := text.BoundString(font, button.Text).Dx()
+				minWidth := textWidth + 16 // padding for left/right
+				if minWidth > button.Width {
+					button.Width = minWidth
+				}
+			}
+
 			if button.X == 0 && button.Y == 0 { // Use default positioning
 				button.X = buttonX
 				button.Y = currentY

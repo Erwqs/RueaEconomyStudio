@@ -484,6 +484,10 @@ func (t *UITextInput) Update(mx, my int) bool {
 
 	// Handle keyboard input
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+		_, flagged := t.sanitizeValueAndCursor()
+		if flagged {
+			showAdvertisingToast()
+		}
 		if t.OnEnter != nil {
 			t.OnEnter(t.Value)
 		}
@@ -522,9 +526,7 @@ func (t *UITextInput) Update(mx, my int) bool {
 			t.cursorPos = start
 			t.selectionStart = -1
 			t.selectionEnd = -1
-			if t.OnChange != nil {
-				t.OnChange(t.Value)
-			}
+			t.triggerOnChange()
 			return true
 		}
 		return false
@@ -537,9 +539,7 @@ func (t *UITextInput) Update(mx, my int) bool {
 		if t.cursorPos > 0 {
 			t.Value = t.Value[:t.cursorPos-1] + t.Value[t.cursorPos:]
 			t.cursorPos--
-			if t.OnChange != nil {
-				t.OnChange(t.Value)
-			}
+			t.triggerOnChange()
 			return true
 		}
 	}
@@ -550,9 +550,7 @@ func (t *UITextInput) Update(mx, my int) bool {
 		}
 		if t.cursorPos < len(t.Value) {
 			t.Value = t.Value[:t.cursorPos] + t.Value[t.cursorPos+1:]
-			if t.OnChange != nil {
-				t.OnChange(t.Value)
-			}
+			t.triggerOnChange()
 			return true
 		}
 	}
@@ -603,9 +601,7 @@ func (t *UITextInput) Update(mx, my int) bool {
 				}
 				t.Value = t.Value[:t.cursorPos] + string(char) + t.Value[t.cursorPos:]
 				t.cursorPos++
-				if t.OnChange != nil {
-					t.OnChange(t.Value)
-				}
+				t.triggerOnChange()
 			}
 		}
 	}
@@ -622,9 +618,7 @@ func (t *UITextInput) Update(mx, my int) bool {
 				}
 				t.Value = t.Value[:t.cursorPos] + string(char) + t.Value[t.cursorPos:]
 				t.cursorPos++
-				if t.OnChange != nil {
-					t.OnChange(t.Value)
-				}
+				t.triggerOnChange()
 			}
 		}
 	}
@@ -649,9 +643,7 @@ func (t *UITextInput) Update(mx, my int) bool {
 			}
 			t.Value = t.Value[:t.cursorPos] + string(char) + t.Value[t.cursorPos:]
 			t.cursorPos++
-			if t.OnChange != nil {
-				t.OnChange(t.Value)
-			}
+			t.triggerOnChange()
 		}
 	}
 
@@ -719,6 +711,27 @@ func (t *UITextInput) SetText(text string) {
 // GetText returns the text input's current value
 func (t *UITextInput) GetText() string {
 	return t.Value
+}
+
+func (t *UITextInput) sanitizeValueAndCursor() (bool, bool) {
+	sanitized, changed, flagged := sanitizeTextValue(t.Value)
+	if changed {
+		t.Value = sanitized
+		if t.cursorPos > len(t.Value) {
+			t.cursorPos = len(t.Value)
+		}
+	}
+	return changed, flagged
+}
+
+func (t *UITextInput) triggerOnChange() {
+	_, flagged := t.sanitizeValueAndCursor()
+	if flagged {
+		showAdvertisingToast()
+	}
+	if t.OnChange != nil {
+		t.OnChange(t.Value)
+	}
 }
 
 // isPrintableChar checks if a character is printable

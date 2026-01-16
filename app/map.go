@@ -38,6 +38,28 @@ type Marker struct {
 	IsVisible bool
 }
 
+// sanitizeHoverTerritoryName replaces any case-insensitive "newm" occurrence with "FUMO" for hover display.
+func sanitizeHoverTerritoryName(name string) string {
+	lower := strings.ToLower(name)
+	target := "newm"
+	var b strings.Builder
+	start := 0
+
+	for {
+		idx := strings.Index(lower[start:], target)
+		if idx == -1 {
+			b.WriteString(name[start:])
+			break
+		}
+		idx += start
+		b.WriteString(name[start:idx])
+		b.WriteString("FUMO")
+		start = idx + len(target)
+	}
+
+	return b.String()
+}
+
 // MapView represents the map rendering and interaction component
 type MapView struct {
 	scale           float64
@@ -1174,8 +1196,8 @@ func (m *MapView) drawTerritoryHover(screen *ebiten.Image) {
 	fontOffset := getFontVerticalOffset(fontSize)
 	smallOffset := getFontVerticalOffset(smallFontSize)
 
-	// Get territory data from eruntime
-	territoryName := m.hoveredTerritory
+	// Get territory data from eruntime (sanitize hover display)
+	territoryName := sanitizeHoverTerritoryName(m.hoveredTerritory)
 
 	// Get territory stats from eruntime (this handles locking internally)
 	territoryStats := eruntime.GetTerritoryStats(territoryName)
@@ -1925,7 +1947,7 @@ func (m *MapView) ToggleTerritories() {
 
 // AddMarker adds a new marker to the map
 func (m *MapView) AddMarker(x, y float64, label string, markerColor color.RGBA, size float64) {
-	return 
+	return
 	// unused now
 	marker := Marker{
 		X:         x,

@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/gookit/goutil v0.7.1
 	github.com/hajimehoshi/ebiten/v2 v2.9.2
+	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	golang.design/x/clipboard v0.7.1
 	golang.org/x/image v0.32.0
 )
@@ -15,7 +16,7 @@ require (
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/pprof v0.0.0-20251007162407-5df77e3f7d1d // indirect
-	golang.org/x/exp/shiny v0.0.0-20251017212417-90e834f514db // indirect
+	golang.org/x/exp/shiny v0.0.0-20251002181428-27f1f14c8bb9 // indirect
 )
 
 require (
@@ -26,7 +27,6 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jezek/xgb v1.1.1 // indirect
 	github.com/pierrec/lz4 v2.6.1+incompatible
-	golang.org/x/exp v0.0.0-20190731235908-ec7cb31e5a56 // indirect
 	golang.org/x/mobile v0.0.0-20251021151156-188f512ec823 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect

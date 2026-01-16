@@ -340,7 +340,7 @@ func (ws *WelcomeScreen) drawContent(screen *ebiten.Image, x, y, width, height i
 // calculateMaxScroll determines how much the content can be scrolled
 func (ws *WelcomeScreen) calculateMaxScroll(x, y, width, height int) {
 	// Calculate total content height by simulating the drawing process
-	currentY := 0 // Start from 0 to calculate absolute height
+	currentY := 0        // Start from 0 to calculate absolute height
 	lineHeight := 30     // Match the increased line height
 	sectionSpacing := 45 // Match the increased section spacing
 	itemPadding := 8     // Match the item padding

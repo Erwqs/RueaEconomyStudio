@@ -320,6 +320,14 @@ func (t *EnhancedTextInput) UpdateWithSkipInput(skipInput bool) bool {
 		}
 	}
 
+	sanitizedChanged, flagged := t.applyTextSanitization()
+	if sanitizedChanged {
+		changed = true
+	}
+	if flagged {
+		showAdvertisingToast()
+	}
+
 	return changed
 }
 
@@ -367,6 +375,17 @@ func (t *EnhancedTextInput) deleteSelection() {
 func (t *EnhancedTextInput) clearSelection() {
 	t.selStart = -1
 	t.selEnd = -1
+}
+
+func (t *EnhancedTextInput) applyTextSanitization() (bool, bool) {
+	sanitized, changed, flagged := sanitizeTextValue(t.Value)
+	if changed {
+		t.Value = sanitized
+		if t.cursorPos > len(t.Value) {
+			t.cursorPos = len(t.Value)
+		}
+	}
+	return changed, flagged
 }
 
 // getOrderedSelection returns the selection start/end in correct order
@@ -1691,9 +1710,11 @@ func (gm *EnhancedGuildManager) filterGuilds() {
 
 // addGuild adds a new guild to the list
 func (gm *EnhancedGuildManager) addGuild(name, tag string) {
-	// Trim whitespace
-	name = strings.TrimSpace(name)
-	tag = strings.TrimSpace(tag)
+	name, _, nameFlagged := sanitizeTextValue(name)
+	tag, _, tagFlagged := sanitizeTextValue(tag)
+	if nameFlagged || tagFlagged {
+		showAdvertisingToast()
+	}
 
 	// Validate input
 	if name == "" {
@@ -2372,6 +2393,11 @@ func (t *EnhancedTextInput) SetText(text string) {
 
 // GetText returns the text input's current value
 func (t *EnhancedTextInput) GetText() string {
+	value, _, flagged := sanitizeTextValue(t.Value)
+	if flagged {
+		showAdvertisingToast()
+	}
+	t.Value = value
 	return t.Value
 }
 
