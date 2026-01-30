@@ -114,6 +114,7 @@ type UITextInput struct {
 	selectionStart int
 	selectionEnd   int
 	blinkTimer     time.Time
+	contextMenu    *SelectionAnywhere
 }
 
 // UIColorPicker represents a color picker component
@@ -447,6 +448,21 @@ func NewUITextInput(placeholder string, x, y, width int, maxLength int) *UITextI
 
 // Update handles text input
 func (t *UITextInput) Update(mx, my int) bool {
+	if t.contextMenu != nil && t.contextMenu.IsVisible() {
+		if t.contextMenu.Update() {
+			return true
+		}
+	}
+
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
+		bounds := t.GetBounds()
+		if mx >= bounds.Min.X && mx <= bounds.Max.X && my >= bounds.Min.Y && my <= bounds.Max.Y {
+			t.Focused = true
+			t.showContextMenu(mx, my)
+			return true
+		}
+	}
+
 	px, py := primaryPointerPosition()
 	bounds := t.GetBounds()
 	wasClicked := px >= bounds.Min.X && px <= bounds.Max.X && py >= bounds.Min.Y && py <= bounds.Max.Y
@@ -511,25 +527,7 @@ func (t *UITextInput) Update(mx, my int) bool {
 
 	// Helper to delete current selection, if any
 	deleteSelection := func() bool {
-		if t.selectionStart >= 0 && t.selectionEnd >= 0 && t.selectionStart != t.selectionEnd {
-			start, end := t.selectionStart, t.selectionEnd
-			if start > end {
-				start, end = end, start
-			}
-			if start < 0 {
-				start = 0
-			}
-			if end > len(t.Value) {
-				end = len(t.Value)
-			}
-			t.Value = t.Value[:start] + t.Value[end:]
-			t.cursorPos = start
-			t.selectionStart = -1
-			t.selectionEnd = -1
-			t.triggerOnChange()
-			return true
-		}
-		return false
+		return t.deleteSelectionRange()
 	}
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
@@ -695,6 +693,7 @@ func (t *UITextInput) Draw(screen *ebiten.Image) {
 				float32(cursorX), float32(cursorY2), 1, UIColors.Text, false)
 		}
 	}
+
 }
 
 // GetBounds returns the text input's bounding rectangle
@@ -711,6 +710,40 @@ func (t *UITextInput) SetText(text string) {
 // GetText returns the text input's current value
 func (t *UITextInput) GetText() string {
 	return t.Value
+}
+
+func (t *UITextInput) hasSelection() bool {
+	return t.selectionStart >= 0 && t.selectionEnd >= 0 && t.selectionStart != t.selectionEnd
+}
+
+func (t *UITextInput) getOrderedSelection() (int, int, bool) {
+	if !t.hasSelection() {
+		return 0, 0, false
+	}
+	start, end := t.selectionStart, t.selectionEnd
+	if start > end {
+		start, end = end, start
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > len(t.Value) {
+		end = len(t.Value)
+	}
+	return start, end, true
+}
+
+func (t *UITextInput) deleteSelectionRange() bool {
+	start, end, ok := t.getOrderedSelection()
+	if !ok {
+		return false
+	}
+	t.Value = t.Value[:start] + t.Value[end:]
+	t.cursorPos = start
+	t.selectionStart = -1
+	t.selectionEnd = -1
+	t.triggerOnChange()
+	return true
 }
 
 func (t *UITextInput) sanitizeValueAndCursor() (bool, bool) {
@@ -732,6 +765,51 @@ func (t *UITextInput) triggerOnChange() {
 	if t.OnChange != nil {
 		t.OnChange(t.Value)
 	}
+}
+
+func (t *UITextInput) showContextMenu(mx, my int) {
+	menu := NewSelectionAnywhere()
+	hasSelection := t.hasSelection()
+	canPaste := getClipboard() != ""
+
+	menu.Option("Copy", "", hasSelection, func() {
+		start, end, ok := t.getOrderedSelection()
+		if !ok {
+			return
+		}
+		setClipboard(t.Value[start:end])
+	})
+
+	menu.Option("Cut", "", hasSelection, func() {
+		start, end, ok := t.getOrderedSelection()
+		if !ok {
+			return
+		}
+		setClipboard(t.Value[start:end])
+		t.deleteSelectionRange()
+	})
+
+	menu.Option("Paste", "", canPaste, func() {
+		clipboardText := getClipboard()
+		if clipboardText == "" {
+			return
+		}
+		if t.hasSelection() {
+			t.deleteSelectionRange()
+		}
+		if t.MaxLength == 0 || len(t.Value)+len(clipboardText) <= t.MaxLength {
+			t.Value = t.Value[:t.cursorPos] + clipboardText + t.Value[t.cursorPos:]
+			t.cursorPos += len(clipboardText)
+			t.selectionStart = -1
+			t.selectionEnd = -1
+			t.triggerOnChange()
+		}
+	})
+
+	screenW, screenH := ebiten.WindowSize()
+	menu.Show(mx, my, screenW, screenH)
+	t.contextMenu = menu
+	SetActiveContextMenu(menu)
 }
 
 // isPrintableChar checks if a character is printable

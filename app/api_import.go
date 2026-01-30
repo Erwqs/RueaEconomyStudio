@@ -50,12 +50,10 @@ func (gm *EnhancedGuildManager) ImportGuildsFromAPI() (int, int, error) {
 	importedCount := 0
 	skippedCount := 0
 
-	fmt.Printf("[API_IMPORT] Got %d guilds from API\n", len(guildListResp))
 
 	for _, guildInfo := range guildListResp {
 		// Skip if name or tag is empty
 		if guildInfo.Name == "" || guildInfo.Tag == "" {
-			fmt.Printf("[API_IMPORT] Skipping guild with empty name or tag: %+v\n", guildInfo)
 			continue
 		}
 
@@ -128,7 +126,6 @@ func (gm *EnhancedGuildManager) ImportTerritoriesFromAPI() (int, int, error) {
 	defer func() {
 		// Re-enable redraws and trigger one comprehensive redraw at the end
 		claimManager.suspendRedraws = false
-		fmt.Printf("[API_IMPORT] Triggering final redraw after bulk territory import\n")
 		claimManager.TriggerRedraw()
 	}()
 

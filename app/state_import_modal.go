@@ -131,7 +131,7 @@ func (sim *StateImportModal) Show(filePath string) {
 	version, err := eruntime.GetStateFileInfo(filePath)
 	if err != nil {
 		sim.fileVersion = "Unknown"
-		fmt.Printf("[STATE] Failed to get file version: %v\n", err)
+		// fmt.Printf("[STATE] Failed to get file version: %v\n", err)
 	} else {
 		sim.fileVersion = version
 	}

@@ -69,7 +69,6 @@ func NewGameplayModule(inputManager *InputManager) *GameplayModule {
 
 		// Set up callback for guild data changes to invalidate territory cache
 		guildManager.SetGuildDataChangedCallback(func() {
-			fmt.Printf("[GAMEPLAY] Guild data changed callback triggered, invalidating territory cache\n")
 			mapView.territoriesManager.InvalidateTerritoryCache()
 		})
 	}
@@ -206,6 +205,9 @@ func (gm *GameplayModule) textInputFocusedAnywhere() bool {
 
 	// Map-bound UIs
 	if gm.mapView != nil {
+		if gm.mapView.filterMenu != nil && gm.mapView.filterMenu.IsVisible() && gm.mapView.filterMenu.HasTextInputFocused() {
+			return true
+		}
 		if gm.mapView.edgeMenu != nil && gm.mapView.edgeMenu.IsVisible() && gm.mapView.edgeMenu.HasTextInputFocused() {
 			return true
 		}
@@ -218,6 +220,9 @@ func (gm *GameplayModule) textInputFocusedAnywhere() bool {
 			return true
 		}
 		if gm.mapView.analysisModal != nil && gm.mapView.analysisModal.IsVisible() && gm.mapView.analysisModal.HasTextInputFocused() {
+			return true
+		}
+		if gm.mapView.autoSetupModal != nil && gm.mapView.autoSetupModal.IsVisible() && gm.mapView.autoSetupModal.HasTextInputFocused() {
 			return true
 		}
 		if gm.mapView.stateManagementMenu != nil && gm.mapView.stateManagementMenu.menu.IsVisible() && gm.mapView.stateManagementMenu.menu.HasTextInputFocused() {

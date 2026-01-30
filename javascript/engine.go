@@ -235,7 +235,6 @@ func Run(src, scriptName string) *ScriptRuntime {
 		}()
 
 		if _, err := vm.RunString(src); err != nil {
-			fmt.Printf("[JS_ENGINE] Failed to parse script %s: %v\n", scriptName, err)
 			runtime.Error <- fmt.Errorf("parse error: %w", err)
 			return
 		}
@@ -243,36 +242,30 @@ func Run(src, scriptName string) *ScriptRuntime {
 		// Check if tick() and init() functions are defined
 		tickFunc := vm.Get("tick")
 		if tickFunc == nil || goja.IsUndefined(tickFunc) || goja.IsNull(tickFunc) {
-			fmt.Printf("[JS_ENGINE] Script %s: tick() function not found\n", scriptName)
 			runtime.Error <- fmt.Errorf("tick() function not found")
 			return
 		}
 
 		initFunc := vm.Get("init")
 		if initFunc == nil || goja.IsUndefined(initFunc) || goja.IsNull(initFunc) {
-			fmt.Printf("[JS_ENGINE] Script %s: init() function not found\n", scriptName)
 			runtime.Error <- fmt.Errorf("init() function not found")
 			return
 		}
 
 		// Call init() function
 		if _, err := vm.RunString("init()"); err != nil {
-			fmt.Printf("[JS_ENGINE] Failed to run init() in script %s: %v\n", scriptName, err)
 			runtime.Error <- fmt.Errorf("init() error: %w", err)
 			return
 		}
-		fmt.Printf("[JS_ENGINE] Script %s initialized successfully\n", scriptName)
 
 		for {
 			select {
 			case <-eruntime.GetStateTick():
 				if _, err := vm.RunString("tick()"); err != nil {
-					fmt.Printf("[JS_ENGINE] Error in tick() for script %s: %v\n", scriptName, err)
 					runtime.Error <- fmt.Errorf("tick() error: %w", err)
 					return
 				}
 			case <-runtime.Cancel:
-				fmt.Printf("[JS_ENGINE] Script %s terminated\n", scriptName)
 				return
 			}
 		}

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"image/color"
 	"strings"
 
@@ -109,7 +108,6 @@ func (ws *WelcomeScreen) Update() bool {
 	// Handle scroll wheel for content scrolling
 	_, scrollY := ebiten.Wheel()
 	if scrollY != 0 {
-		oldScrollOffset := ws.scrollOffset
 		ws.scrollOffset -= int(scrollY * 30) // Scroll sensitivity
 		if ws.scrollOffset < 0 {
 			ws.scrollOffset = 0
@@ -122,11 +120,6 @@ func (ws *WelcomeScreen) Update() bool {
 
 		if ws.scrollOffset > ws.maxScroll {
 			ws.scrollOffset = ws.maxScroll
-		}
-
-		// Debug output
-		if ws.scrollOffset != oldScrollOffset {
-			fmt.Printf("[WELCOME] Scroll: %d/%d (delta: %.1f)\n", ws.scrollOffset, ws.maxScroll, scrollY)
 		}
 	}
 
@@ -400,6 +393,7 @@ func (ws *WelcomeScreen) calculateMaxScroll(x, y, width, height int) {
 	// Keybinds section
 	keybindItems := []string{
 		"G - Guild management: you can add/remove guilds or edit guild's claim",
+		"K - Auto setup: open the claim optimizer",
 		"P - State management: this menu lets you control the tick rate, modify the logic/calculation/behavior or save and load state session to and from file",
 		"L - Loadout menu: create loadout to apply to many territories, there are two application modes: apply which overrides the previous territory setting and apply the loadout's one and merge which merge non-zero data from loadout to territory",
 		"B - Tribute configuration: set up your tribute here. you can set up a tribute between 2 guilds on the map or spawn in tribute from nothing to the hq (source) or simulate sending out tribute to non-existent guild on the map (sink)",

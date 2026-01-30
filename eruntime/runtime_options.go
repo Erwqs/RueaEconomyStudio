@@ -5,6 +5,12 @@ import "RueaES/typedef"
 func SetRuntimeOptions(options typedef.RuntimeOptions) {
 	normalizeRuntimeOptions(&options)
 	oldOptions := st.runtimeOptions
+	if options.ComputationSource == typedef.ComputationGPU {
+		if _, err := ensureGPUCompute(); err != nil {
+			handleGPUComputeFailure("init", err)
+			options.ComputationSource = typedef.ComputationCPU
+		}
+	}
 	st.runtimeOptions = options
 
 	if options.TreasuryEnabled {

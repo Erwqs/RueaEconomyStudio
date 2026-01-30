@@ -37,6 +37,10 @@ func FindPathCheapest(algorithm typedef.PathfindingAlgorithm, start, target *typ
 			return nil, ErrNoPath
 		}
 		return path, nil
+	case typedef.PathfindingBellmanFord:
+		return BellmanFord(start, target, territoryMap, tradingRoutes, sourceGuildTag, allies)
+	case typedef.PathfindingFloydWarshall:
+		return FloydWarshall(start, target, territoryMap, tradingRoutes, sourceGuildTag, allies)
 	default:
 		// Default to Dijkstra if unknown algorithm
 		return Dijkstra(start, target, territoryMap, tradingRoutes, sourceGuildTag, allies)

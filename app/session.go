@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/color"
-	"os"
 	"time"
+
+	"RueaES/storage"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -41,7 +42,7 @@ func NewSessionManager(onBack func()) *SessionManager {
 		selectedIdx:  0,
 		hoveredIdx:   -1,
 		onBack:       onBack,
-		sessionsFile: "sessions.json",
+		sessionsFile: storage.DataFile("sessions.json"),
 	}
 	sm.loadSessions()
 	return sm
@@ -49,7 +50,7 @@ func NewSessionManager(onBack func()) *SessionManager {
 
 // loadSessions loads sessions from file
 func (sm *SessionManager) loadSessions() {
-	data, err := os.ReadFile(sm.sessionsFile)
+	data, err := storage.ReadDataFile("sessions.json")
 	if err != nil {
 		// File doesn't exist, start with empty sessions
 		return
@@ -68,7 +69,7 @@ func (sm *SessionManager) saveSessions() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(sm.sessionsFile, data, 0644)
+	return storage.WriteDataFile("sessions.json", data, 0644)
 }
 
 // CreateSession creates a new session

@@ -190,7 +190,6 @@ func (pn *PanicNotifier) ShowPanic(panicValue interface{}) {
 	// Update button positions after modal is shown
 	pn.updateButtonPositions()
 
-	fmt.Printf("[PANIC] Displaying panic notification for: %v\n", panicValue)
 }
 
 // formatStackTrace formats the stack trace for display

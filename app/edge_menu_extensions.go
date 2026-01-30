@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -13,6 +14,12 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/image/font"
 )
+
+var suppressNextTextInputRunes bool
+
+func suppressTextInputRunesOnce() {
+	suppressNextTextInputRunes = true
+}
 
 // TextInputOptions configures text input appearance and behavior
 type TextInputOptions struct {
@@ -27,7 +34,8 @@ type TextInputOptions struct {
 	PlaceholderColor color.RGBA
 	FontSize         int
 	Multiline        bool
-	ValidateInput    func(newValue string) bool // Function to validate input in real-time
+	ValidateInput    func(newValue string) bool              // Function to validate input in real-time
+	HandleRune       func(input *MenuTextInput, r rune) bool // Optional custom input handler
 }
 
 func DefaultTextInputOptions() TextInputOptions {
@@ -58,6 +66,7 @@ type MenuTextInput struct {
 	selectionStart int // Start of text selection (-1 if no selection)
 	blinkTimer     time.Time
 	rect           image.Rectangle
+	contextMenu    *SelectionAnywhere
 }
 
 func NewMenuTextInput(label string, initialValue string, options TextInputOptions, callback func(string)) *MenuTextInput {
@@ -80,6 +89,23 @@ func (t *MenuTextInput) Update(mx, my int, deltaTime float64) bool {
 
 	t.updateAnimation(deltaTime)
 
+	if t.contextMenu != nil && t.contextMenu.IsVisible() {
+		if t.contextMenu.Update() {
+			return true
+		}
+	}
+
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
+		if mx >= t.rect.Min.X && mx < t.rect.Max.X && my >= t.rect.Min.Y && my < t.rect.Max.Y {
+			if !t.focused {
+				t.focused = true
+				t.blinkTimer = time.Now()
+			}
+			t.showContextMenu(mx, my)
+			return true
+		}
+	}
+
 	// Handle focus
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		oldFocused := t.focused
@@ -98,8 +124,16 @@ func (t *MenuTextInput) Update(mx, my int, deltaTime float64) bool {
 
 	// Handle text input
 	oldValue := t.value
-	inputRunes := ebiten.AppendInputChars(nil)
+	var inputRunes []rune
+	if suppressNextTextInputRunes {
+		suppressNextTextInputRunes = false
+	} else {
+		inputRunes = ebiten.AppendInputChars(nil)
+	}
 	for _, r := range inputRunes {
+		if t.options.HandleRune != nil && t.options.HandleRune(t, r) {
+			continue
+		}
 		if len(t.value) < t.options.MaxLength && r >= 32 && r != 127 { // Printable characters
 			// If there's a selection, delete it first
 			if t.hasSelection() {
@@ -122,7 +156,12 @@ func (t *MenuTextInput) Update(mx, my int, deltaTime float64) bool {
 		(ebiten.IsKeyPressed(ebiten.KeyBackspace) && inpututil.KeyPressDuration(ebiten.KeyBackspace) >= 30 && inpututil.KeyPressDuration(ebiten.KeyBackspace)%6 == 0)
 
 	if repeatingKeyPressed {
-		if t.hasSelection() {
+		if !t.hasSelection() && t.cursorPos == 1 && strings.HasPrefix(t.value, "/") && strings.HasSuffix(t.value, "/gi") {
+			inner := t.value[1 : len(t.value)-3]
+			t.value = inner
+			t.cursorPos = 0
+			t.clearSelection()
+		} else if t.hasSelection() {
 			t.deleteSelection()
 		} else if t.cursorPos > 0 {
 			t.value = t.value[:t.cursorPos-1] + t.value[t.cursorPos:]
@@ -264,12 +303,12 @@ func (t *MenuTextInput) applyTextSanitization() (bool, bool) {
 }
 
 func (t *MenuTextInput) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !t.visible || t.animProgress <= 0.01 {
+	if !t.visible || t.displayAlpha() <= 0.01 {
 		return 0
 	}
 
 	height := t.options.Height + 35 // Increased space for better spacing
-	alpha := float32(t.animProgress)
+	alpha := float32(t.displayAlpha())
 
 	// Draw label
 	labelColor := color.RGBA{255, 255, 255, uint8(float32(255) * alpha)}
@@ -395,6 +434,60 @@ func (t *MenuTextInput) GetValue() string {
 	return t.value
 }
 
+func (t *MenuTextInput) showContextMenu(mx, my int) {
+	menu := NewSelectionAnywhere()
+	hasSelection := t.hasSelection()
+	canPaste := getClipboard() != ""
+
+	menu.Option("Copy", "", hasSelection, func() {
+		if t.hasSelection() {
+			setClipboard(t.getSelectedText())
+		}
+	})
+
+	menu.Option("Cut", "", hasSelection, func() {
+		if t.hasSelection() {
+			oldValue := t.value
+			setClipboard(t.getSelectedText())
+			t.deleteSelection()
+			t.applyContextValueChange(oldValue)
+		}
+	})
+
+	menu.Option("Paste", "", canPaste, func() {
+		clipboardText := getClipboard()
+		if clipboardText == "" {
+			return
+		}
+		oldValue := t.value
+		if t.hasSelection() {
+			t.deleteSelection()
+		}
+		maxLen := t.options.MaxLength
+		if maxLen <= 0 || len(t.value)+len(clipboardText) <= maxLen {
+			t.value = t.value[:t.cursorPos] + clipboardText + t.value[t.cursorPos:]
+			t.cursorPos += len(clipboardText)
+			t.clearSelection()
+			t.applyContextValueChange(oldValue)
+		}
+	})
+
+	screenW, screenH := ebiten.WindowSize()
+	menu.Show(mx, my, screenW, screenH)
+	t.contextMenu = menu
+	SetActiveContextMenu(menu)
+}
+
+func (t *MenuTextInput) applyContextValueChange(oldValue string) {
+	sanitizedChanged, flagged := t.applyTextSanitization()
+	if flagged {
+		showAdvertisingToast()
+	}
+	if t.callback != nil && (oldValue != t.value || sanitizedChanged) {
+		t.callback(t.value)
+	}
+}
+
 // ToggleSwitchOptions configures toggle switch appearance and behavior
 type ToggleSwitchOptions struct {
 	Width           int
@@ -485,12 +578,12 @@ func (s *MenuToggleSwitch) Update(mx, my int, deltaTime float64) bool {
 }
 
 func (s *MenuToggleSwitch) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !s.visible || s.animProgress <= 0.01 {
+	if !s.visible || s.displayAlpha() <= 0.01 {
 		return 0
 	}
 
 	height := s.options.Height + 35 // Increased space for better spacing
-	alpha := float32(s.animProgress)
+	alpha := float32(s.displayAlpha())
 
 	// Draw label
 	labelColor := s.options.TextColor
@@ -623,7 +716,7 @@ func (s *MenuSpacer) Update(mx, my int, deltaTime float64) bool {
 }
 
 func (s *MenuSpacer) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !s.visible || s.animProgress <= 0.01 {
+	if !s.visible || s.displayAlpha() <= 0.01 {
 		return 0
 	}
 
@@ -632,7 +725,7 @@ func (s *MenuSpacer) Draw(screen *ebiten.Image, x, y, width int, font font.Face)
 	// Draw colored background if specified
 	if s.options.Color.A > 0 {
 		bgColor := s.options.Color
-		bgColor.A = uint8(float32(bgColor.A) * float32(s.animProgress))
+		bgColor.A = uint8(float32(bgColor.A) * float32(s.displayAlpha()))
 		vector.DrawFilledRect(screen, float32(x), float32(y), float32(width), float32(height), bgColor, false)
 	}
 
@@ -697,12 +790,12 @@ func (p *MenuProgressBar) Update(mx, my int, deltaTime float64) bool {
 }
 
 func (p *MenuProgressBar) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !p.visible || p.animProgress <= 0.01 {
+	if !p.visible || p.displayAlpha() <= 0.01 {
 		return 0
 	}
 
 	height := p.options.Height + 25
-	alpha := float32(p.animProgress)
+	alpha := float32(p.displayAlpha())
 
 	// Draw label
 	labelColor := p.options.TextColor

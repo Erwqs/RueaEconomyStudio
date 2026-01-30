@@ -71,7 +71,6 @@ func (mm *MapManager) LoadMapData() error {
 	}
 
 	mm.isLoaded = true
-	fmt.Printf("Map loaded successfully: %dx%d pixels\n", mm.mapInfo.Width, mm.mapInfo.Height)
 
 	return nil
 }

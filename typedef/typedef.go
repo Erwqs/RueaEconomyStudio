@@ -72,6 +72,15 @@ const (
 	PathfindingDijkstra PathfindingAlgorithm = iota // Breadth-First Search (fastest, ignores cost)
 	PathfindingAstar                                // Dijkstra's algorithm (cheapest route)
 	PathfindingFloodFill
+	PathfindingBellmanFord
+	PathfindingFloydWarshall
+)
+
+type ComputationSource string
+
+const (
+	ComputationCPU ComputationSource = "CPU"
+	ComputationGPU ComputationSource = "GPU"
 )
 
 type Warning int8
@@ -795,6 +804,9 @@ type RuntimeOptions struct {
 
 	PathfindingAlgorithm PathfindingAlgorithm // Pathfinding algorithm to use for routing
 
+	// ComputationSource selects whether heavy computation runs on CPU or GPU.
+	ComputationSource ComputationSource `json:"ComputationSource"`
+
 	// Map visibility controls
 	MapOpacityPercent float64 `json:"MapOpacityPercent"` // 0-100, 100 = fully visible map, 0 = hide map (territories still rendered)
 
@@ -830,6 +842,9 @@ type RuntimeOptions struct {
 	// User-configurable keyboard shortcuts for common UI actions.
 	Keybinds Keybinds `json:"keybinds"`
 
+	// Enable fade/slide reveal animations for side menus.
+	SidemenuAnimations bool `json:"SidemenuAnimations"`
+
 	// PluginKeybinds stores per-plugin keybind overrides keyed by "pluginID::bindID".
 	PluginKeybinds map[string]string `json:"pluginKeybinds,omitempty"`
 }
@@ -853,10 +868,14 @@ func (k Keybinds) KeybindLabel(name string) string {
 	switch name {
 	case "analysis":
 		return k.AnalysisModal
+	case "auto_setup":
+		return k.AutoSetupModal
 	case "state":
 		return k.StateMenu
 	case "tribute":
 		return k.TributeMenu
+	case "filter":
+		return k.FilterMenu
 	case "guild":
 		return k.GuildManager
 	case "loadout":

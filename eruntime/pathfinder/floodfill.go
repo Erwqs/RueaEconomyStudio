@@ -1,6 +1,9 @@
 package pathfinder
 
-import "RueaES/typedef"
+import (
+	"RueaES/typedef"
+	"container/heap"
+)
 
 // FloodFillResult contains the results of a flood fill operation
 type FloodFillResult struct {
@@ -25,106 +28,62 @@ func FloodFill(start *typedef.Territory, territoryMap map[string]*typedef.Territ
 		Paths:                make(map[string][]*typedef.Territory),
 	}
 
-	// Use separate queues for different priority levels
-	ownTerritoryQueue := []*typedef.Territory{}     // Own guild territories (highest priority)
-	allyTerritoryQueue := []*typedef.Territory{}    // Allied territories (medium priority)
-	neutralTerritoryQueue := []*typedef.Territory{} // Neutral/other territories (lowest priority)
+	adjacency := buildAdjacency(territoryMap, tradingRoutes)
 
-	visited := make(map[string]struct{})
+	bestCost := map[string]float64{start.Name: 0}
+	bestDistance := map[string]int{start.Name: 0}
 	previous := make(map[string]*typedef.Territory)
+	settled := make(map[string]struct{})
 
-	// Initialize starting territory
-	visited[start.Name] = struct{}{}
-	result.Distances[start.Name] = 0
-	result.TotalCost[start.Name] = 0
-	result.Paths[start.Name] = []*typedef.Territory{start}
-	result.ReachableTerritories = append(result.ReachableTerritories, start)
+	priorityQueue := &PriorityQueue{}
+	heap.Init(priorityQueue)
+	heap.Push(priorityQueue, &PathfindingNode{Territory: start, Cost: 0, Distance: 0})
 
-	// Add initial territory to appropriate queue
-	neighbors := GetTerritoryConnections(start, territoryMap, tradingRoutes)
-	for _, neighbor := range neighbors {
-		if _, ok := visited[neighbor.Name]; ok {
+	for priorityQueue.Len() > 0 {
+		node := heap.Pop(priorityQueue).(*PathfindingNode)
+		current := node.Territory
+
+		if current == nil {
 			continue
 		}
 
-		// Check if we can pass through this territory
-		if !CanPassThroughTerritory(neighbor, sourceGuildTag) {
+		currentCost, ok := bestCost[current.Name]
+		if !ok || node.Cost > currentCost {
 			continue
 		}
 
-		// Add to appropriate priority queue
-		if neighbor.Guild.Tag == sourceGuildTag {
-			ownTerritoryQueue = append(ownTerritoryQueue, neighbor)
-		} else if isAllyTerritory(neighbor, allies) {
-			allyTerritoryQueue = append(allyTerritoryQueue, neighbor)
-		} else {
-			neutralTerritoryQueue = append(neutralTerritoryQueue, neighbor)
-		}
-	}
-
-	// Process queues in priority order
-	for len(ownTerritoryQueue) > 0 || len(allyTerritoryQueue) > 0 || len(neutralTerritoryQueue) > 0 {
-		var current *typedef.Territory
-
-		// Process own territories first
-		if len(ownTerritoryQueue) > 0 {
-			current = ownTerritoryQueue[0]
-			ownTerritoryQueue = ownTerritoryQueue[1:]
-		} else if len(allyTerritoryQueue) > 0 {
-			current = allyTerritoryQueue[0]
-			allyTerritoryQueue = allyTerritoryQueue[1:]
-		} else {
-			current = neutralTerritoryQueue[0]
-			neutralTerritoryQueue = neutralTerritoryQueue[1:]
-		}
-
-		if _, ok := visited[current.Name]; ok {
+		if _, ok := settled[current.Name]; ok {
 			continue
 		}
-
-		// Find the best previous territory (lowest cost path)
-		bestPrevious := findBestPreviousTerritory(current, visited, result.TotalCost, territoryMap, tradingRoutes, sourceGuildTag, allies)
-		if bestPrevious == nil {
-			continue
-		}
-
-		visited[current.Name] = struct{}{}
-		previous[current.Name] = bestPrevious
-		result.Distances[current.Name] = result.Distances[bestPrevious.Name] + 1
-
-		// Calculate cumulative cost
-		edgeCost := calculateFloodFillCost(bestPrevious, current, sourceGuildTag, allies)
-		result.TotalCost[current.Name] = result.TotalCost[bestPrevious.Name] + edgeCost
-
-		// Build path to this territory
-		result.Paths[current.Name] = buildPath(previous, start, current)
+		settled[current.Name] = struct{}{}
 
 		result.ReachableTerritories = append(result.ReachableTerritories, current)
+		result.Distances[current.Name] = bestDistance[current.Name]
+		result.TotalCost[current.Name] = currentCost
 
-		// Add neighbors to appropriate queues
-		neighbors := GetTerritoryConnections(current, territoryMap, tradingRoutes)
+		neighbors := adjacency[current.Name]
 		for _, neighbor := range neighbors {
-			if _, ok := visited[neighbor.Name]; ok {
+			if neighbor == nil {
 				continue
 			}
 
-			// Check if we can pass through this territory
 			if !CanPassThroughTerritory(neighbor, sourceGuildTag) {
 				continue
 			}
 
-			// Add to appropriate priority queue if not already queued
-			if !isInQueue(neighbor, ownTerritoryQueue) && !isInQueue(neighbor, allyTerritoryQueue) && !isInQueue(neighbor, neutralTerritoryQueue) {
-				if neighbor.Guild.Tag == sourceGuildTag {
-					ownTerritoryQueue = append(ownTerritoryQueue, neighbor)
-				} else if isAllyTerritory(neighbor, allies) {
-					allyTerritoryQueue = append(allyTerritoryQueue, neighbor)
-				} else {
-					neutralTerritoryQueue = append(neutralTerritoryQueue, neighbor)
-				}
+			edgeCost := calculateFloodFillCost(current, neighbor, sourceGuildTag, allies)
+			newCost := currentCost + edgeCost
+			oldCost, ok := bestCost[neighbor.Name]
+			if !ok || newCost < oldCost {
+				bestCost[neighbor.Name] = newCost
+				bestDistance[neighbor.Name] = bestDistance[current.Name] + 1
+				previous[neighbor.Name] = current
+				heap.Push(priorityQueue, &PathfindingNode{Territory: neighbor, Cost: newCost, Distance: bestDistance[neighbor.Name]})
 			}
 		}
 	}
+
+	result.Paths = buildPathsForAll(start, previous, territoryMap)
 
 	return result, nil
 }
@@ -142,6 +101,8 @@ func FloodFillWithMaxDistance(start *typedef.Territory, maxDistance int, territo
 		Paths:                make(map[string][]*typedef.Territory),
 	}
 
+	adjacency := buildAdjacency(territoryMap, tradingRoutes)
+
 	// Queue for BFS-style flood fill with distance tracking
 	type queueItem struct {
 		territory *typedef.Territory
@@ -149,19 +110,19 @@ func FloodFillWithMaxDistance(start *typedef.Territory, maxDistance int, territo
 	}
 
 	queue := []queueItem{{territory: start, distance: 0}}
-	visited := make(map[string]bool)
+	queueHead := 0
+	visited := make(map[string]struct{})
 	previous := make(map[string]*typedef.Territory)
 
 	// Initialize starting territory
-	visited[start.Name] = true
+	visited[start.Name] = struct{}{}
 	result.Distances[start.Name] = 0
 	result.TotalCost[start.Name] = 0
-	result.Paths[start.Name] = []*typedef.Territory{start}
 	result.ReachableTerritories = append(result.ReachableTerritories, start)
 
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
+	for queueHead < len(queue) {
+		current := queue[queueHead]
+		queueHead++
 
 		// Skip if we've reached maximum distance
 		if current.distance >= maxDistance {
@@ -169,9 +130,12 @@ func FloodFillWithMaxDistance(start *typedef.Territory, maxDistance int, territo
 		}
 
 		// Explore neighbors
-		neighbors := GetTerritoryConnections(current.territory, territoryMap, tradingRoutes)
+		neighbors := adjacency[current.territory.Name]
 		for _, neighbor := range neighbors {
-			if visited[neighbor.Name] {
+			if neighbor == nil {
+				continue
+			}
+			if _, ok := visited[neighbor.Name]; ok {
 				continue
 			}
 
@@ -181,7 +145,7 @@ func FloodFillWithMaxDistance(start *typedef.Territory, maxDistance int, territo
 			}
 
 			newDistance := current.distance + 1
-			visited[neighbor.Name] = true
+			visited[neighbor.Name] = struct{}{}
 			previous[neighbor.Name] = current.territory
 			result.Distances[neighbor.Name] = newDistance
 
@@ -189,13 +153,12 @@ func FloodFillWithMaxDistance(start *typedef.Territory, maxDistance int, territo
 			edgeCost := calculateFloodFillCost(current.territory, neighbor, sourceGuildTag, allies)
 			result.TotalCost[neighbor.Name] = result.TotalCost[current.territory.Name] + edgeCost
 
-			// Build path to this territory
-			result.Paths[neighbor.Name] = buildPath(previous, start, neighbor)
-
 			result.ReachableTerritories = append(result.ReachableTerritories, neighbor)
 			queue = append(queue, queueItem{territory: neighbor, distance: newDistance})
 		}
 	}
+
+	result.Paths = buildPathsForAll(start, previous, territoryMap)
 
 	return result, nil
 }
@@ -213,6 +176,8 @@ func FloodFillWithMaxCost(start *typedef.Territory, maxCost float64, territoryMa
 		Paths:                make(map[string][]*typedef.Territory),
 	}
 
+	adjacency := buildAdjacency(territoryMap, tradingRoutes)
+
 	// Queue for BFS-style flood fill with cost tracking
 	type queueItem struct {
 		territory *typedef.Territory
@@ -221,24 +186,27 @@ func FloodFillWithMaxCost(start *typedef.Territory, maxCost float64, territoryMa
 	}
 
 	queue := []queueItem{{territory: start, distance: 0, cost: 0}}
-	visited := make(map[string]bool)
+	queueHead := 0
+	visited := make(map[string]struct{})
 	previous := make(map[string]*typedef.Territory)
 
 	// Initialize starting territory
-	visited[start.Name] = true
+	visited[start.Name] = struct{}{}
 	result.Distances[start.Name] = 0
 	result.TotalCost[start.Name] = 0
-	result.Paths[start.Name] = []*typedef.Territory{start}
 	result.ReachableTerritories = append(result.ReachableTerritories, start)
 
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
+	for queueHead < len(queue) {
+		current := queue[queueHead]
+		queueHead++
 
 		// Explore neighbors
-		neighbors := GetTerritoryConnections(current.territory, territoryMap, tradingRoutes)
+		neighbors := adjacency[current.territory.Name]
 		for _, neighbor := range neighbors {
-			if visited[neighbor.Name] {
+			if neighbor == nil {
+				continue
+			}
+			if _, ok := visited[neighbor.Name]; ok {
 				continue
 			}
 
@@ -257,18 +225,17 @@ func FloodFillWithMaxCost(start *typedef.Territory, maxCost float64, territoryMa
 			}
 
 			newDistance := current.distance + 1
-			visited[neighbor.Name] = true
+			visited[neighbor.Name] = struct{}{}
 			previous[neighbor.Name] = current.territory
 			result.Distances[neighbor.Name] = newDistance
 			result.TotalCost[neighbor.Name] = newCost
-
-			// Build path to this territory
-			result.Paths[neighbor.Name] = buildPath(previous, start, neighbor)
 
 			result.ReachableTerritories = append(result.ReachableTerritories, neighbor)
 			queue = append(queue, queueItem{territory: neighbor, distance: newDistance, cost: newCost})
 		}
 	}
+
+	result.Paths = buildPathsForAll(start, previous, territoryMap)
 
 	return result, nil
 }
@@ -313,6 +280,73 @@ func FloodFillByGuild(start *typedef.Territory, territoryMap map[string]*typedef
 	return resultsByGuild, nil
 }
 
+func buildAdjacency(territoryMap map[string]*typedef.Territory, tradingRoutes map[string][]string) map[string][]*typedef.Territory {
+	adjacency := make(map[string][]*typedef.Territory, len(territoryMap))
+	for territoryName, territory := range territoryMap {
+		if territory == nil {
+			continue
+		}
+		routes := tradingRoutes[territoryName]
+		if len(routes) == 0 {
+			continue
+		}
+
+		neighbors := make([]*typedef.Territory, 0, len(routes))
+		for _, routeName := range routes {
+			if neighbor, ok := territoryMap[routeName]; ok && neighbor != nil {
+				neighbors = append(neighbors, neighbor)
+			}
+		}
+		if len(neighbors) > 0 {
+			adjacency[territoryName] = neighbors
+		}
+	}
+
+	return adjacency
+}
+
+func buildPathsForAll(start *typedef.Territory, previous map[string]*typedef.Territory, territoryMap map[string]*typedef.Territory) map[string][]*typedef.Territory {
+	paths := make(map[string][]*typedef.Territory)
+	if start == nil {
+		return paths
+	}
+
+	paths[start.Name] = []*typedef.Territory{start}
+
+	var buildPathFor func(name string) []*typedef.Territory
+	buildPathFor = func(name string) []*typedef.Territory {
+		if path, ok := paths[name]; ok {
+			return path
+		}
+
+		current := territoryMap[name]
+		if current == nil {
+			return nil
+		}
+
+		prev := previous[name]
+		if prev == nil {
+			return nil
+		}
+
+		prevPath := buildPathFor(prev.Name)
+		if prevPath == nil {
+			return nil
+		}
+
+		path := append(make([]*typedef.Territory, 0, len(prevPath)+1), prevPath...)
+		path = append(path, current)
+		paths[name] = path
+		return path
+	}
+
+	for name := range previous {
+		buildPathFor(name)
+	}
+
+	return paths
+}
+
 // calculateFloodFillCost calculates the cost for flood fill operations
 func calculateFloodFillCost(from, to *typedef.Territory, sourceGuildTag string, allies []string) float64 {
 	// Base cost
@@ -345,72 +379,3 @@ func calculateFloodFillCost(from, to *typedef.Territory, sourceGuildTag string, 
 }
 
 // buildPath reconstructs the path from start to target using the previous map
-func buildPath(previous map[string]*typedef.Territory, start, target *typedef.Territory) []*typedef.Territory {
-	path := []*typedef.Territory{}
-	current := target
-
-	for current != nil {
-		path = append([]*typedef.Territory{current}, path...)
-		if current.Name == start.Name {
-			break
-		}
-		current = previous[current.Name]
-	}
-
-	return path
-}
-
-// isAllyTerritory checks if a territory belongs to an allied guild
-func isAllyTerritory(territory *typedef.Territory, allies []string) bool {
-	for _, ally := range allies {
-		if territory.Guild.Tag == ally {
-			return true
-		}
-	}
-	return false
-}
-
-// isInQueue checks if a territory is already in a queue
-func isInQueue(territory *typedef.Territory, queue []*typedef.Territory) bool {
-	for _, t := range queue {
-		if t.Name == territory.Name {
-			return true
-		}
-	}
-	return false
-}
-
-// findBestPreviousTerritory finds the best (lowest cost) path to reach a territory
-func findBestPreviousTerritory(target *typedef.Territory, visited map[string]struct{}, costs map[string]float64, territoryMap map[string]*typedef.Territory, tradingRoutes map[string][]string, sourceGuildTag string, allies []string) *typedef.Territory {
-	var bestPrevious *typedef.Territory
-	var bestCost float64 = -1
-
-	// Check all possible connections to this territory
-	for _, territory := range territoryMap {
-		if _, ok := visited[territory.Name]; !ok {
-			continue
-		}
-
-		// Check if this territory connects to target
-		connections := GetTerritoryConnections(territory, territoryMap, tradingRoutes)
-		connected := false
-		for _, conn := range connections {
-			if conn.Name == target.Name {
-				connected = true
-				break
-			}
-		}
-
-		if connected {
-			edgeCost := calculateFloodFillCost(territory, target, sourceGuildTag, allies)
-			totalCost := costs[territory.Name] + edgeCost
-
-			if bestCost < 0 || totalCost < bestCost {
-				bestCost = totalCost
-				bestPrevious = territory
-			}
-		}
-	}
-
-	return bestPrevious
-}

@@ -63,6 +63,9 @@ func (c *Container) Update(mx, my int, deltaTime float64) bool {
 	if !c.visible {
 		return false
 	}
+	if c.displayAlpha() <= 0.01 {
+		return false
+	}
 	c.updateAnimation(deltaTime)
 
 	// Handle horizontal wheel scroll when mouse is over container
@@ -121,7 +124,7 @@ func (c *Container) Update(mx, my int, deltaTime float64) bool {
 // Draw renders the container and its children horizontally.
 // Returns the height used by the container.
 func (c *Container) Draw(screen *ebiten.Image, x, y, width int, fontFace font.Face) int {
-	if !c.visible || c.animProgress <= 0.01 {
+	if !c.visible || c.displayAlpha() <= 0.01 {
 		return 0
 	}
 	// Compute height based on tallest child
@@ -141,6 +144,9 @@ func (c *Container) Draw(screen *ebiten.Image, x, y, width int, fontFace font.Fa
 	cardWidth := 200 // Fixed width for cards
 	curX := x - c.scrollOffset
 	for _, el := range c.elements {
+		if r, ok := el.(interface{ SetRevealProgress(float64) }); ok {
+			r.SetRevealProgress(c.displayAlpha())
+		}
 		el.Draw(screen, curX, y+10, cardWidth, fontFace)
 		curX += cardWidth + padding
 	}

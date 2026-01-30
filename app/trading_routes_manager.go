@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"image/color"
+	"time"
 
 	"RueaES/eruntime"
 )
@@ -34,6 +35,10 @@ func (m *EdgeMenu) UpdateTradingRoutes(territoryName string) {
 
 				// Clear existing elements and rebuild with fresh data
 				collapsible.elements = collapsible.elements[:0]
+				if collapsible.revealStart == nil {
+					collapsible.revealStart = make(map[EdgeMenuElement]time.Time)
+				}
+				revealDoneAt := time.Now().Add(-time.Second)
 
 				if len(territory.TradingRoutes) > 0 {
 					// Get current guild information for route coloring
@@ -70,6 +75,7 @@ func (m *EdgeMenu) UpdateTradingRoutes(territoryName string) {
 						}
 						routeOptions.Collapsed = !wasExpanded
 						routeSubmenu := collapsible.CollapsibleMenu(routeTitle, routeOptions)
+						routeSubmenu.revealStart = make(map[EdgeMenuElement]time.Time)
 
 						for j, routeTerritory := range route {
 							routeTerritoryName := routeTerritory.Name
@@ -124,7 +130,7 @@ func (m *EdgeMenu) UpdateTradingRoutes(territoryName string) {
 
 							// Capture territory name for closure
 							capturedTerritoryName := routeTerritoryName
-							routeSubmenu.ClickableText(displayText, clickableOptions, func() {
+							clickText := routeSubmenu.ClickableText(displayText, clickableOptions, func() {
 								// Use the territory navigation callback if available
 								if m.territoryNavCallback != nil {
 									m.territoryNavCallback(capturedTerritoryName)
@@ -132,12 +138,18 @@ func (m *EdgeMenu) UpdateTradingRoutes(territoryName string) {
 									// fmt.Printf("DEBUG: Route territory clicked (no nav callback): %s\n", capturedTerritoryName)
 								}
 							})
+							clickText.SetRevealProgress(1)
+							routeSubmenu.revealStart[clickText] = revealDoneAt
 						}
+						routeSubmenu.SetRevealProgress(1)
+						collapsible.revealStart[routeSubmenu] = revealDoneAt
 					}
 				} else {
 					// No trading routes available
 					noRoutesText := NewMenuText("No trading routes", DefaultTextOptions())
 					collapsible.elements = append(collapsible.elements, noRoutesText)
+					noRoutesText.SetRevealProgress(1)
+					collapsible.revealStart[noRoutesText] = revealDoneAt
 				}
 
 				// fmt.Printf("DEBUG: Trading routes updated in place for %s (preserved %d route states)\n", territoryName, len(routeStates))

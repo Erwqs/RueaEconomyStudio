@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"golang.design/x/clipboard"
 )
 
 // parseResourceValue parses a resource value string to integer
@@ -36,6 +38,21 @@ type Marker struct {
 	Color     color.RGBA
 	Size      float64
 	IsVisible bool
+}
+
+type rangeFilterState struct {
+	key         string
+	label       string
+	min         float64
+	max         float64
+	step        float64
+	format      string
+	defaultLow  float64
+	defaultHigh float64
+	low         float64
+	high        float64
+	exclusion   bool
+	slider      *MenuRangeSlider
 }
 
 // sanitizeHoverTerritoryName replaces any case-insensitive "newm" occurrence with "FUMO" for hover display.
@@ -110,6 +127,25 @@ type MapView struct {
 	// EdgeMenu for territory details
 	edgeMenu *EdgeMenu
 
+	// EdgeMenu for filter controls
+	filterMenu *EdgeMenu
+
+	// Filter menu state
+	filterMatchMode         string // "contains", "any", or "approximate"
+	filterMatchToggle       *MenuToggleSwitch
+	filterApproxTolerance   float64
+	filterApproxCurve       float64
+	filterApproxToleranceUI *MenuSlider
+	filterApproxCurveUI     *MenuSlider
+	filterOptions           struct {
+		exclusion          bool
+		ranges             map[string]*rangeFilterState
+		hqMode             string
+		borderMode         string
+		routeCompatibility string
+		textQuery          string
+	}
+
 	// State management menu for tick controls
 	stateManagementMenu        *StateManagementMenu
 	stateManagementMenuVisible bool // Whether the state management menu is visible
@@ -126,6 +162,9 @@ type MapView struct {
 	// Analysis modal
 	analysisModal   *AnalysisModal
 	analysisRunning bool
+
+	// Auto setup modal
+	autoSetupModal *AutoSetupModal
 
 	// Claim editing functionality
 	isEditingClaims  bool            // Whether we're in claim editing mode
@@ -213,6 +252,32 @@ func NewMapView() *MapView {
 		// Initialize EdgeMenu (hidden by default)
 		edgeMenu: NewEdgeMenu("Territory Details", DefaultEdgeMenuOptions()),
 
+		// Initialize Filter EdgeMenu (hidden by default)
+		filterMenu: func() *EdgeMenu {
+			options := DefaultEdgeMenuOptions()
+			options.Position = EdgeMenuRight
+			menu := NewEdgeMenu("Filters", options)
+			menu.ClearCurrentTerritory() // No territory overlay for filters
+			return menu
+		}(),
+		filterMatchMode:       "contains",
+		filterApproxTolerance: 0.25,
+		filterApproxCurve:     0.5,
+		filterOptions: struct {
+			exclusion          bool
+			ranges             map[string]*rangeFilterState
+			hqMode             string
+			borderMode         string
+			routeCompatibility string
+			textQuery          string
+		}{
+			ranges:             make(map[string]*rangeFilterState),
+			hqMode:             "all",
+			borderMode:         "all",
+			routeCompatibility: "all",
+			textQuery:          "",
+		},
+
 		// Initialize state management menu (hidden by default)
 		stateManagementMenu: NewStateManagementMenu(),
 
@@ -220,8 +285,9 @@ func NewMapView() *MapView {
 		territoryViewSwitcher: NewTerritoryViewSwitcher(),
 
 		// Initialize tribute menu
-		tributeMenu:   NewTributeMenu(),
-		analysisModal: NewAnalysisModal(),
+		tributeMenu:    NewTributeMenu(),
+		analysisModal:  NewAnalysisModal(),
+		autoSetupModal: NewAutoSetupModal(),
 
 		// Initialize transit resource cache
 		cachedTransitResources: make(map[string][]typedef.InTransitResources),
@@ -236,6 +302,9 @@ func NewMapView() *MapView {
 	if mapView.analysisModal != nil {
 		mapView.analysisModal.SetOnAnalyze(mapView.runChokepointAnalysis)
 		mapView.analysisModal.SetOnHQAnalyze(mapView.runHQPlacementAnalysis)
+	}
+	if mapView.autoSetupModal != nil {
+		mapView.refreshAutoSetupGuildOptions()
 	}
 
 	// Start loading map data asynchronously
@@ -270,7 +339,7 @@ func NewMapView() *MapView {
 			return
 		}
 
-		fmt.Printf("[MAP] Updating %d territories with their current guild assignments\n", len(territories))
+		// fmt.Printf("[MAP] Updating %d territories with their current guild assignments\n", len(territories))
 
 		// Suspend redraws during batch update
 		claimManager.suspendRedraws = true
@@ -291,7 +360,7 @@ func NewMapView() *MapView {
 					guildTag = "NONE"
 				}
 
-				fmt.Printf("[MAP] Setting territory %s to guild %s [%s], HQ: %v\n", territory.Name, guildName, guildTag, isHQ)
+				// fmt.Printf("[MAP] Setting territory %s to guild %s [%s], HQ: %v\n", territory.Name, guildName, guildTag, isHQ)
 				claims = append(claims, GuildClaim{
 					TerritoryName: territory.Name,
 					GuildName:     guildName,
@@ -311,6 +380,32 @@ func NewMapView() *MapView {
 		claimManager.TriggerRedraw()
 
 		// fmt.Println("[MAP] Territory guild assignments updated after state change")
+	})
+
+	// Register GPU compute failure callback to notify users and revert to CPU mode
+	eruntime.SetGPUComputeFailureCallback(func(message, stackTrace string) {
+		toast := NewToast().
+			Text("GPU compute failed. Switched back to CPU.", ToastOption{Colour: color.RGBA{255, 160, 120, 255}}).
+			Text(message, ToastOption{Colour: color.RGBA{255, 220, 200, 255}})
+
+		toast.Button("Copy Stacktrace", func() {
+			initClipboard()
+			if runtime.GOARCH != "wasm" && runtime.GOOS != "js" {
+				payload := message + "\n\n" + stackTrace
+				clipboard.Write(clipboard.FmtText, []byte(payload))
+				NewToast().Text("Stacktrace copied to clipboard", ToastOption{Colour: color.RGBA{200, 255, 200, 255}}).Show()
+				return
+			}
+			NewToast().Text("Clipboard not supported on this platform", ToastOption{Colour: color.RGBA{255, 150, 100, 255}}).Show()
+		}, 0, 0, ToastOption{Colour: color.RGBA{180, 220, 255, 255}})
+
+		toast.Show()
+
+		if mapView := GetMapView(); mapView != nil && mapView.IsStateManagementMenuOpen() {
+			if mapView.stateManagementMenu != nil {
+				mapView.stateManagementMenu.Show()
+			}
+		}
 	})
 
 	return mapView
@@ -336,7 +431,7 @@ func (m *MapView) Update(screenW, screenH int) {
 
 	// Reset the ESC key flag at the start of each frame if it's been set
 	if m.justHandledEscKey {
-		fmt.Printf("[MAP] Resetting ESC key flag\n")
+		// fmt.Printf("[MAP] Resetting ESC key flag\n")
 		m.justHandledEscKey = false
 	}
 
@@ -364,36 +459,59 @@ func (m *MapView) Update(screenW, screenH int) {
 	// Update animations
 	m.updateAnimations(deltaTime)
 
+	windowFocused := ebiten.IsFocused()
+
 	// Update unified pointer state (mouse + touch)
 	if m.pointer != nil {
-		m.pointer.Update()
+		if windowFocused {
+			m.pointer.Update()
+		} else {
+			m.pointer.Reset()
+		}
+	}
+
+	if !windowFocused {
+		m.dragging = false
+		m.touchDragging = false
+		m.hoveredTerritory = ""
 	}
 
 	// Short-circuit all other UI when the color picker modal is open
 	if m.stateManagementMenu != nil && m.stateManagementMenu.mapColorPicker != nil && m.stateManagementMenu.mapColorPicker.IsVisible() {
 		m.stateManagementMenu.Update(deltaTime)
+		m.hoveredTerritory = ""
 		return
 	}
 
 	analysisModalOpen := m.analysisModal != nil && m.analysisModal.IsVisible()
+	autoSetupModalOpen := m.autoSetupModal != nil && m.autoSetupModal.IsVisible()
 	binds := eruntime.GetRuntimeOptions().Keybinds
+	if m.filterMenu != nil && !m.filterMenu.IsVisible() && bindingJustPressed(binds.FilterMenu) {
+		suppressTextInputRunesOnce()
+	}
+	globalTextInputFocused := m.isAnyTextInputFocused()
 
 	// Update menus in top-to-bottom order
+	filterMenuHandledInput := false
 	edgeMenuHandledInput := false
 	stateMenuHandledInput := false
 
-	if m.edgeMenu != nil && !analysisModalOpen {
+	if m.filterMenu != nil && !analysisModalOpen && !autoSetupModalOpen {
+		filterMenuHandledInput = m.filterMenu.Update(screenW, screenH, deltaTime)
+	}
+
+	if !filterMenuHandledInput && m.edgeMenu != nil && !analysisModalOpen && !autoSetupModalOpen {
 		edgeMenuHandledInput = m.edgeMenu.Update(screenW, screenH, deltaTime)
 	}
 
-	if !edgeMenuHandledInput && m.stateManagementMenu != nil && !analysisModalOpen {
+	if !edgeMenuHandledInput && !filterMenuHandledInput && m.stateManagementMenu != nil && !analysisModalOpen && !autoSetupModalOpen {
 		stateMenuHandledInput = m.stateManagementMenu.menu.Update(screenW, screenH, deltaTime)
 		// Update stats periodically
 		m.stateManagementMenu.Update(deltaTime)
 	}
 
 	// Let the color picker capture input when open
-	if !analysisModalOpen && m.stateManagementMenu != nil && m.stateManagementMenu.HandleInput() {
+	if !analysisModalOpen && !autoSetupModalOpen && m.stateManagementMenu != nil && m.stateManagementMenu.HandleInput() {
 		stateMenuHandledInput = true
 	}
 
@@ -422,7 +540,10 @@ func (m *MapView) Update(screenW, screenH int) {
 	}
 
 	// Handle Analysis modal toggle with A key
-	if bindingJustPressed(binds.AnalysisModal) {
+	if !globalTextInputFocused && bindingJustPressed(binds.AnalysisModal) {
+		if autoSetupModalOpen {
+			return
+		}
 		// If the modal is visible, only close it when no text input is focused
 		if m.analysisModal != nil && m.analysisModal.IsVisible() {
 			if m.analysisModal.HasTextInputFocused() {
@@ -461,10 +582,51 @@ func (m *MapView) Update(screenW, screenH int) {
 		}
 	}
 
+	// Handle Auto Setup modal toggle
+	if !globalTextInputFocused && bindingJustPressed(binds.AutoSetupModal) {
+		if analysisModalOpen {
+			return
+		}
+		if m.autoSetupModal != nil && m.autoSetupModal.IsVisible() {
+			if m.autoSetupModal.HasTextInputFocused() {
+				return
+			}
+			m.autoSetupModal.Hide()
+			return
+		}
+
+		textInputFocused := false
+		if m.territoriesManager != nil {
+			guildManager := m.territoriesManager.guildManager
+			if guildManager != nil && guildManager.IsVisible() && guildManager.HasTextInputFocused() {
+				textInputFocused = true
+			}
+		}
+		loadoutManager := GetLoadoutManager()
+		if loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+			textInputFocused = true
+		}
+		if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() && m.stateManagementMenu.menu.HasTextInputFocused() {
+			textInputFocused = true
+		}
+		if m.analysisModal != nil && m.analysisModal.IsVisible() && m.analysisModal.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		if m.autoSetupModal != nil && m.autoSetupModal.IsVisible() && m.autoSetupModal.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		if !textInputFocused {
+			m.ToggleAutoSetupModal()
+			return
+		}
+	}
+
 	// Handle P key and MouseButton4 BEFORE checking if input was handled
 	// Toggle state management menu with P key
-	if !tributeMenuHandledInput && bindingJustPressed(binds.StateMenu) {
-		if analysisModalOpen {
+	if !globalTextInputFocused && !tributeMenuHandledInput && bindingJustPressed(binds.StateMenu) {
+		if analysisModalOpen || autoSetupModalOpen {
 			// Ignore P while analysis modal is open
 		} else {
 			// Check if any text input is currently focused before opening state management menu
@@ -488,6 +650,9 @@ func (m *MapView) Update(screenW, screenH int) {
 			if m.analysisModal != nil && m.analysisModal.IsVisible() && m.analysisModal.HasTextInputFocused() {
 				textInputFocused = true
 			}
+			if m.autoSetupModal != nil && m.autoSetupModal.IsVisible() && m.autoSetupModal.HasTextInputFocused() {
+				textInputFocused = true
+			}
 
 			// Check if state management menu has text input focused
 			if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() && m.stateManagementMenu.menu.HasTextInputFocused() {
@@ -502,10 +667,41 @@ func (m *MapView) Update(screenW, screenH int) {
 		}
 	}
 
+	// Toggle filter menu with configured keybind (default F)
+	if !globalTextInputFocused && !tributeMenuHandledInput && bindingJustPressed(binds.FilterMenu) {
+		if analysisModalOpen || autoSetupModalOpen {
+			return
+		}
+		textInputFocused := false
+
+		if m.territoriesManager != nil {
+			if gm := m.territoriesManager.guildManager; gm != nil && gm.IsVisible() && gm.HasTextInputFocused() {
+				textInputFocused = true
+			}
+		}
+
+		if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsVisible() && loadoutManager.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() && m.stateManagementMenu.menu.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		if m.analysisModal != nil && m.analysisModal.IsVisible() && m.analysisModal.HasTextInputFocused() {
+			textInputFocused = true
+		}
+
+		if !textInputFocused {
+			m.ToggleFilterMenu()
+			return
+		}
+	}
+
 	// Handle MouseButton4 (forward button) to open state management menu
 	if !tributeMenuHandledInput && inpututil.IsMouseButtonJustPressed(ebiten.MouseButton4) {
-		if analysisModalOpen {
-			// Ignore forward mouse button while analysis modal is open
+		if analysisModalOpen || autoSetupModalOpen {
+			// Ignore forward mouse button while a modal is open
 		} else {
 			// Check if any text input is currently focused before opening state management menu
 			textInputFocused := false
@@ -524,6 +720,10 @@ func (m *MapView) Update(screenW, screenH int) {
 				textInputFocused = true
 			}
 
+			if m.autoSetupModal != nil && m.autoSetupModal.IsVisible() && m.autoSetupModal.HasTextInputFocused() {
+				textInputFocused = true
+			}
+
 			// Only toggle state management menu if no text input is focused
 			if !textInputFocused {
 				m.ToggleStateManagementMenu()
@@ -534,6 +734,7 @@ func (m *MapView) Update(screenW, screenH int) {
 
 	// Block other input while Analysis modal is open, but allow closing with ESC
 	if m.analysisModal != nil && m.analysisModal.IsVisible() {
+		m.hoveredTerritory = ""
 		mx, my := ebiten.CursorPosition()
 		m.analysisModal.Update(mx, my, deltaTime)
 		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButton3) {
@@ -542,8 +743,29 @@ func (m *MapView) Update(screenW, screenH int) {
 		return
 	}
 
-	// If EdgeMenu, tribute menu, or state menu handled input, don't process map input
-	if edgeMenuHandledInput || tributeMenuHandledInput || stateMenuHandledInput {
+	// Block other input while Auto Setup modal is open, but allow closing with ESC
+	if m.autoSetupModal != nil && m.autoSetupModal.IsVisible() {
+		m.hoveredTerritory = ""
+		mx, my := ebiten.CursorPosition()
+		m.autoSetupModal.Update(mx, my, deltaTime)
+		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButton3) {
+			m.autoSetupModal.Hide()
+		}
+		return
+	}
+
+	// If EdgeMenu, filter menu, tribute menu, or state menu handled input, don't process map input
+	if edgeMenuHandledInput || filterMenuHandledInput || tributeMenuHandledInput {
+		m.hoveredTerritory = ""
+		return
+	}
+
+	if stateMenuHandledInput {
+		return
+	}
+
+	if !windowFocused {
+		m.hoveredTerritory = ""
 		return
 	}
 
@@ -556,6 +778,12 @@ func (m *MapView) Update(screenW, screenH int) {
 	_, wheelY := ebiten.Wheel()
 	if wheelY != 0 {
 		mx, my := ebiten.CursorPosition()
+
+		// Check if Filter menu is consuming wheel input first
+		if m.filterMenu != nil && m.filterMenu.IsVisible() && m.filterMenu.IsMouseInside(mx, my) {
+			// Filter menu will handle the wheel input, don't zoom the map
+			return
+		}
 
 		// Check if EdgeMenu is consuming wheel input first
 		if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
@@ -579,7 +807,7 @@ func (m *MapView) Update(screenW, screenH int) {
 	}
 
 	// Handle keyboard zoom with +/- keys (using smooth zoom)
-	if !tributeMenuHandledInput {
+	if !globalTextInputFocused && !tributeMenuHandledInput {
 		if inpututil.IsKeyJustPressed(ebiten.KeyEqual) || inpututil.IsKeyJustPressed(ebiten.KeyNumpadAdd) {
 			m.handleSmoothZoom(3.0, screenW/2, screenH/2)
 		}
@@ -589,7 +817,7 @@ func (m *MapView) Update(screenW, screenH int) {
 	}
 
 	// Toggle territory display with T key
-	if !tributeMenuHandledInput && bindingJustPressed(binds.TerritoryToggle) {
+	if !globalTextInputFocused && !tributeMenuHandledInput && bindingJustPressed(binds.TerritoryToggle) {
 		// Check if any text input is currently focused before toggling territories
 		textInputFocused := false
 
@@ -614,7 +842,7 @@ func (m *MapView) Update(screenW, screenH int) {
 	}
 
 	// Toggle tribute menu with B key
-	if !tributeMenuHandledInput && bindingJustPressed(binds.TributeMenu) {
+	if !globalTextInputFocused && !tributeMenuHandledInput && bindingJustPressed(binds.TributeMenu) {
 		// Check if any text input is currently focused before toggling tribute menu
 		textInputFocused := false
 
@@ -643,7 +871,7 @@ func (m *MapView) Update(screenW, screenH int) {
 	}
 
 	// Handle spacebar (halt/resume or add ticks) - only when no text input is focused
-	if !tributeMenuHandledInput {
+	if !globalTextInputFocused && !tributeMenuHandledInput {
 		// Check if any text input is currently focused before processing spacebar
 		textInputFocused := false
 
@@ -795,12 +1023,18 @@ func (m *MapView) Update(screenW, screenH int) {
 		}
 	}
 
-	// Handle escape key to close EdgeMenu or side menu
+	// Handle escape key to close menus (state -> filter -> territory -> side menu)
 	if !tributeMenuHandledInput && inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		// First check if state management menu is open
 		if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() {
 			m.stateManagementMenu.menu.Hide()
 			m.stateManagementMenuVisible = false
+			return
+		}
+
+		// Then check if filter menu is open
+		if m.filterMenu != nil && m.filterMenu.IsVisible() {
+			m.filterMenu.Hide()
 			return
 		}
 
@@ -853,12 +1087,18 @@ func (m *MapView) Update(screenW, screenH int) {
 		}
 	}
 
-	// Handle mouse back button (MouseButton3) to close state management menu first, then EdgeMenu, then side menu
+	// Handle mouse back button (MouseButton3) to close state management menu first, then filter menu, EdgeMenu, then side menu
 	if !tributeMenuHandledInput && inpututil.IsMouseButtonJustPressed(ebiten.MouseButton3) {
 		// First check if state management menu is open
 		if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() {
 			m.stateManagementMenu.menu.Hide()
 			m.stateManagementMenuVisible = false
+			return
+		}
+
+		// Then check if filter menu is open
+		if m.filterMenu != nil && m.filterMenu.IsVisible() {
+			m.filterMenu.Hide()
 			return
 		}
 
@@ -1055,13 +1295,17 @@ func (m *MapView) drawOverlayElements(screen *ebiten.Image) {
 	m.drawTerritoryHover(screen)
 
 	// Draw EdgeMenu on top of everything else
+	if m.filterMenu != nil && m.filterMenu.IsVisible() {
+		m.filterMenu.Draw(screen)
+	}
+
 	if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
 		m.edgeMenu.Draw(screen)
 	}
 
 	// Draw transit resource menu
 	// Draw state management menu
-	if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() {
+	if m.stateManagementMenu != nil && m.stateManagementMenu.menu != nil && m.stateManagementMenu.menu.IsVisible() {
 		m.stateManagementMenu.menu.Draw(screen)
 	}
 
@@ -1071,9 +1315,6 @@ func (m *MapView) drawOverlayElements(screen *ebiten.Image) {
 	}
 
 	// Draw context menu on top of everything
-	if m.contextMenu != nil && m.contextMenu.IsVisible() {
-		m.contextMenu.Draw(screen)
-	}
 
 	// Draw claim editing UI if active
 	if m.isEditingClaims && m.editingUIVisible {
@@ -1094,6 +1335,11 @@ func (m *MapView) drawOverlayElements(screen *ebiten.Image) {
 	// Draw analysis modal
 	if m.analysisModal != nil && m.analysisModal.IsVisible() {
 		m.analysisModal.Draw(screen, m.screenW, m.screenH)
+	}
+
+	// Draw auto setup modal
+	if m.autoSetupModal != nil && m.autoSetupModal.IsVisible() {
+		m.autoSetupModal.Draw(screen, m.screenW, m.screenH)
 	}
 
 	// Draw overlays owned by the state management menu (e.g., color picker)
@@ -1525,6 +1771,10 @@ func (m *MapView) handlePrimaryPress(mx, my int) bool {
 	m.lastMouseX = mx
 	m.lastMouseY = my
 
+	if m.filterMenu != nil && m.filterMenu.IsVisible() && m.filterMenu.IsMouseInside(mx, my) {
+		return true
+	}
+
 	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
 		return true
 	}
@@ -1549,6 +1799,10 @@ func (m *MapView) handlePrimaryPress(mx, my int) bool {
 // handlePrimaryRelease centralizes logic for left/tap release handling.
 // Returns true when the caller should stop further input processing this frame.
 func (m *MapView) handlePrimaryRelease(mx, my int, currentTime time.Time) bool {
+	if m.filterMenu != nil && m.filterMenu.IsVisible() && m.filterMenu.IsMouseInside(mx, my) {
+		return true
+	}
+
 	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
 		return true
 	}
@@ -1690,10 +1944,7 @@ func (m *MapView) handlePrimaryRelease(mx, my int, currentTime time.Time) bool {
 						m.territoriesManager.SetSelectedTerritory(territoryClicked)
 					}
 
-					if m.edgeMenu != nil {
-						m.populateTerritoryMenu(territoryClicked)
-						m.edgeMenu.Show()
-					}
+					m.OpenTerritoryMenu(territoryClicked)
 				}
 			}
 
@@ -1718,8 +1969,15 @@ func (m *MapView) handlePrimaryDrag(mx, my int) {
 	}
 
 	if m.dragging {
-		isInEdgeMenu := m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my)
-		if !isInEdgeMenu {
+		isInMenu := false
+		if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
+			isInMenu = true
+		}
+		if m.filterMenu != nil && m.filterMenu.IsVisible() && m.filterMenu.IsMouseInside(mx, my) {
+			isInMenu = true
+		}
+
+		if !isInMenu {
 			deltaX := float64(mx - m.lastMouseX)
 			deltaY := float64(my - m.lastMouseY)
 
@@ -1734,7 +1992,6 @@ func (m *MapView) handlePrimaryDrag(mx, my int) {
 
 // handleContextMenuRequest unifies right-click / long-press context menu logic.
 func (m *MapView) handleContextMenuRequest(mx, my int) bool {
-	fmt.Printf("Right-click detected at (%d, %d)\n", mx, my)
 
 	if m.isEditingClaims {
 		// fmt.Println("Right-click ignored - in claim editing mode")
@@ -1748,6 +2005,11 @@ func (m *MapView) handleContextMenuRequest(mx, my int) bool {
 
 	if selector := GetActiveTerritorySelector(); selector != nil && selector.IsVisible() {
 		// fmt.Println("Right-click ignored - in territory selector mode")
+		return true
+	}
+
+	if m.filterMenu != nil && m.filterMenu.IsVisible() && m.filterMenu.IsMouseInside(mx, my) {
+		// fmt.Println("Right-click in Filter menu area, ignoring")
 		return true
 	}
 
@@ -1768,13 +2030,94 @@ func (m *MapView) handleContextMenuRequest(mx, my int) bool {
 	// fmt.Println("Setting up context menu...")
 	m.setupContextMenu(mx, my)
 	m.contextMenu.Show(mx, my, m.screenW, m.screenH)
-	fmt.Printf("Context menu shown at (%d, %d), visible: %v\n", mx, my, m.contextMenu.IsVisible())
+	SetActiveContextMenu(m.contextMenu)
 	return true
+}
+
+func (m *MapView) isAnyTextInputFocused() bool {
+	if m.filterMenu != nil && m.filterMenu.IsVisible() && m.filterMenu.HasTextInputFocused() {
+		return true
+	}
+	if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.HasTextInputFocused() {
+		return true
+	}
+	if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() && m.stateManagementMenu.menu.HasTextInputFocused() {
+		return true
+	}
+	if m.analysisModal != nil && m.analysisModal.IsVisible() && m.analysisModal.HasTextInputFocused() {
+		return true
+	}
+	if m.autoSetupModal != nil && m.autoSetupModal.IsVisible() && m.autoSetupModal.HasTextInputFocused() {
+		return true
+	}
+	if m.tributeMenu != nil && m.tributeMenu.IsVisible() && m.tributeMenu.HasTextInputFocused() {
+		return true
+	}
+	if m.territoriesManager != nil {
+		if gm := m.territoriesManager.guildManager; gm != nil && gm.IsVisible() && gm.HasTextInputFocused() {
+			return true
+		}
+	}
+	if lm := GetLoadoutManager(); lm != nil && lm.IsVisible() && lm.HasTextInputFocused() {
+		return true
+	}
+	return false
+}
+
+func (m *MapView) shouldSuppressHover() bool {
+	// Always allow hover during claim editing or territory selector overlays.
+	if m.isEditingClaims {
+		return false
+	}
+
+	if selector := GetActiveTerritorySelector(); selector != nil && selector.IsVisible() {
+		return false
+	}
+
+	if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsApplyingLoadout() {
+		return false
+	}
+
+	if !ebiten.IsFocused() {
+		return true
+	}
+
+	if m.analysisModal != nil && m.analysisModal.IsVisible() {
+		return true
+	}
+
+	if m.tributeMenu != nil && m.tributeMenu.IsVisible() {
+		return true
+	}
+
+	if m.contextMenu != nil && m.contextMenu.IsVisible() {
+		return true
+	}
+
+	if m.territoriesManager != nil {
+		if gm := m.territoriesManager.guildManager; gm != nil && gm.IsVisible() {
+			return true
+		}
+	}
+
+	if loadoutManager := GetLoadoutManager(); loadoutManager != nil && loadoutManager.IsVisible() {
+		if !loadoutManager.IsApplyingLoadout() {
+			return true
+		}
+	}
+
+	return false
 }
 
 // updateHoveredTerritory updates hover state for the given pointer position.
 func (m *MapView) updateHoveredTerritory(mx, my, screenW int) {
+	if m.shouldSuppressHover() {
+		m.hoveredTerritory = ""
+		return
+	}
+
 	if m.territoriesManager == nil || !m.territoriesManager.IsLoaded() {
+		m.hoveredTerritory = ""
 		return
 	}
 
@@ -1785,12 +2128,16 @@ func (m *MapView) updateHoveredTerritory(mx, my, screenW int) {
 		isInSidebar = mx >= sidebarX
 	}
 
-	isInEdgeMenu := false
+	isInMenu := false
 	if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
-		isInEdgeMenu = m.edgeMenu.IsMouseInside(mx, my)
+		isInMenu = m.edgeMenu.IsMouseInside(mx, my)
 	}
 
-	if !isInSidebar && !isInEdgeMenu {
+	if !isInMenu && m.filterMenu != nil && m.filterMenu.IsVisible() {
+		isInMenu = m.filterMenu.IsMouseInside(mx, my)
+	}
+
+	if !isInSidebar && !isInMenu {
 		hovered := m.territoriesManager.GetTerritoryAtPosition(mx, my, m.scale, m.offsetX, m.offsetY)
 		m.hoveredTerritory = hovered
 	} else {
@@ -1817,6 +2164,10 @@ func (m *MapView) handlePointerEvents(screenW int) bool {
 		case PointerPinchZoom:
 			mx := ev.Position.X
 			my := ev.Position.Y
+
+			if m.filterMenu != nil && m.filterMenu.IsVisible() && m.filterMenu.IsMouseInside(mx, my) {
+				continue
+			}
 
 			if m.edgeMenu != nil && m.edgeMenu.IsVisible() && m.edgeMenu.IsMouseInside(mx, my) {
 				continue
@@ -1936,18 +2287,15 @@ func (m *MapView) ResetView() {
 // ToggleCoordinates toggles the coordinate labels display
 func (m *MapView) ToggleCoordinates() {
 	m.showCoordinates = !m.showCoordinates
-	fmt.Printf("Coordinate display: %v\n", m.showCoordinates)
 }
 
 // ToggleTerritories toggles the display of territory boundaries
 func (m *MapView) ToggleTerritories() {
 	m.showTerritories = !m.showTerritories
-	fmt.Printf("Territory display: %v\n", m.showTerritories)
 }
 
 // AddMarker adds a new marker to the map
 func (m *MapView) AddMarker(x, y float64, label string, markerColor color.RGBA, size float64) {
-	return
 	// unused now
 	marker := Marker{
 		X:         x,
@@ -1958,13 +2306,11 @@ func (m *MapView) AddMarker(x, y float64, label string, markerColor color.RGBA, 
 		IsVisible: true,
 	}
 	m.markers = append(m.markers, marker)
-	fmt.Printf("Added marker '%s' at (%.1f, %.1f)\n", label, x, y)
 }
 
 // ClearMarkers removes all markers from the map
 func (m *MapView) ClearMarkers() {
 	m.markers = make([]Marker, 0)
-	// fmt.Println("All markers cleared")
 }
 
 // GetMapCoordinates converts screen coordinates to world coordinates
@@ -2003,27 +2349,23 @@ func (m *MapView) centerMapView() {
 	m.startOffsetX = m.offsetX
 	m.startOffsetY = m.offsetY
 
-	fmt.Printf("Map centered: offset (%.1f, %.1f), scale %.2f\n", m.offsetX, m.offsetY, m.scale)
 }
 
 // centerOnTerritory centers the map view on the specified territory
 func (m *MapView) centerOnTerritory(territoryName string) {
 	// Check if we have territory borders data (used for click detection)
 	if m.territoriesManager == nil {
-		fmt.Printf("TerritoriesManager not available\n")
 		return
 	}
 
 	// Try to get territory borders (this is the coordinate system that works for clicks)
 	borders := m.territoriesManager.TerritoryBorders
 	if borders == nil {
-		fmt.Printf("Territory borders not available\n")
 		return
 	}
 
 	border, exists := borders[territoryName]
 	if !exists {
-		fmt.Printf("Territory borders not found for: %s\n", territoryName)
 		return
 	}
 
@@ -2032,9 +2374,6 @@ func (m *MapView) centerOnTerritory(territoryName string) {
 	centerX := (x1 + x2) / 2.0
 	centerY := (y1 + y2) / 2.0
 
-	fmt.Printf("Territory %s: borders [%.1f,%.1f] to [%.1f,%.1f], center (%.1f, %.1f)\n",
-		territoryName, x1, y1, x2, y2, centerX, centerY)
-
 	// Calculate target offsets to center this point on the screen
 	// The transformation is: screenPos = worldPos * scale + offset
 	// To center: screenCenter = territoryCenter * scale + targetOffset
@@ -2042,13 +2381,8 @@ func (m *MapView) centerOnTerritory(territoryName string) {
 	targetOffsetX := float64(m.screenW)/2.0 - centerX*m.scale
 	targetOffsetY := float64(m.screenH)/2.0 - centerY*m.scale
 
-	fmt.Printf("Current scale: %.3f, screen: %dx%d, target offset: (%.1f, %.1f)\n",
-		m.scale, m.screenW, m.screenH, targetOffsetX, targetOffsetY)
-
 	// Animate to the new position (keeping current scale)
 	m.animateToScale(m.scale, targetOffsetX, targetOffsetY)
-
-	fmt.Printf("Centering map on territory: %s\n", territoryName)
 }
 
 // updateAnimations handles smooth animation transitions
@@ -2252,15 +2586,15 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 
 		// Context menu for territory
 		m.contextMenu.
+			Option("Open Filter Menu", binds.KeybindLabel("filter"), true, func() {
+				m.ToggleFilterMenu()
+			}).
 			Option("Open Territory Menu", "Double Click", true, func() {
 
 				if m.territoriesManager != nil {
 					m.territoriesManager.SetSelectedTerritory(clickedTerritory)
 				}
-				m.populateTerritoryMenu(clickedTerritory)
-				if !m.IsEdgeMenuOpen() {
-					m.edgeMenu.Show()
-				}
+				m.OpenTerritoryMenu(clickedTerritory)
 			}).
 			Option("Center on Territory", "C", true, func() {
 				m.CenterTerritory(clickedTerritory)
@@ -2287,6 +2621,9 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 	} else {
 		// Context menu for empty map area
 		m.contextMenu.
+			Option("Open Filter Menu", binds.KeybindLabel("filter"), true, func() {
+				m.ToggleFilterMenu()
+			}).
 			Option("Open Guild Manager", binds.GuildManager, true, func() {
 				m.territoriesManager.guildManager.Show()
 			}).
@@ -3047,7 +3384,6 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	routingToggleOptions := DefaultToggleSwitchOptions()
 	routingToggleOptions.Options = []string{"Cheapest", "Fastest"}
 	taxesMenu.ToggleSwitch("Routing Mode", routingModeIndex, routingToggleOptions, func(index int, value string) {
-		fmt.Printf("Routing Mode changed to: %s\n", value)
 		newRoutingMode := typedef.RoutingCheapest
 		if index == 1 {
 			newRoutingMode = typedef.RoutingFastest
@@ -3078,12 +3414,10 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	borderToggleOptions := DefaultToggleSwitchOptions()
 	borderToggleOptions.Options = []string{"Opened", "Closed"}
 	taxesMenu.ToggleSwitch("Border", borderIndex, borderToggleOptions, func(index int, value string) {
-		fmt.Printf("Border changed to: %s (index: %d, current border: %d)\n", value, index, territory.Border)
 		newBorder := typedef.BorderOpen
 		if index == 1 {
 			newBorder = typedef.BorderClosed
 		}
-		fmt.Printf("Setting new border to: %d\n", newBorder)
 
 		// Delay the actual update to allow toggle animation to complete
 		go func() {
@@ -3151,8 +3485,6 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 				taxValue = 70
 			}
 
-			fmt.Printf("Tax changed to: %d%%\n", taxValue)
-
 			// Create new tax struct with updated Tax field
 			newTax := territory.Tax
 			newTax.Tax = float64(taxValue) / 100.0 // Convert back to decimal
@@ -3213,8 +3545,6 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 				allyTaxValue = 70
 			}
 
-			fmt.Printf("Ally Tax changed to: %d%%\n", allyTaxValue)
-
 			// Create new tax struct with updated Ally field
 			newTax := territory.Tax
 			newTax.Ally = float64(allyTaxValue) / 100.0 // Convert back to decimal
@@ -3268,7 +3598,6 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 
 	m.edgeMenu.Button(hqButtonText, hqButtonOptions, func() {
 		if !territory.HQ {
-			fmt.Printf("Setting %s as HQ\n", territoryName)
 			// Call the Set function to set this territory as HQ
 			opts := typedef.TerritoryOptions{
 				Upgrades:    territory.Options.Upgrade.Set,
@@ -3300,9 +3629,1415 @@ func (m *MapView) populateTerritoryMenu(territoryName string) {
 	m.edgeMenu.RestoreCollapsedStates(collapsedStates)
 }
 
+// OpenTerritoryMenu populates and displays the territory EdgeMenu while ensuring other menus are closed as needed.
+func (m *MapView) OpenTerritoryMenu(territoryName string) {
+	if m.edgeMenu == nil {
+		return
+	}
+
+	if m.filterMenu != nil && m.filterMenu.IsVisible() {
+		m.filterMenu.Hide()
+	}
+
+	m.populateTerritoryMenu(territoryName)
+	m.edgeMenu.Show()
+}
+
 // IsEdgeMenuOpen returns whether the edge menu is currently open
 func (m *MapView) IsEdgeMenuOpen() bool {
 	return m.edgeMenu != nil && m.edgeMenu.IsVisible()
+}
+
+// IsFilterMenuOpen returns whether the filter edge menu is currently open.
+func (m *MapView) IsFilterMenuOpen() bool {
+	return m.filterMenu != nil && m.filterMenu.IsVisible()
+}
+
+// ShowFilterMenu opens the filter edge menu and closes the territory menu/selection.
+func (m *MapView) ShowFilterMenu() {
+	if m.filterMenu == nil {
+		return
+	}
+
+	m.ensureFilterMenuBuilt()
+
+	if m.edgeMenu != nil && m.edgeMenu.IsVisible() {
+		m.edgeMenu.Hide()
+	}
+
+	if m.territoriesManager != nil {
+		m.territoriesManager.DeselectTerritory()
+	}
+
+	m.filterMenu.ClearCurrentTerritory()
+	m.filterMenu.Show()
+}
+
+// HideFilterMenu hides the filter edge menu if it is visible.
+func (m *MapView) HideFilterMenu() {
+	if m.filterMenu != nil {
+		m.filterMenu.Hide()
+	}
+}
+
+// ToggleFilterMenu toggles the visibility of the filter edge menu.
+func (m *MapView) ToggleFilterMenu() {
+	if m.filterMenu == nil {
+		return
+	}
+
+	m.ensureFilterMenuBuilt()
+
+	if m.filterMenu.IsVisible() {
+		m.filterMenu.Hide()
+	} else {
+		m.ShowFilterMenu()
+	}
+}
+
+// ensureFilterMenuBuilt lazily builds the filter menu UI and keeps the toggle state in sync.
+func (m *MapView) ensureFilterMenuBuilt() {
+	if m.filterMenu == nil {
+		return
+	}
+
+	if m.filterMatchMode == "" {
+		m.filterMatchMode = "contains"
+	}
+
+	if m.filterMatchToggle == nil {
+		m.buildFilterMenu()
+		return
+	}
+
+	// Keep toggle selection in sync if state was changed elsewhere.
+	switch {
+	case strings.EqualFold(m.filterMatchMode, "any"):
+		m.filterMatchToggle.SetIndexImmediate(1)
+	case strings.EqualFold(m.filterMatchMode, "approximate"):
+		m.filterMatchToggle.SetIndexImmediate(2)
+	default:
+		m.filterMatchToggle.SetIndexImmediate(0)
+	}
+	m.syncApproxControls()
+}
+
+func (m *MapView) syncApproxControls() {
+	enabled := strings.EqualFold(m.filterMatchMode, "approximate")
+	if m.filterApproxToleranceUI != nil {
+		m.filterApproxToleranceUI.options.Enabled = enabled
+		m.filterApproxToleranceUI.SetValue(m.filterApproxTolerance)
+	}
+	if m.filterApproxCurveUI != nil {
+		m.filterApproxCurveUI.options.Enabled = enabled
+		m.filterApproxCurveUI.SetValue(m.filterApproxCurve)
+	}
+}
+
+type rangeFilterDefinition struct {
+	key    string
+	label  string
+	min    float64
+	max    float64
+	step   float64
+	format string
+}
+
+type costBounds struct {
+	total    float64
+	emeralds float64
+	ores     float64
+	wood     float64
+	fish     float64
+	crops    float64
+}
+
+type resourceBounds struct {
+	total    float64
+	emeralds float64
+	ores     float64
+	wood     float64
+	fish     float64
+	crops    float64
+}
+
+func getCostByLevel(costArray []int, level int) float64 {
+	if costArray == nil || level < 0 || level >= len(costArray) {
+		return 0
+	}
+	return float64(costArray[level])
+}
+
+func (m *MapView) calculateTerritoryCost(costData *typedef.Costs, opts typedef.TerritoryTower) typedef.BasicResources {
+	if costData == nil {
+		return typedef.BasicResources{}
+	}
+
+	cost := typedef.BasicResources{}
+
+	cost.Ores += getCostByLevel(costData.UpgradesCost.Damage.Value, opts.Upgrade.Set.Damage)
+	cost.Crops += getCostByLevel(costData.UpgradesCost.Attack.Value, opts.Upgrade.Set.Attack)
+	cost.Fish += getCostByLevel(costData.UpgradesCost.Defence.Value, opts.Upgrade.Set.Defence)
+	cost.Wood += getCostByLevel(costData.UpgradesCost.Health.Value, opts.Upgrade.Set.Health)
+
+	cost.Wood += getCostByLevel(costData.Bonuses.StrongerMinions.Cost, opts.Bonus.Set.StrongerMinions)
+	cost.Fish += getCostByLevel(costData.Bonuses.TowerMultiAttack.Cost, opts.Bonus.Set.TowerMultiAttack)
+	cost.Crops += getCostByLevel(costData.Bonuses.TowerAura.Cost, opts.Bonus.Set.TowerAura)
+	cost.Ores += getCostByLevel(costData.Bonuses.TowerVolley.Cost, opts.Bonus.Set.TowerVolley)
+	cost.Wood += getCostByLevel(costData.Bonuses.GatheringExperience.Cost, opts.Bonus.Set.GatheringExperience)
+	cost.Fish += getCostByLevel(costData.Bonuses.MobExperience.Cost, opts.Bonus.Set.MobExperience)
+	cost.Wood += getCostByLevel(costData.Bonuses.MobDamage.Cost, opts.Bonus.Set.MobDamage)
+	cost.Wood += getCostByLevel(costData.Bonuses.PvPDamage.Cost, opts.Bonus.Set.PvPDamage)
+	cost.Emeralds += getCostByLevel(costData.Bonuses.XPSeeking.Cost, opts.Bonus.Set.XPSeeking)
+	cost.Fish += getCostByLevel(costData.Bonuses.TomeSeeking.Cost, opts.Bonus.Set.TomeSeeking)
+	cost.Wood += getCostByLevel(costData.Bonuses.EmeraldsSeeking.Cost, opts.Bonus.Set.EmeraldSeeking)
+	cost.Emeralds += getCostByLevel(costData.Bonuses.LargerResourceStorage.Cost, opts.Bonus.Set.LargerResourceStorage)
+	cost.Wood += getCostByLevel(costData.Bonuses.LargerEmeraldsStorage.Cost, opts.Bonus.Set.LargerEmeraldStorage)
+	cost.Emeralds += getCostByLevel(costData.Bonuses.EfficientResource.Cost, opts.Bonus.Set.EfficientResource)
+	cost.Ores += getCostByLevel(costData.Bonuses.EfficientEmeralds.Cost, opts.Bonus.Set.EfficientEmerald)
+	cost.Emeralds += getCostByLevel(costData.Bonuses.ResourceRate.Cost, opts.Bonus.Set.ResourceRate)
+	cost.Crops += getCostByLevel(costData.Bonuses.EmeraldsRate.Cost, opts.Bonus.Set.EmeraldRate)
+
+	return cost
+}
+
+func (m *MapView) computeCostBounds() costBounds {
+	bounds := costBounds{total: 100, emeralds: 100, ores: 100, wood: 100, fish: 100, crops: 100}
+	territories := eruntime.GetTerritories()
+	if len(territories) == 0 {
+		return bounds
+	}
+
+	costData := eruntime.GetCost()
+	var maxTotal, maxEmeralds, maxOres, maxWood, maxFish, maxCrops float64
+	for _, t := range territories {
+		if t == nil {
+			continue
+		}
+		cost := t.Costs
+		if costData != nil {
+			cost = m.calculateTerritoryCost(costData, t.Options)
+		}
+		total := cost.Emeralds + cost.Ores + cost.Wood + cost.Fish + cost.Crops
+		if total > maxTotal {
+			maxTotal = total
+		}
+		if cost.Emeralds > maxEmeralds {
+			maxEmeralds = cost.Emeralds
+		}
+		if cost.Ores > maxOres {
+			maxOres = cost.Ores
+		}
+		if cost.Wood > maxWood {
+			maxWood = cost.Wood
+		}
+		if cost.Fish > maxFish {
+			maxFish = cost.Fish
+		}
+		if cost.Crops > maxCrops {
+			maxCrops = cost.Crops
+		}
+	}
+	if maxTotal > 0 {
+		bounds.total = maxTotal
+	}
+	if maxEmeralds > 0 {
+		bounds.emeralds = maxEmeralds
+	}
+	if maxOres > 0 {
+		bounds.ores = maxOres
+	}
+	if maxWood > 0 {
+		bounds.wood = maxWood
+	}
+	if maxFish > 0 {
+		bounds.fish = maxFish
+	}
+	if maxCrops > 0 {
+		bounds.crops = maxCrops
+	}
+	return bounds
+}
+
+func (m *MapView) computeResourceBounds() resourceBounds {
+	bounds := resourceBounds{total: 100, emeralds: 100, ores: 100, wood: 100, fish: 100, crops: 100}
+	territories := eruntime.GetTerritories()
+	if len(territories) == 0 {
+		return bounds
+	}
+
+	var maxTotal, maxEmeralds, maxOres, maxWood, maxFish, maxCrops float64
+	for _, t := range territories {
+		if t == nil {
+			continue
+		}
+
+		res := t.ResourceGeneration.Base
+		total := res.Emeralds + res.Ores + res.Wood + res.Fish + res.Crops
+		if total > maxTotal {
+			maxTotal = total
+		}
+		if res.Emeralds > maxEmeralds {
+			maxEmeralds = res.Emeralds
+		}
+		if res.Ores > maxOres {
+			maxOres = res.Ores
+		}
+		if res.Wood > maxWood {
+			maxWood = res.Wood
+		}
+		if res.Fish > maxFish {
+			maxFish = res.Fish
+		}
+		if res.Crops > maxCrops {
+			maxCrops = res.Crops
+		}
+	}
+
+	if maxTotal > 0 {
+		bounds.total = maxTotal
+	}
+	if maxEmeralds > 0 {
+		bounds.emeralds = maxEmeralds
+	}
+	if maxOres > 0 {
+		bounds.ores = maxOres
+	}
+	if maxWood > 0 {
+		bounds.wood = maxWood
+	}
+	if maxFish > 0 {
+		bounds.fish = maxFish
+	}
+	if maxCrops > 0 {
+		bounds.crops = maxCrops
+	}
+
+	return bounds
+}
+
+func (m *MapView) buildRangeFormatter(key, fallbackFormat string) func(low, high float64) string {
+	labels := []string{"Very Low", "Low", "Medium", "High", "Very High"}
+	switch key {
+	case "treasury", "defenceLevel":
+		return func(low, high float64) string {
+			format := func(v float64) string {
+				idx := int(math.Round(v))
+				if idx < 0 {
+					idx = 0
+				} else if idx >= len(labels) {
+					idx = len(labels) - 1
+				}
+				return labels[idx]
+			}
+			return fmt.Sprintf("%s - %s", format(low), format(high))
+		}
+	default:
+		return func(low, high float64) string {
+			return fmt.Sprintf(fallbackFormat+" - "+fallbackFormat, low, high)
+		}
+	}
+}
+
+func (m *MapView) ensureRangeFilters() {
+	if m.filterOptions.ranges == nil {
+		m.filterOptions.ranges = make(map[string]*rangeFilterState)
+	}
+
+	defs := m.buildRangeFilterDefinitions()
+	for _, def := range defs {
+		state, ok := m.filterOptions.ranges[def.key]
+		if !ok {
+			state = &rangeFilterState{
+				key:         def.key,
+				label:       def.label,
+				min:         def.min,
+				max:         def.max,
+				step:        def.step,
+				format:      def.format,
+				defaultLow:  def.min,
+				defaultHigh: def.max,
+				low:         def.min,
+				high:        def.max,
+			}
+			m.filterOptions.ranges[def.key] = state
+			continue
+		}
+
+		state.label = def.label
+		state.min = def.min
+		state.max = def.max
+		state.step = def.step
+		state.format = def.format
+		if state.defaultLow < def.min || state.defaultHigh > def.max {
+			state.defaultLow = def.min
+			state.defaultHigh = def.max
+		}
+		if state.low < def.min || state.high > def.max {
+			state.low = def.min
+			state.high = def.max
+		}
+	}
+}
+
+func (m *MapView) buildRangeFilterDefinitions() []rangeFilterDefinition {
+	costs := eruntime.GetCost()
+	costBounds := m.computeCostBounds()
+	resourceBounds := m.computeResourceBounds()
+
+	upgradeMax := func(levels []float64) float64 {
+		if len(levels) > 0 {
+			return float64(len(levels) - 1)
+		}
+		return 10
+	}
+
+	bonusMax := func(fetch func(*typedef.Costs) int) float64 {
+		if costs != nil {
+			if max := fetch(costs); max > 0 {
+				return float64(max)
+			}
+		}
+		return 10
+	}
+
+	damageLevels := []float64{}
+	attackLevels := []float64{}
+	healthLevels := []float64{}
+	defenceLevels := []float64{}
+	if costs != nil {
+		damageLevels = costs.UpgradeMultiplier.Damage
+		attackLevels = costs.UpgradeMultiplier.Attack
+		healthLevels = costs.UpgradeMultiplier.Health
+		defenceLevels = costs.UpgradeMultiplier.Defence
+	}
+
+	maxTradingRoutes := 10.0
+	if m.territoriesManager != nil {
+		maxRoutes := 0
+		for _, t := range m.territoriesManager.Territories {
+			if len(t.TradingRoutes) > maxRoutes {
+				maxRoutes = len(t.TradingRoutes)
+			}
+		}
+		if maxRoutes > 0 {
+			maxTradingRoutes = float64(maxRoutes)
+		}
+	}
+
+	defs := []rangeFilterDefinition{
+		{key: "upgrade.damage", label: "Damage Upgrade", min: 0, max: upgradeMax(damageLevels), step: 1, format: "%.0f"},
+		{key: "upgrade.attack", label: "Attack Upgrade", min: 0, max: upgradeMax(attackLevels), step: 1, format: "%.0f"},
+		{key: "upgrade.health", label: "Health Upgrade", min: 0, max: upgradeMax(healthLevels), step: 1, format: "%.0f"},
+		{key: "upgrade.defence", label: "Defence Upgrade", min: 0, max: upgradeMax(defenceLevels), step: 1, format: "%.0f"},
+		{key: "bonus.strongerMinions", label: "Stronger Minions", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.StrongerMinions.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.towerMultiAttack", label: "Tower Multi-Attack", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.TowerMultiAttack.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.towerAura", label: "Tower Aura", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.TowerAura.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.towerVolley", label: "Tower Volley", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.TowerVolley.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.gatheringExperience", label: "Gathering Experience", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.GatheringExperience.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.mobExperience", label: "Mob Experience", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.MobExperience.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.mobDamage", label: "Mob Damage", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.MobDamage.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.pvpDamage", label: "PvP Damage", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.PvPDamage.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.xpSeeking", label: "XP Seeking", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.XPSeeking.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.tomeSeeking", label: "Tome Seeking", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.TomeSeeking.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.emeraldSeeking", label: "Emerald Seeking", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.EmeraldsSeeking.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.largerResourceStorage", label: "Resource Storage", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.LargerResourceStorage.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.largerEmeraldStorage", label: "Emerald Storage", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.LargerEmeraldsStorage.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.efficientResource", label: "Efficient Resource", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.EfficientResource.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.efficientEmerald", label: "Efficient Emerald", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.EfficientEmeralds.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.resourceRate", label: "Resource Rate", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.ResourceRate.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "bonus.emeraldRate", label: "Emerald Rate", min: 0, max: bonusMax(func(c *typedef.Costs) int { return c.Bonuses.EmeraldsRate.MaxLevel }), step: 1, format: "%.0f"},
+		{key: "tax", label: "Taxed (%)", min: 5, max: 70, step: 1, format: "%.0f%%"},
+		{key: "treasury", label: "Treasury Level", min: 0, max: 4, step: 1, format: "%.0f"},
+		{key: "defenceLevel", label: "Defence Level", min: 0, max: 4, step: 1, format: "%.0f"},
+		{key: "tradingRoutes", label: "Trading Route Count", min: 0, max: maxTradingRoutes, step: 1, format: "%.0f"},
+		{key: "cost.total", label: "Total Resource Cost", min: 0, max: costBounds.total, step: 1, format: "%.0f"},
+		{key: "cost.emeralds", label: "Emerald Cost", min: 0, max: costBounds.emeralds, step: 1, format: "%.0f"},
+		{key: "cost.ores", label: "Ore Cost", min: 0, max: costBounds.ores, step: 1, format: "%.0f"},
+		{key: "cost.wood", label: "Wood Cost", min: 0, max: costBounds.wood, step: 1, format: "%.0f"},
+		{key: "cost.fish", label: "Fish Cost", min: 0, max: costBounds.fish, step: 1, format: "%.0f"},
+		{key: "cost.crops", label: "Crop Cost", min: 0, max: costBounds.crops, step: 1, format: "%.0f"},
+		{key: "resource.total", label: "Total Generation", min: 0, max: resourceBounds.total, step: 1, format: "%.0f"},
+		{key: "resource.emeralds", label: "Emerald Generation", min: 0, max: resourceBounds.emeralds, step: 1, format: "%.0f"},
+		{key: "resource.ores", label: "Ore Generation", min: 0, max: resourceBounds.ores, step: 1, format: "%.0f"},
+		{key: "resource.wood", label: "Wood Generation", min: 0, max: resourceBounds.wood, step: 1, format: "%.0f"},
+		{key: "resource.fish", label: "Fish Generation", min: 0, max: resourceBounds.fish, step: 1, format: "%.0f"},
+		{key: "resource.crops", label: "Crop Generation", min: 0, max: resourceBounds.crops, step: 1, format: "%.0f"},
+	}
+
+	return defs
+}
+
+func (m *MapView) resetRangeState(state *rangeFilterState) {
+	state.low = state.defaultLow
+	state.high = state.defaultHigh
+	state.exclusion = false
+	if state.slider != nil {
+		state.slider.SetValues(state.low, state.high)
+		state.slider.SetExclusion(false)
+	}
+}
+
+func (m *MapView) resetAllFilters() {
+	for _, state := range m.filterOptions.ranges {
+		m.resetRangeState(state)
+	}
+	m.filterOptions.exclusion = false
+	m.filterMatchMode = "contains"
+	m.filterApproxTolerance = 0.25
+	m.filterApproxCurve = 0.5
+	m.filterOptions.hqMode = "all"
+	m.filterOptions.borderMode = "all"
+	m.filterOptions.routeCompatibility = "all"
+	m.filterOptions.textQuery = ""
+}
+
+func (m *MapView) addRangeControl(section *CollapsibleMenu, state *rangeFilterState) {
+	m.addRangeControlWithHook(section, state, nil)
+}
+
+func (m *MapView) addRangeControlWithHook(section *CollapsibleMenu, state *rangeFilterState, onChange func()) *MenuRangeSlider {
+	if state == nil {
+		return nil
+	}
+	opt := DefaultRangeSliderOptions()
+	opt.MinValue = state.min
+	opt.MaxValue = state.max
+	opt.Step = state.step
+	opt.ValueFormat = state.format
+	opt.ValueFormatter = m.buildRangeFormatter(state.key, state.format)
+	opt.CompactLabel = true
+	slider := section.RangeSlider(state.label, state.low, state.high, opt, func(low, high float64) {
+		state.low = low
+		state.high = high
+		if onChange != nil {
+			onChange()
+		}
+		m.onFiltersChanged()
+	})
+	state.slider = slider
+	slider.SetExclusion(state.exclusion)
+
+	chkStyle := DefaultCheckboxOptions()
+	chkStyle.Height = 22
+	chkStyle.CheckColor = color.RGBA{255, 255, 255, 255}
+	chkStyle.LabelColor = color.RGBA{220, 220, 220, 255}
+
+	btnOpts := DefaultButtonOptions()
+	btnOpts.Height = 24
+	btnOpts.FontSize = 12
+	btnOpts.BackgroundColor = color.RGBA{60, 80, 110, 255}
+	btnOpts.HoverColor = color.RGBA{80, 110, 150, 255}
+	btnOpts.PressedColor = color.RGBA{40, 60, 90, 255}
+	btnOpts.BorderWidth = 1
+
+	controls := section.Card()
+	controls.Inline(true)
+	controls.SetBackgroundColor(color.RGBA{0, 0, 0, 0})
+	controls.SetBorderColor(color.RGBA{0, 0, 0, 0})
+
+	controlsCheckbox := DefaultCheckboxOptions()
+	controlsCheckbox.Height = 22
+	controlsCheckbox.CheckColor = chkStyle.CheckColor
+	controlsCheckbox.LabelColor = chkStyle.LabelColor
+	controlsCheckbox.BoxSize = 16
+	controls.Checkbox("Exclusion", state.exclusion, controlsCheckbox, func(checked bool) {
+		state.exclusion = checked
+		slider.SetExclusion(checked)
+		if onChange != nil {
+			onChange()
+		}
+		m.onFiltersChanged()
+	})
+	controls.Button("Reset", btnOpts, func() {
+		m.resetRangeState(state)
+		if onChange != nil {
+			onChange()
+		}
+		m.onFiltersChanged()
+	})
+
+	return slider
+}
+
+// buildFilterMenu constructs the filter menu contents.
+func (m *MapView) buildFilterMenu() {
+	if m.filterMenu == nil {
+		return
+	}
+
+	m.ensureRangeFilters()
+	m.filterMenu.ClearElements()
+
+	searchSection := m.filterMenu.CollapsibleMenu("Text Search", DefaultCollapsibleMenuOptions())
+	searchInputOpts := DefaultTextInputOptions()
+	searchInputOpts.Width = 260
+	searchInputOpts.MaxLength = 120
+	searchInputOpts.Placeholder = "Name, guild, tag, *wildcard, /regex/gi"
+	searchInputOpts.FontSize = 14
+	searchInputOpts.HandleRune = func(input *MenuTextInput, r rune) bool {
+		if r != '/' {
+			return false
+		}
+		insertion := "//gi"
+		maxLen := input.options.MaxLength
+		if maxLen > 0 && len(input.value)+len(insertion) > maxLen {
+			return true
+		}
+		if input.hasSelection() {
+			input.deleteSelection()
+		}
+		newValue := input.value[:input.cursorPos] + insertion + input.value[input.cursorPos:]
+		if input.options.ValidateInput != nil && !input.options.ValidateInput(newValue) {
+			return true
+		}
+		input.value = newValue
+		input.cursorPos++
+		input.clearSelection()
+		return true
+	}
+	searchInput := NewMenuTextInput("Search", m.filterOptions.textQuery, searchInputOpts, func(value string) {
+		m.filterOptions.textQuery = value
+		m.onFiltersChanged()
+	})
+	searchSection.AddElement(searchInput)
+
+	searchHelp := DefaultTextOptions()
+	searchHelp.FontSize = 12
+	searchHelp.Color = color.RGBA{180, 180, 180, 255}
+	searchSection.Text("Use * for wildcards. Press / for /regex/gi.", searchHelp)
+	searchSection.SetCollapsed(false)
+
+	modeSection := m.filterMenu.CollapsibleMenu("Matching Mode", DefaultCollapsibleMenuOptions())
+	modeOptions := DefaultToggleSwitchOptions()
+	modeOptions.Options = []string{"Contains", "Any", "Approximate"}
+	modeOptions.Width = 260
+	modeOptions.FontSize = 14
+
+	initialIndex := 0
+	if strings.EqualFold(m.filterMatchMode, "any") {
+		initialIndex = 1
+	} else if strings.EqualFold(m.filterMatchMode, "approximate") {
+		initialIndex = 2
+	}
+
+	m.filterMatchToggle = modeSection.ToggleSwitch("Match Criteria", initialIndex, modeOptions, func(index int, value string) {
+		switch index {
+		case 1:
+			m.filterMatchMode = "any"
+		case 2:
+			m.filterMatchMode = "approximate"
+		default:
+			m.filterMatchMode = "contains"
+		}
+		m.syncApproxControls()
+		m.onFiltersChanged()
+	})
+
+	approxEnabled := strings.EqualFold(m.filterMatchMode, "approximate")
+
+	toleranceOpts := DefaultSliderOptions()
+	toleranceOpts.MinValue = 0
+	toleranceOpts.MaxValue = 3
+	toleranceOpts.Step = 0.05
+	toleranceOpts.ValueFormat = "%.2fx span"
+	toleranceOpts.ShowValue = true
+	toleranceOpts.FontSize = 13
+	toleranceOpts.Height = 34
+	toleranceOpts.Enabled = approxEnabled
+	m.filterApproxToleranceUI = NewMenuSlider("Tolerance", m.filterApproxTolerance, toleranceOpts, func(val float64) {
+		if val < toleranceOpts.MinValue {
+			val = toleranceOpts.MinValue
+		}
+		if val > toleranceOpts.MaxValue {
+			val = toleranceOpts.MaxValue
+		}
+		m.filterApproxTolerance = val
+		if strings.EqualFold(m.filterMatchMode, "approximate") {
+			m.onFiltersChanged()
+		}
+	})
+	modeSection.AddElement(m.filterApproxToleranceUI)
+
+	curveOpts := DefaultSliderOptions()
+	curveOpts.MinValue = 0
+	curveOpts.MaxValue = 1
+	curveOpts.Step = 0.05
+	curveOpts.ValueFormat = "%.2f"
+	curveOpts.ShowValue = true
+	curveOpts.FontSize = 13
+	curveOpts.Height = 34
+	curveOpts.Enabled = approxEnabled
+	m.filterApproxCurveUI = NewMenuSlider("Curve", m.filterApproxCurve, curveOpts, func(val float64) {
+		if val < curveOpts.MinValue {
+			val = curveOpts.MinValue
+		}
+		if val > curveOpts.MaxValue {
+			val = curveOpts.MaxValue
+		}
+		m.filterApproxCurve = val
+		if strings.EqualFold(m.filterMatchMode, "approximate") {
+			m.onFiltersChanged()
+		}
+	})
+	modeSection.AddElement(m.filterApproxCurveUI)
+
+	chkStyle := DefaultCheckboxOptions()
+	chkStyle.CheckColor = color.RGBA{255, 255, 255, 255}
+	modeSection.Checkbox("Global Exclusion", m.filterOptions.exclusion, chkStyle, func(checked bool) {
+		m.filterOptions.exclusion = checked
+		m.onFiltersChanged()
+	})
+
+	resetOpts := DefaultButtonOptions()
+	resetOpts.BackgroundColor = color.RGBA{80, 70, 110, 255}
+	resetOpts.HoverColor = color.RGBA{100, 90, 140, 255}
+	resetOpts.PressedColor = color.RGBA{60, 50, 90, 255}
+	resetOpts.Height = 28
+	resetOpts.FontSize = 13
+	modeSection.Button("Reset All Filters", resetOpts, func() {
+		m.resetAllFilters()
+		m.buildFilterMenu()
+		m.onFiltersChanged()
+	})
+
+	modeSection.SetCollapsed(false)
+
+	toggleSection := m.filterMenu.CollapsibleMenu("Territory Toggles", DefaultCollapsibleMenuOptions())
+	hqToggleOptions := DefaultToggleSwitchOptions()
+	hqToggleOptions.Options = []string{"All", "HQ", "Normal"}
+	hqToggleOptions.Width = 260
+	hqIndex := 0
+	switch strings.ToLower(m.filterOptions.hqMode) {
+	case "hq":
+		hqIndex = 1
+	case "normal":
+		hqIndex = 2
+	}
+	toggleSection.ToggleSwitch("Territory Type", hqIndex, hqToggleOptions, func(index int, value string) {
+		switch index {
+		case 1:
+			m.filterOptions.hqMode = "hq"
+		case 2:
+			m.filterOptions.hqMode = "normal"
+		default:
+			m.filterOptions.hqMode = "all"
+		}
+		m.onFiltersChanged()
+	})
+
+	borderToggleOptions := DefaultToggleSwitchOptions()
+	borderToggleOptions.Options = []string{"All", "Open", "Close"}
+	borderToggleOptions.Width = 260
+	borderIndex := 0
+	switch strings.ToLower(m.filterOptions.borderMode) {
+	case "open":
+		borderIndex = 1
+	case "close", "closed":
+		borderIndex = 2
+	}
+	toggleSection.ToggleSwitch("Border State", borderIndex, borderToggleOptions, func(index int, value string) {
+		switch index {
+		case 1:
+			m.filterOptions.borderMode = "open"
+		case 2:
+			m.filterOptions.borderMode = "close"
+		default:
+			m.filterOptions.borderMode = "all"
+		}
+		m.onFiltersChanged()
+	})
+
+	routeToggleOptions := DefaultToggleSwitchOptions()
+	routeToggleOptions.Options = []string{"All", "HQ Route", "No HQ Route"}
+	routeToggleOptions.Width = 260
+	routeIndex := 0
+	switch strings.ToLower(m.filterOptions.routeCompatibility) {
+	case "hqroute":
+		routeIndex = 1
+	case "nohqroute":
+		routeIndex = 2
+	}
+	toggleSection.ToggleSwitch("Route Completion", routeIndex, routeToggleOptions, func(index int, value string) {
+		switch index {
+		case 1:
+			m.filterOptions.routeCompatibility = "hqroute"
+		case 2:
+			m.filterOptions.routeCompatibility = "nohqroute"
+		default:
+			m.filterOptions.routeCompatibility = "all"
+		}
+		m.onFiltersChanged()
+	})
+	toggleSection.SetCollapsed(false)
+
+	upgradesSection := m.filterMenu.CollapsibleMenu("Upgrades", DefaultCollapsibleMenuOptions())
+	for _, key := range []string{"upgrade.damage", "upgrade.attack", "upgrade.health", "upgrade.defence"} {
+		m.addRangeControl(upgradesSection, m.filterOptions.ranges[key])
+	}
+	upgradesSection.SetCollapsed(false)
+
+	bonusesSection := m.filterMenu.CollapsibleMenu("Bonuses", DefaultCollapsibleMenuOptions())
+	bonusOrder := []string{
+		"bonus.strongerMinions", "bonus.towerMultiAttack", "bonus.towerAura", "bonus.towerVolley",
+		"bonus.gatheringExperience", "bonus.mobExperience", "bonus.mobDamage", "bonus.pvpDamage",
+		"bonus.xpSeeking", "bonus.tomeSeeking", "bonus.emeraldSeeking", "bonus.largerResourceStorage",
+		"bonus.largerEmeraldStorage", "bonus.efficientResource", "bonus.efficientEmerald",
+		"bonus.resourceRate", "bonus.emeraldRate",
+	}
+	for _, key := range bonusOrder {
+		m.addRangeControl(bonusesSection, m.filterOptions.ranges[key])
+	}
+	bonusesSection.SetCollapsed(true)
+
+	economySection := m.filterMenu.CollapsibleMenu("Economy & Levels", DefaultCollapsibleMenuOptions())
+	for _, key := range []string{"tax", "treasury", "defenceLevel", "tradingRoutes"} {
+		m.addRangeControl(economySection, m.filterOptions.ranges[key])
+	}
+	economySection.SetCollapsed(false)
+
+	costSection := m.filterMenu.CollapsibleMenu("Resource Costs", DefaultCollapsibleMenuOptions())
+	totalState := m.filterOptions.ranges["cost.total"]
+	emeraldState := m.filterOptions.ranges["cost.emeralds"]
+	oresState := m.filterOptions.ranges["cost.ores"]
+	woodState := m.filterOptions.ranges["cost.wood"]
+	fishState := m.filterOptions.ranges["cost.fish"]
+	cropState := m.filterOptions.ranges["cost.crops"]
+
+	var refreshCosts func()
+
+	m.addRangeControlWithHook(costSection, totalState, func() {
+		if refreshCosts != nil {
+			refreshCosts()
+		}
+	})
+	m.addRangeControlWithHook(costSection, emeraldState, func() {
+		if refreshCosts != nil {
+			refreshCosts()
+		}
+	})
+	m.addRangeControlWithHook(costSection, oresState, func() {
+		if refreshCosts != nil {
+			refreshCosts()
+		}
+	})
+	m.addRangeControlWithHook(costSection, woodState, func() {
+		if refreshCosts != nil {
+			refreshCosts()
+		}
+	})
+	m.addRangeControlWithHook(costSection, fishState, func() {
+		if refreshCosts != nil {
+			refreshCosts()
+		}
+	})
+	m.addRangeControlWithHook(costSection, cropState, func() {
+		if refreshCosts != nil {
+			refreshCosts()
+		}
+	})
+
+	isActive := func(state *rangeFilterState) bool {
+		if state == nil {
+			return false
+		}
+		return state.exclusion || state.low > state.min || state.high < state.max
+	}
+
+	refreshCosts = func() {
+		individuals := []*rangeFilterState{emeraldState, oresState, woodState, fishState, cropState}
+		individualActive := isActive(emeraldState) || isActive(oresState) || isActive(woodState) || isActive(fishState) || isActive(cropState)
+		totalActive := isActive(totalState)
+
+		// If any individual filter is active, disable and reset total so it cannot apply.
+		if individualActive {
+			if totalState != nil && totalState.slider != nil {
+				totalState.slider.SetEnabled(false)
+				if isActive(totalState) || totalState.exclusion || totalState.low != totalState.defaultLow || totalState.high != totalState.defaultHigh {
+					m.resetRangeState(totalState)
+				}
+			}
+			for _, s := range individuals {
+				if s != nil && s.slider != nil {
+					s.slider.SetEnabled(true)
+				}
+			}
+			return
+		}
+
+		// If total is active, disable and reset all individual sliders so only total applies.
+		if totalActive {
+			for _, s := range individuals {
+				if s != nil && s.slider != nil {
+					s.slider.SetEnabled(false)
+					if isActive(s) || s.exclusion || s.low != s.defaultLow || s.high != s.defaultHigh {
+						m.resetRangeState(s)
+					}
+				}
+			}
+			if totalState != nil && totalState.slider != nil {
+				totalState.slider.SetEnabled(true)
+			}
+			return
+		}
+
+		// No filters active: enable everything.
+		if totalState != nil && totalState.slider != nil {
+			totalState.slider.SetEnabled(true)
+		}
+		for _, s := range individuals {
+			if s != nil && s.slider != nil {
+				s.slider.SetEnabled(true)
+			}
+		}
+	}
+
+	refreshCosts()
+	costSection.SetCollapsed(false)
+
+	resourceSection := m.filterMenu.CollapsibleMenu("Resource Generation", DefaultCollapsibleMenuOptions())
+	resTotal := m.filterOptions.ranges["resource.total"]
+	resEmerald := m.filterOptions.ranges["resource.emeralds"]
+	resOre := m.filterOptions.ranges["resource.ores"]
+	resWood := m.filterOptions.ranges["resource.wood"]
+	resFish := m.filterOptions.ranges["resource.fish"]
+	resCrop := m.filterOptions.ranges["resource.crops"]
+
+	var refreshResources func()
+
+	m.addRangeControlWithHook(resourceSection, resTotal, func() {
+		if refreshResources != nil {
+			refreshResources()
+		}
+	})
+	m.addRangeControlWithHook(resourceSection, resEmerald, func() {
+		if refreshResources != nil {
+			refreshResources()
+		}
+	})
+	m.addRangeControlWithHook(resourceSection, resOre, func() {
+		if refreshResources != nil {
+			refreshResources()
+		}
+	})
+	m.addRangeControlWithHook(resourceSection, resWood, func() {
+		if refreshResources != nil {
+			refreshResources()
+		}
+	})
+	m.addRangeControlWithHook(resourceSection, resFish, func() {
+		if refreshResources != nil {
+			refreshResources()
+		}
+	})
+	m.addRangeControlWithHook(resourceSection, resCrop, func() {
+		if refreshResources != nil {
+			refreshResources()
+		}
+	})
+
+	isResourceActive := func(state *rangeFilterState) bool {
+		if state == nil {
+			return false
+		}
+		return state.exclusion || state.low > state.min || state.high < state.max
+	}
+
+	refreshResources = func() {
+		individuals := []*rangeFilterState{resEmerald, resOre, resWood, resFish, resCrop}
+		individualActive := isResourceActive(resEmerald) || isResourceActive(resOre) || isResourceActive(resWood) || isResourceActive(resFish) || isResourceActive(resCrop)
+		totalActive := isResourceActive(resTotal)
+
+		if individualActive {
+			if resTotal != nil && resTotal.slider != nil {
+				resTotal.slider.SetEnabled(false)
+				if isResourceActive(resTotal) || resTotal.exclusion || resTotal.low != resTotal.defaultLow || resTotal.high != resTotal.defaultHigh {
+					m.resetRangeState(resTotal)
+				}
+			}
+			for _, s := range individuals {
+				if s != nil && s.slider != nil {
+					s.slider.SetEnabled(true)
+				}
+			}
+			return
+		}
+
+		if totalActive {
+			for _, s := range individuals {
+				if s != nil && s.slider != nil {
+					s.slider.SetEnabled(false)
+					if isResourceActive(s) || s.exclusion || s.low != s.defaultLow || s.high != s.defaultHigh {
+						m.resetRangeState(s)
+					}
+				}
+			}
+			if resTotal != nil && resTotal.slider != nil {
+				resTotal.slider.SetEnabled(true)
+			}
+			return
+		}
+
+		if resTotal != nil && resTotal.slider != nil {
+			resTotal.slider.SetEnabled(true)
+		}
+		for _, s := range individuals {
+			if s != nil && s.slider != nil {
+				s.slider.SetEnabled(true)
+			}
+		}
+	}
+
+	refreshResources()
+	resourceSection.SetCollapsed(false)
+}
+
+func (m *MapView) onFiltersChanged() {
+	m.applyFilters()
+}
+
+func (m *MapView) applyFilters() {
+	territories := eruntime.GetTerritories()
+	costData := eruntime.GetCost()
+	approxMode := strings.EqualFold(strings.ToLower(m.filterMatchMode), "approximate")
+	textQuery := strings.TrimSpace(m.filterOptions.textQuery)
+	textFilterActive := textQuery != ""
+	var textMatcher func(name, guildName, guildTag string) bool
+
+	buildTextMatcher := func(query string) func(name, guildName, guildTag string) bool {
+		query = strings.TrimSpace(query)
+		if query == "" {
+			return nil
+		}
+
+		if strings.HasPrefix(query, "/") {
+			lastSlash := strings.LastIndex(query, "/")
+			if lastSlash > 0 {
+				pattern := query[1:lastSlash]
+				flags := query[lastSlash+1:]
+				if pattern == "" {
+					return nil
+				}
+				caseInsensitive := true
+				if strings.Contains(flags, "i") {
+					caseInsensitive = true
+				}
+				rePattern := pattern
+				if caseInsensitive {
+					rePattern = "(?i)" + rePattern
+				}
+				if re, err := regexp.Compile(rePattern); err == nil {
+					return func(name, guildName, guildTag string) bool {
+						return re.MatchString(name) || re.MatchString(guildName) || re.MatchString(guildTag)
+					}
+				}
+			}
+		}
+
+		if strings.Contains(query, "*") {
+			escaped := regexp.QuoteMeta(query)
+			wildcard := strings.ReplaceAll(escaped, "\\*", ".*")
+			rePattern := "(?i)" + wildcard
+			if re, err := regexp.Compile(rePattern); err == nil {
+				return func(name, guildName, guildTag string) bool {
+					return re.MatchString(name) || re.MatchString(guildName) || re.MatchString(guildTag)
+				}
+			}
+		}
+
+		lower := strings.ToLower(query)
+		return func(name, guildName, guildTag string) bool {
+			return strings.Contains(strings.ToLower(name), lower) ||
+				strings.Contains(strings.ToLower(guildName), lower) ||
+				strings.Contains(strings.ToLower(guildTag), lower)
+		}
+	}
+
+	if textFilterActive {
+		textMatcher = buildTextMatcher(textQuery)
+		if textMatcher == nil {
+			textFilterActive = false
+		}
+	}
+
+	isRangeActive := func(state *rangeFilterState) bool {
+		if state == nil {
+			return false
+		}
+		return state.exclusion || state.low > state.min || state.high < state.max
+	}
+
+	matchesRange := func(state *rangeFilterState, value float64) bool {
+		if state == nil {
+			return true
+		}
+		if state.exclusion {
+			return value < state.low || value > state.high
+		}
+		return value >= state.low && value <= state.high
+	}
+
+	clamp01 := func(v float64) float64 {
+		if v < 0 {
+			return 0
+		}
+		if v > 1 {
+			return 1
+		}
+		return v
+	}
+
+	smoothstep := func(t float64) float64 {
+		t = clamp01(t)
+		return t * t * (3 - 2*t)
+	}
+
+	applyCurve := func(t float64) float64 {
+		c := clamp01(m.filterApproxCurve)
+		if c <= 0 {
+			return clamp01(t)
+		}
+		if c < 0.5 {
+			blend := c / 0.5
+			linear := clamp01(t)
+			s := smoothstep(linear)
+			return clamp01(linear*(1-blend) + s*blend)
+		}
+		blend := (c - 0.5) / 0.5
+		linear := clamp01(t)
+		s := smoothstep(linear)
+		exp := 1.0 + blend*8.0
+		return clamp01(math.Pow(s, exp))
+	}
+
+	rangeWeight := func(state *rangeFilterState, value float64) float64 {
+		if state == nil {
+			return 1
+		}
+		if !approxMode {
+			if matchesRange(state, value) {
+				return 1
+			}
+			return 0
+		}
+
+		span := state.high - state.low
+		if span < 0 {
+			span = 0
+		}
+
+		distance := 0.0
+		if value < state.low {
+			distance = state.low - value
+		} else if value > state.high {
+			distance = value - state.high
+		}
+
+		if distance == 0 {
+			if state.exclusion {
+				return 0
+			}
+			return 1
+		}
+
+		tol := m.filterApproxTolerance
+		if tol <= 0 {
+			if state.exclusion {
+				return 1
+			}
+			return 0
+		}
+
+		globalSpan := state.max - state.min
+		if globalSpan < 0 {
+			globalSpan = 0
+		}
+
+		falloff := span*tol + globalSpan*0.05*tol
+		minFalloff := (span + 1) * 0.02
+		if falloff < minFalloff {
+			falloff = minFalloff
+		}
+		if falloff <= 0 {
+			if state.exclusion {
+				return 1
+			}
+			return 0
+		}
+
+		base := clamp01(1 - (distance / falloff))
+		base = applyCurve(base)
+		if state.exclusion {
+			base = 1 - base
+		}
+		return clamp01(base)
+	}
+
+	matches := make(map[string]float64)
+	anyConditions := false
+
+	for _, t := range territories {
+		if t == nil {
+			continue
+		}
+
+		t.Mu.RLock()
+		name := t.Name
+		opts := t.Options
+		hq := t.HQ
+		border := t.Border
+		tradingRoutes := len(t.TradingRoutes)
+		treasuryLevel := t.Treasury
+		defenceLevel := t.Level
+		resourceGen := t.ResourceGeneration.Base
+		taxPercent := t.Tax.Tax * 100
+		guildName := strings.TrimSpace(t.Guild.Name)
+		guildTag := strings.TrimSpace(t.Guild.Tag)
+		cost := t.Costs
+		if costData != nil {
+			cost = m.calculateTerritoryCost(costData, opts)
+		}
+		t.Mu.RUnlock()
+
+		costTotal := cost.Emeralds + cost.Ores + cost.Wood + cost.Fish + cost.Crops
+		resourceTotal := resourceGen.Emeralds + resourceGen.Ores + resourceGen.Wood + resourceGen.Fish + resourceGen.Crops
+
+		valueForKey := func(key string) float64 {
+			switch key {
+			case "upgrade.damage":
+				return float64(opts.Upgrade.Set.Damage)
+			case "upgrade.attack":
+				return float64(opts.Upgrade.Set.Attack)
+			case "upgrade.health":
+				return float64(opts.Upgrade.Set.Health)
+			case "upgrade.defence":
+				return float64(opts.Upgrade.Set.Defence)
+			case "bonus.strongerMinions":
+				return float64(opts.Bonus.Set.StrongerMinions)
+			case "bonus.towerMultiAttack":
+				return float64(opts.Bonus.Set.TowerMultiAttack)
+			case "bonus.towerAura":
+				return float64(opts.Bonus.Set.TowerAura)
+			case "bonus.towerVolley":
+				return float64(opts.Bonus.Set.TowerVolley)
+			case "bonus.gatheringExperience":
+				return float64(opts.Bonus.Set.GatheringExperience)
+			case "bonus.mobExperience":
+				return float64(opts.Bonus.Set.MobExperience)
+			case "bonus.mobDamage":
+				return float64(opts.Bonus.Set.MobDamage)
+			case "bonus.pvpDamage":
+				return float64(opts.Bonus.Set.PvPDamage)
+			case "bonus.xpSeeking":
+				return float64(opts.Bonus.Set.XPSeeking)
+			case "bonus.tomeSeeking":
+				return float64(opts.Bonus.Set.TomeSeeking)
+			case "bonus.emeraldSeeking":
+				return float64(opts.Bonus.Set.EmeraldSeeking)
+			case "bonus.largerResourceStorage":
+				return float64(opts.Bonus.Set.LargerResourceStorage)
+			case "bonus.largerEmeraldStorage":
+				return float64(opts.Bonus.Set.LargerEmeraldStorage)
+			case "bonus.efficientResource":
+				return float64(opts.Bonus.Set.EfficientResource)
+			case "bonus.efficientEmerald":
+				return float64(opts.Bonus.Set.EfficientEmerald)
+			case "bonus.resourceRate":
+				return float64(opts.Bonus.Set.ResourceRate)
+			case "bonus.emeraldRate":
+				return float64(opts.Bonus.Set.EmeraldRate)
+			case "tax":
+				return taxPercent
+			case "treasury":
+				return float64(treasuryLevel)
+			case "defenceLevel":
+				return float64(defenceLevel)
+			case "tradingRoutes":
+				return float64(tradingRoutes)
+			case "cost.total":
+				return costTotal
+			case "cost.emeralds":
+				return cost.Emeralds
+			case "cost.ores":
+				return cost.Ores
+			case "cost.wood":
+				return cost.Wood
+			case "cost.fish":
+				return cost.Fish
+			case "cost.crops":
+				return cost.Crops
+			case "resource.total":
+				return resourceTotal
+			case "resource.emeralds":
+				return resourceGen.Emeralds
+			case "resource.ores":
+				return resourceGen.Ores
+			case "resource.wood":
+				return resourceGen.Wood
+			case "resource.fish":
+				return resourceGen.Fish
+			case "resource.crops":
+				return resourceGen.Crops
+			default:
+				return 0
+			}
+		}
+
+		matchAll := true
+		matchAny := false
+		conditions := 0
+		weight := 1.0
+
+		for key, state := range m.filterOptions.ranges {
+			if !isRangeActive(state) {
+				continue
+			}
+			conditions++
+			val := valueForKey(key)
+			if approxMode {
+				weight = math.Min(weight, rangeWeight(state, val))
+			} else {
+				cond := matchesRange(state, val)
+				if cond {
+					matchAny = true
+				} else {
+					matchAll = false
+				}
+			}
+		}
+
+		if mode := strings.ToLower(m.filterOptions.hqMode); mode != "all" {
+			conditions++
+			cond := (mode == "hq" && hq) || (mode == "normal" && !hq)
+			if approxMode {
+				if cond {
+					weight = math.Min(weight, 1)
+				} else {
+					weight = 0
+				}
+			} else {
+				if cond {
+					matchAny = true
+				} else {
+					matchAll = false
+				}
+			}
+		}
+
+		if mode := strings.ToLower(m.filterOptions.borderMode); mode != "all" {
+			conditions++
+			cond := (mode == "open" && border == typedef.BorderOpen) || (mode == "close" && border == typedef.BorderClosed)
+			if approxMode {
+				if cond {
+					weight = math.Min(weight, 1)
+				} else {
+					weight = 0
+				}
+			} else {
+				if cond {
+					matchAny = true
+				} else {
+					matchAll = false
+				}
+			}
+		}
+
+		if mode := strings.ToLower(m.filterOptions.routeCompatibility); mode != "all" {
+			conditions++
+			hasRoute := tradingRoutes > 0
+			cond := (mode == "hqroute" && hasRoute) || (mode == "nohqroute" && !hasRoute)
+			if approxMode {
+				if cond {
+					weight = math.Min(weight, 1)
+				} else {
+					weight = 0
+				}
+			} else {
+				if cond {
+					matchAny = true
+				} else {
+					matchAll = false
+				}
+			}
+		}
+
+		if textFilterActive {
+			conditions++
+			cond := textMatcher(name, guildName, guildTag)
+			if approxMode {
+				if cond {
+					weight = math.Min(weight, 1)
+				} else {
+					weight = 0
+				}
+			} else {
+				if cond {
+					matchAny = true
+				} else {
+					matchAll = false
+				}
+			}
+		}
+
+		var matched bool
+		if approxMode {
+			if conditions == 0 {
+				weight = 0
+			}
+			if m.filterOptions.exclusion {
+				weight = 1 - weight
+			}
+			weight = clamp01(weight)
+			if weight > 0 && conditions > 0 {
+				matches[name] = weight
+			}
+		} else {
+			if conditions == 0 {
+				matched = true
+			} else if strings.EqualFold(m.filterMatchMode, "any") {
+				matched = matchAny
+			} else {
+				matched = matchAll
+			}
+
+			if m.filterOptions.exclusion {
+				matched = !matched
+			}
+
+			if matched {
+				matches[name] = 1
+			}
+		}
+		if conditions > 0 {
+			anyConditions = true
+		}
+	}
+
+	if !anyConditions {
+		matches = make(map[string]float64, len(territories))
+		for _, t := range territories {
+			if t == nil {
+				continue
+			}
+			matches[t.Name] = 1
+		}
+		anyConditions = true
+	}
+
+	if m.territoryViewSwitcher != nil {
+		m.territoryViewSwitcher.SetFilteredTerritories(matches, anyConditions)
+		if anyConditions {
+			m.territoryViewSwitcher.SetCurrentView(ViewFilter)
+		}
+	}
+
+	if m.territoriesManager != nil {
+		if renderer := m.territoriesManager.GetRenderer(); renderer != nil {
+			if cache := renderer.GetTerritoryCache(); cache != nil {
+				cache.ForceRedraw()
+			}
+		}
+	}
 }
 
 // IsStateManagementMenuOpen returns whether the state management menu is currently open
@@ -3343,6 +5078,20 @@ func (m *MapView) ToggleAnalysisModal() {
 	}
 
 	m.analysisModal.Toggle()
+}
+
+// ToggleAutoSetupModal toggles the auto setup modal visibility
+func (m *MapView) ToggleAutoSetupModal() {
+	if m.autoSetupModal == nil {
+		return
+	}
+
+	// Refresh guild options when opening to ensure we show current HQ guilds only
+	if !m.autoSetupModal.IsVisible() {
+		m.refreshAutoSetupGuildOptions()
+	}
+
+	m.autoSetupModal.Toggle()
 }
 
 // refreshAnalysisGuildOptions populates the analysis dropdown with guilds that have an HQ.
@@ -3386,6 +5135,53 @@ func (m *MapView) refreshAnalysisGuildOptions() {
 	}
 
 	m.analysisModal.SetGuildOptions(options)
+}
+
+// refreshAutoSetupGuildOptions populates the auto setup dropdown with guilds that have an HQ.
+func (m *MapView) refreshAutoSetupGuildOptions() {
+	if m.autoSetupModal == nil {
+		return
+	}
+
+	territories := eruntime.GetTerritories()
+	seen := make(map[string]FilterableDropdownOption)
+
+	for _, territory := range territories {
+		if territory == nil {
+			continue
+		}
+
+		territory.Mu.RLock()
+		guildName := strings.TrimSpace(territory.Guild.Name)
+		guildTag := strings.TrimSpace(territory.Guild.Tag)
+		isHQ := territory.HQ
+		territory.Mu.RUnlock()
+		if !isHQ {
+			continue
+		}
+		if guildTag == "" || strings.EqualFold(guildTag, "NONE") {
+			continue
+		}
+
+		display := guildName
+		if display == "" {
+			display = guildTag
+		}
+		if guildName != "" && guildTag != "" {
+			display = fmt.Sprintf("%s [%s]", guildName, guildTag)
+		}
+
+		if _, exists := seen[guildTag]; !exists {
+			seen[guildTag] = FilterableDropdownOption{Display: display, Value: guildTag, Data: guildName}
+		}
+	}
+
+	options := make([]FilterableDropdownOption, 0, len(seen))
+	for _, opt := range seen {
+		options = append(options, opt)
+	}
+
+	m.autoSetupModal.SetGuildOptions(options)
 }
 
 // runChokepointAnalysis executes the chokepoint algorithm for the chosen guild and updates the Analysis view.
@@ -3501,7 +5297,7 @@ func (m *MapView) GetTerritoriesManager() *TerritoriesManager {
 
 // StartClaimEditing starts the claim editing mode for a specific guild
 func (m *MapView) StartClaimEditing(guildName, guildTag string) {
-	fmt.Printf("[MAP] Starting claim editing for guild: %s [%s]\n", guildName, guildTag)
+	// fmt.Printf("[MAP] Starting claim editing for guild: %s [%s]\n", guildName, guildTag)
 
 	m.isEditingClaims = true
 	m.editingGuildName = guildName
@@ -3512,11 +5308,11 @@ func (m *MapView) StartClaimEditing(guildName, guildTag string) {
 	claimManager := GetGuildClaimManager()
 	if claimManager != nil {
 		m.guildClaims = claimManager.GetClaimsForGuild(guildName, guildTag)
-		fmt.Printf("[MAP] Loaded %d existing claims for guild %s [%s]\n", len(m.guildClaims), guildName, guildTag)
+		// fmt.Printf("[MAP] Loaded %d existing claims for guild %s [%s]\n", len(m.guildClaims), guildName, guildTag)
 	} else {
 		// Fallback to empty map if claim manager is not available
 		m.guildClaims = make(map[string]bool)
-		fmt.Printf("[MAP] Warning: Could not load existing claims, starting with empty claims\n")
+		// fmt.Printf("[MAP] Warning: Could not load existing claims, starting with empty claims\n")
 	}
 
 	// Close any open territory side menu
@@ -3549,7 +5345,7 @@ func (m *MapView) StopClaimEditing() {
 		return
 	}
 
-	fmt.Printf("[MAP] Stopping claim editing for guild: %s [%s]\n", m.editingGuildName, m.editingGuildTag)
+	// fmt.Printf("[MAP] Stopping claim editing for guild: %s [%s]\n", m.editingGuildName, m.editingGuildTag)
 
 	// Get the claim manager
 	claimManager := GetGuildClaimManager()
@@ -3564,7 +5360,6 @@ func (m *MapView) StopClaimEditing() {
 		for territory, claimed := range m.guildClaims {
 			if claimed {
 				claimCount++
-				fmt.Printf("  - Claimed territory: %s\n", territory)
 				claims = append(claims, GuildClaim{
 					TerritoryName: territory,
 					GuildName:     m.editingGuildName,
@@ -3574,11 +5369,11 @@ func (m *MapView) StopClaimEditing() {
 				// Only remove claims if this territory was originally claimed by the current guild
 				if existingClaim, exists := claimManager.Claims[territory]; exists {
 					if existingClaim.GuildName == m.editingGuildName && existingClaim.GuildTag == m.editingGuildTag {
-						fmt.Printf("  - Removing claim for territory: %s (was claimed by current guild)\n", territory)
+						// fmt.Printf("  - Removing claim for territory: %s (was claimed by current guild)\n", territory)
 						claimManager.RemoveClaim(territory)
 					} else {
-						fmt.Printf("  - Skipping removal for territory: %s (belongs to different guild: %s [%s])\n",
-							territory, existingClaim.GuildName, existingClaim.GuildTag)
+						// fmt.Printf("  - Skipping removal for territory: %s (belongs to different guild: %s [%s])\n",
+						// 	territory, existingClaim.GuildName, existingClaim.GuildTag)
 					}
 				}
 			}
@@ -3592,8 +5387,6 @@ func (m *MapView) StopClaimEditing() {
 		// Print all claims for debugging
 		claimManager.PrintClaims()
 	}
-
-	fmt.Printf("  Total territories claimed: %d\n", claimCount)
 
 	// Reset editing state first
 	m.isEditingClaims = false
@@ -3611,7 +5404,7 @@ func (m *MapView) StopClaimEditing() {
 
 	// Now trigger a single comprehensive redraw after all changes are complete
 	if claimManager != nil {
-		fmt.Printf("[MAP] Triggering final redraw after claim editing completion\n")
+		// fmt.Printf("[MAP] Triggering final redraw after claim editing completion\n")
 		claimManager.TriggerRedraw()
 	}
 
@@ -3632,7 +5425,7 @@ func (m *MapView) CancelClaimEditing() {
 		return
 	}
 
-	fmt.Printf("[MAP] Cancelling claim editing for guild: %s [%s]\n", m.editingGuildName, m.editingGuildTag)
+	// fmt.Printf("[MAP] Cancelling claim editing for guild: %s [%s]\n", m.editingGuildName, m.editingGuildTag)
 
 	// We need to restore the territory colors to their original state
 	// This happens automatically because:
@@ -3671,10 +5464,10 @@ func (m *MapView) CancelClaimEditing() {
 		time.Sleep(100 * time.Millisecond)
 		// Reopen the guild management menu after a slight delay
 		if territoriesManager != nil {
-			fmt.Printf("[MAP] Reopening guild management menu after claim edit cancellation\n")
+			// fmt.Printf("[MAP] Reopening guild management menu after claim edit cancellation\n")
 			territoriesManager.OpenGuildManagement()
 		} else {
-			fmt.Printf("[MAP] Error: territories manager is nil, can't reopen guild management\n")
+			// fmt.Printf("[MAP] Error: territories manager is nil, can't reopen guild management\n")
 		}
 	}()
 
@@ -3734,12 +5527,6 @@ func (m *MapView) ToggleTerritoryClaim(territoryName string) {
 				territoryCache.ForceRedraw()
 			}
 		}
-	}
-
-	if !claimed {
-		fmt.Printf("[MAP] Claimed territory: %s for guild %s\n", territoryName, m.editingGuildName)
-	} else {
-		fmt.Printf("[MAP] Unclaimed territory: %s for guild %s\n", territoryName, m.editingGuildName)
 	}
 }
 
@@ -3979,13 +5766,13 @@ func (m *MapView) updateAreaSelection() {
 	// Check for left mouse press to start selection dragging
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && !m.areaSelectDragging {
 		m.startAreaSelectionDrag(mx, my, false)
-		fmt.Printf("[MAP] Started area selection drag at (%d, %d)\n", mx, my)
+		// fmt.Printf("[MAP] Started area selection drag at (%d, %d)\n", mx, my)
 	}
 
 	// Check for right mouse press to start deselection dragging
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) && !m.areaSelectDragging {
 		m.startAreaSelectionDrag(mx, my, true)
-		fmt.Printf("[MAP] Started area deselection drag at (%d, %d)\n", mx, my)
+		// fmt.Printf("[MAP] Started area deselection drag at (%d, %d)\n", mx, my)
 	}
 
 	// Update drag coordinates and apply real-time selection/deselection
@@ -3996,13 +5783,13 @@ func (m *MapView) updateAreaSelection() {
 	// Check for left mouse release to end selection dragging
 	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) && m.areaSelectDragging && !m.areaSelectIsDeselecting {
 		m.finishAreaSelectionDrag()
-		fmt.Printf("[MAP] Ended area selection drag at (%d, %d)\n", mx, my)
+		// fmt.Printf("[MAP] Ended area selection drag at (%d, %d)\n", mx, my)
 	}
 
 	// Check for right mouse release to end deselection dragging
 	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonRight) && m.areaSelectDragging && m.areaSelectIsDeselecting {
 		m.finishAreaSelectionDrag()
-		fmt.Printf("[MAP] Ended area deselection drag at (%d, %d)\n", mx, my)
+		// fmt.Printf("[MAP] Ended area deselection drag at (%d, %d)\n", mx, my)
 	}
 }
 
@@ -4026,7 +5813,7 @@ func (m *MapView) applyAreaSelection() {
 		y1, y2 = y2, y1
 	}
 
-	fmt.Printf("[MAP] Applying area selection from (%.0f, %.0f) to (%.0f, %.0f)\n", x1, y1, x2, y2)
+	// fmt.Printf("[MAP] Applying area selection from (%.0f, %.0f) to (%.0f, %.0f)\n", x1, y1, x2, y2)
 
 	selectedCount := 0
 	// Check all territories to see if they intersect with the selection rectangle
@@ -4065,12 +5852,12 @@ func (m *MapView) applyAreaSelection() {
 			if coveragePercentage > 0.5 {
 				m.ToggleTerritoryClaim(territoryName)
 				selectedCount++
-				fmt.Printf("[MAP] Territory %s selected (coverage: %.1f%%)\n", territoryName, coveragePercentage*100)
+				// fmt.Printf("[MAP] Territory %s selected (coverage: %.1f%%)\n", territoryName, coveragePercentage*100)
 			}
 		}
 	}
 
-	fmt.Printf("[MAP] Area selection applied to %d territories\n", selectedCount)
+	// fmt.Printf("[MAP] Area selection applied to %d territories\n", selectedCount)
 }
 
 // applyRealtimeAreaSelection updates temporary territory highlights in real-time as the user drags
@@ -4208,7 +5995,7 @@ func (m *MapView) applyCurrentAreaSelection() {
 						// Deselection mode: remove territory from claims
 						if m.guildClaims != nil && m.guildClaims[territoryName] {
 							m.guildClaims[territoryName] = false
-							fmt.Printf("[MAP] Deselected territory: %s\n", territoryName)
+							// fmt.Printf("[MAP] Deselected territory: %s\n", territoryName)
 						}
 					} else {
 						// Selection mode: add territory to claims (only if not already claimed)
@@ -4217,7 +6004,7 @@ func (m *MapView) applyCurrentAreaSelection() {
 						}
 						if !m.guildClaims[territoryName] {
 							m.guildClaims[territoryName] = true
-							fmt.Printf("[MAP] Selected territory: %s\n", territoryName)
+							// fmt.Printf("[MAP] Selected territory: %s\n", territoryName)
 						}
 					}
 				}

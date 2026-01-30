@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"RueaES/storage"
 	"RueaES/typedef"
 
 	"github.com/gookit/goutil/arrutil"
@@ -57,6 +58,26 @@ func normalizeRuntimeOptions(opts *typedef.RuntimeOptions) {
 
 	// Normalize plugin keybind overrides if present.
 	typedef.NormalizePluginKeybinds(&opts.PluginKeybinds)
+
+	// Normalize computation source.
+	switch opts.ComputationSource {
+	case typedef.ComputationCPU, typedef.ComputationGPU:
+		// ok
+	default:
+		opts.ComputationSource = typedef.ComputationCPU
+	}
+
+	// Normalize pathfinding algorithm.
+	switch opts.PathfindingAlgorithm {
+	case typedef.PathfindingDijkstra,
+		typedef.PathfindingAstar,
+		typedef.PathfindingFloodFill,
+		typedef.PathfindingBellmanFord,
+		typedef.PathfindingFloydWarshall:
+		// ok
+	default:
+		opts.PathfindingAlgorithm = typedef.PathfindingDijkstra
+	}
 }
 
 // sanitizeLoadedState normalizes guild names/tags and territory names to strip banned phrases from loaded saves.
@@ -263,8 +284,6 @@ func resourceKey(br typedef.BasicResources) string {
 
 // SaveStateToFile saves the current state to a file with LZ4 compression
 func SaveStateToFile(filepath string) error {
-	fmt.Printf("[STATE] SaveStateToFile called with filepath: %s\n", filepath)
-
 	// Capture current state under read lock - minimize lock time for better performance
 	var stateData StateData
 
@@ -418,25 +437,21 @@ func SaveStateToFile(filepath string) error {
 				stateData.Transits = append(stateData.Transits, &transitCopy)
 			}
 		}
-		fmt.Printf("[STATE] Saved %d transits from TransitManager to state\n", len(stateData.Transits))
 	}
 
 	// Copy user loadouts (version 1.3+) - these persist through resets
 	if getLoadoutsCallback != nil {
 		stateData.Loadouts = getLoadoutsCallback()
-		fmt.Printf("[STATE] Saved %d loadouts to state\n", len(stateData.Loadouts))
 	}
 
 	// Copy guild colors (version 1.3+) - these persist through resets
 	if getGuildColorsCallback != nil {
 		stateData.GuildColors = getGuildColorsCallback()
-		fmt.Printf("[STATE] Saved %d guild colors to state\n", len(stateData.GuildColors))
 	}
 
 	// Copy plugin metadata and persisted state (version 1.9+)
 	if getPluginsCallback != nil {
 		stateData.Plugins = getPluginsCallback()
-		fmt.Printf("[STATE] Saved %d plugins to state\n", len(stateData.Plugins))
 	}
 
 	// All the expensive operations (JSON marshal, compression, file write) happen
@@ -462,9 +477,6 @@ func SaveStateToFile(filepath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to write file: %v", err)
 	}
-
-	fmt.Printf("[STATE] Successfully saved state to %s (JSON: %d bytes, Compressed: %d bytes, Ratio: %.1f%%)\n",
-		filepath, len(jsonData), len(compressedData), float64(len(compressedData))/float64(len(jsonData))*100)
 
 	return nil
 }
@@ -840,9 +852,6 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 		}
 		normalizeRuntimeOptions(&st.runtimeOptions)
 		st.mu.Unlock()
-		fmt.Printf("[STATE] Imported core data (tick: %d)\n", stateData.Tick)
-	} else {
-		fmt.Printf("[STATE] Skipped importing core data\n")
 	}
 
 	// Merge guilds from state file with existing guilds and update guilds.json (if requested)
@@ -855,9 +864,6 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 			}
 			return fmt.Errorf("failed to merge guilds from state: %v", err)
 		}
-		fmt.Printf("[STATE] Imported %d guilds from state\n", len(stateData.Guilds))
-	} else {
-		fmt.Printf("[STATE] Skipped importing guilds\n")
 	}
 
 	hasTransitFields := false
@@ -912,9 +918,6 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 					// Apply default values here if needed
 				}
 			}
-			fmt.Printf("[STATE] Imported territories but skipped configurations\n")
-		} else {
-			fmt.Printf("[STATE] Imported territories with configurations\n")
 		}
 
 		// Only import territory data if requested
@@ -926,9 +929,6 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 					territory.ResourceGeneration = typedef.ResourceGeneration{}
 				}
 			}
-			fmt.Printf("[STATE] Cleared territory resource data\n")
-		} else {
-			fmt.Printf("[STATE] Imported territory resource data\n")
 		}
 
 		// Only import in-transit resources if requested
@@ -940,11 +940,7 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 					territory.TradingRoutesJSON = [][]string{}
 				}
 			}
-			fmt.Printf("[STATE] Cleared in-transit resources\n")
-		} else {
-			fmt.Printf("[STATE] Imported in-transit resources\n")
 		}
-
 		// Import runtime options only if core is not being imported separately
 		if !importOptions["core"] {
 			st.runtimeOptions = stateData.RuntimeOptions
@@ -962,8 +958,6 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 				territory.CloseCh = func() { close(setCh) }
 			}
 		}
-	} else {
-		fmt.Printf("[STATE] Skipped importing territories and related data\n")
 	}
 
 	rebuildHQMap()
@@ -973,9 +967,7 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 		st.activeTributes = stateData.ActiveTributes
 		// Rebuild guild pointers in tributes
 		rebuildTributeGuildPointers()
-		fmt.Printf("[STATE] Imported tributes data\n")
 	} else {
-		fmt.Printf("[STATE] Skipped importing tributes\n")
 		// Still need to rebuild pointers for existing tributes
 		rebuildTributeGuildPointers()
 	}
@@ -988,16 +980,11 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 		RestorePointersFromIDs(st.territories)
 	}
 
-	if err := ReloadDefaultCosts(); err != nil {
-		fmt.Printf("[STATE] Failed to reload default costs: %v\n", err)
-	}
+	ReloadDefaultCosts()
 
-	fmt.Printf("[STATE] Successfully loaded state from %s (Territories: %d, Guilds: %d, Tick: %d)\n",
-		filepath, len(st.territories), len(st.guilds), st.tick)
+	// st.mu.Unlock()
 
-	st.mu.Unlock()
-
-	st.mu.Lock()
+	// st.mu.Lock()
 	st.stateLoading = false
 	st.mu.Unlock()
 
@@ -1008,46 +995,31 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		NotifyTerritoryColorsUpdate()
-		fmt.Printf("[STATE] State loading completed, notifications sent\n")
 	}()
 
 	// Load persistent user data (loadouts) - version 1.3+ (if requested)
 	if importOptions["loadouts"] && mergeLoadoutsCallback != nil && stateData.Loadouts != nil {
 		mergeLoadoutsCallback(stateData.Loadouts)
-		fmt.Printf("[STATE] Merged %d loadouts from state\n", len(stateData.Loadouts))
-	} else if !importOptions["loadouts"] {
-		fmt.Printf("[STATE] Skipped importing loadouts\n")
 	}
 
 	// Load guild colors - version 1.3+ (if guilds are imported)
 	if importOptions["guilds"] && mergeGuildColorsCallback != nil && stateData.GuildColors != nil {
 		mergeGuildColorsCallback(stateData.GuildColors)
-		fmt.Printf("[STATE] Merged %d guild colors from state\n", len(stateData.GuildColors))
-	} else if !importOptions["guilds"] {
-		fmt.Printf("[STATE] Skipped importing guild colors\n")
 	}
 
 	// Load plugins - version 1.9+
 	if importOptions["plugins"] && setPluginsCallback != nil {
 		setPluginsCallback(stateData.Plugins)
-		fmt.Printf("[STATE] Imported %d plugins from state\n", len(stateData.Plugins))
-	} else if !importOptions["plugins"] {
-		fmt.Printf("[STATE] Skipped importing plugins\n")
-	} else if setPluginsCallback == nil {
-		fmt.Printf("[STATE] Plugins present in state but no callback registered\n")
 	}
 
 	// Load transits from TransitManager - version 1.4+ (if requested)
 	if importOptions["in_transit"] && st.transitManager != nil && stateData.Transits != nil {
 		st.transitManager.LoadTransits(stateData.Transits)
-		fmt.Printf("[STATE] Loaded %d transits into TransitManager from state\n", len(stateData.Transits))
 	} else if !importOptions["in_transit"] && st.transitManager != nil {
 		// Clear transits if not importing
 		st.transitManager.ClearAllTransits()
-		fmt.Printf("[STATE] Cleared all transits from TransitManager (not importing)\n")
 	}
 
-	fmt.Printf("[STATE] Monitoring HQ status for the next few seconds after state load...\n")
 	go func() {
 		for i := 0; i < 3; i++ {
 			time.Sleep(1 * time.Second)
@@ -1056,16 +1028,10 @@ func loadStateFromFileInternal(filepath string, importOptions map[string]bool) e
 			for _, territory := range st.territories {
 				if territory != nil && territory.HQ {
 					hqCount++
-					fmt.Printf("[HQ_MONITOR] Tick %d: Territory %s (Guild: %s) is still HQ\n",
-						i+1, territory.Name, territory.Guild.Name)
 				}
-			}
-			if hqCount == 0 {
-				fmt.Printf("[HQ_MONITOR] Tick %d: No HQ territories found!\n", i+1)
 			}
 			st.mu.RUnlock()
 		}
-		fmt.Printf("[HQ_MONITOR] Monitoring complete\n")
 	}()
 
 	return nil
@@ -1128,7 +1094,7 @@ func saveGuildsToFile() error {
 	}
 
 	// Write to file
-	err = os.WriteFile("guilds.json", jsonData, 0644)
+	err = storage.WriteDataFile("guilds.json", jsonData, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write guilds.json: %v", err)
 	}
@@ -1185,17 +1151,10 @@ func mergeGuildsFromState(loadedGuilds []*typedef.Guild) error {
 		st.mu.Lock()
 		st.guilds = append(st.guilds, newGuilds...)
 		st.mu.Unlock()
-
-		fmt.Printf("[STATE] Added %d new guilds from state file\n", len(newGuilds))
-		for _, guild := range newGuilds {
-			fmt.Printf("[STATE] - Added guild: %s [%s]\n", guild.Name, guild.Tag)
-		}
 	}
 
 	// Only notify guild managers to handle the merge themselves, don't overwrite their files
 	if len(newGuilds) > 0 || len(updatedGuilds) > 0 {
-		fmt.Printf("[STATE] Found %d new and %d updated guilds from state - notifying UI to merge\n",
-			len(newGuilds), len(updatedGuilds))
 
 		// Notify guild managers to merge new guilds while preserving local data like colors
 		// This is now safe because we have state loading protection
@@ -1219,20 +1178,16 @@ func validateAndFixHQConflicts() {
 	}
 
 	// Fix conflicts: each guild should have at most one HQ
-	for guildTag, hqTerritories := range guildHQs {
+	for _, hqTerritories := range guildHQs {
 		if len(hqTerritories) > 1 {
-			fmt.Printf("[STATE] HQ conflict detected for guild %s: multiple HQs found\n", guildTag)
-
 			// Keep the first HQ found (from state file) and clear others
 			// This ensures state file takes precedence
 			for i, territory := range hqTerritories {
 				if i == 0 {
-					fmt.Printf("[STATE] Keeping HQ at territory: %s\n", territory.Name)
 				} else {
 					territory.Mu.Lock()
 					territory.HQ = false
 					territory.Mu.Unlock()
-					fmt.Printf("[STATE] Cleared HQ status from territory: %s\n", territory.Name)
 				}
 			}
 		}

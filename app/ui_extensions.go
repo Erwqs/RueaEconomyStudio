@@ -37,6 +37,22 @@ func NewUITextInputExtended(placeholder string, x, y, width int, maxLength int) 
 func (t *UITextInputExtended) Update() bool {
 	mx, my := ebiten.CursorPosition()
 
+	if !t.focused && t.UITextInput.contextMenu != nil && t.UITextInput.contextMenu.IsVisible() {
+		if t.UITextInput.contextMenu.Update() {
+			return true
+		}
+	}
+
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
+		bounds := t.GetBounds()
+		if mx >= bounds.Min.X && mx < bounds.Max.X && my >= bounds.Min.Y && my < bounds.Max.Y {
+			t.focused = true
+			t.UITextInput.Focused = true
+			t.UITextInput.showContextMenu(mx, my)
+			return true
+		}
+	}
+
 	// Check for clicks on the input
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		bounds := t.GetBounds()

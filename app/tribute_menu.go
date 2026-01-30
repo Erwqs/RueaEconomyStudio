@@ -353,7 +353,6 @@ func (tm *TributeMenu) findGuildIndex(guildName string) int {
 func (tm *TributeMenu) deleteTribute(tribute *typedef.ActiveTribute) {
 	err := eruntime.DeleteTribute(tribute.ID)
 	if err != nil {
-		fmt.Printf("Error deleting tribute: %v\n", err)
 	} else {
 		tm.refreshData()
 		if tm.selectedTributeIndex >= len(tm.activeTributes) && tm.selectedTributeIndex > 0 {
@@ -372,7 +371,6 @@ func (tm *TributeMenu) toggleTribute(tribute *typedef.ActiveTribute) {
 	}
 
 	if err != nil {
-		fmt.Printf("Error toggling tribute: %v\n", err)
 	} else {
 		tm.refreshData()
 	}
@@ -472,7 +470,6 @@ func (tm *TributeMenu) saveTribute() {
 		// Update existing tribute (delete and recreate for simplicity)
 		err = eruntime.DeleteTribute(tm.editingTribute.ID)
 		if err != nil {
-			fmt.Printf("Error deleting old tribute: %v\n", err)
 			return
 		}
 	}
@@ -480,7 +477,6 @@ func (tm *TributeMenu) saveTribute() {
 	// Create new tribute (1 minute interval)
 	_, err = eruntime.CreateNewTribute(fromGuildName, toGuildName, amount, 1)
 	if err != nil {
-		fmt.Printf("Error creating tribute: %v\n", err)
 		return
 	}
 

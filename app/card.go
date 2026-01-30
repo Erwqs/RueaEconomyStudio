@@ -92,6 +92,13 @@ func (c *Card) Text(textStr string, options TextOptions) *Card {
 	return c
 }
 
+// Checkbox adds a checkbox element to the card.
+func (c *Card) Checkbox(label string, checked bool, options CheckboxOptions, callback func(bool)) *Card {
+	chk := NewMenuCheckbox(label, checked, options, callback)
+	c.elements = append(c.elements, chk)
+	return c
+}
+
 // Button adds a button element to the card with compact styling.
 func (c *Card) Button(textStr string, options ButtonOptions, callback func()) *Card {
 	// Make button extremely compact
@@ -122,7 +129,7 @@ func (c *Card) Update(mx, my int, deltaTime float64) bool {
 	c.updateAnimation(deltaTime)
 
 	// If not visible or animation progress is too low, don't process input
-	if !c.IsVisible() || c.animProgress < 0.01 {
+	if !c.IsVisible() || c.displayAlpha() < 0.01 {
 		return false
 	}
 
@@ -150,11 +157,11 @@ func (c *Card) Update(mx, my int, deltaTime float64) bool {
 // Draw renders the card background, border, and child elements, returning the height used.
 func (c *Card) Draw(screen *ebiten.Image, x, y, width int, fontFace font.Face) int {
 	// If not visible or animation progress is too low, don't draw
-	if !c.IsVisible() || c.animProgress < 0.01 {
+	if !c.IsVisible() || c.displayAlpha() < 0.01 {
 		return 0
 	}
 
-	alpha := float32(c.animProgress)
+	alpha := float32(c.displayAlpha())
 
 	// Calculate content height first
 	contentHeight := 0
@@ -218,6 +225,9 @@ func (c *Card) Draw(screen *ebiten.Image, x, y, width int, fontFace font.Face) i
 			elementWidth := (width - (c.margin * 2) - (c.padding * 2) - (spacing * (len(c.elements) - 1))) / len(c.elements)
 			for _, el := range c.elements {
 				if el.IsVisible() {
+					if r, ok := el.(interface{ SetRevealProgress(float64) }); ok {
+						r.SetRevealProgress(c.displayAlpha())
+					}
 					el.Draw(screen, curX, y+c.margin+c.padding, elementWidth, fontFace)
 					curX += elementWidth + spacing
 				}
@@ -228,6 +238,9 @@ func (c *Card) Draw(screen *ebiten.Image, x, y, width int, fontFace font.Face) i
 			elementWidth := width - (c.margin * 2) - (c.padding * 2)
 			for _, el := range c.elements {
 				if el.IsVisible() {
+					if r, ok := el.(interface{ SetRevealProgress(float64) }); ok {
+						r.SetRevealProgress(c.displayAlpha())
+					}
 					height := el.Draw(screen, x+c.margin+c.padding, curY, elementWidth, fontFace)
 					curY += height + 3 // Increased from 1 to 3 pixels for better spacing between elements
 				}

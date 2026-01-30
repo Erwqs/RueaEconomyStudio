@@ -52,6 +52,120 @@ type PluginManager struct {
 	pluginColorOwner         string
 	territorySelectorOwner   string
 	territorySelectorOverlay *TerritorySelectorOverlay
+	dropPrompt               *pluginDropPrompt
+}
+
+type pluginDropPrompt struct {
+	modal       *EnhancedModal
+	continueBtn *EnhancedButton
+	cancelBtn   *EnhancedButton
+	path        string
+	onContinue  func()
+	onCancel    func()
+}
+
+func newPluginDropPrompt() *pluginDropPrompt {
+	modal := NewEnhancedModal("Load Plugin", 520, 240)
+	prompt := &pluginDropPrompt{
+		modal:       modal,
+		continueBtn: NewEnhancedButton("Continue", 0, 0, 130, 36, nil),
+		cancelBtn:   NewEnhancedButton("Cancel", 0, 0, 130, 36, nil),
+	}
+
+	// Warn the user with a yellow primary action and a neutral cancel.
+	prompt.continueBtn.SetYellowButtonStyle()
+	prompt.cancelBtn.SetGrayButtonStyle()
+
+	return prompt
+}
+
+func (p *pluginDropPrompt) layoutButtons() {
+	cx := p.modal.X + p.modal.Width/2
+	y := p.modal.Y + p.modal.Height - 70
+	p.cancelBtn.SetPosition(cx-150, y)
+	p.continueBtn.SetPosition(cx+20, y)
+}
+
+func (p *pluginDropPrompt) Show(path string, onContinue, onCancel func()) {
+	p.path = path
+	p.onContinue = onContinue
+	p.onCancel = onCancel
+	p.modal.Title = fmt.Sprintf("Load %s?", filepath.Base(path))
+	p.layoutButtons()
+
+	p.continueBtn.OnClick = func() {
+		if p.onContinue != nil {
+			p.onContinue()
+		}
+		p.Hide()
+	}
+
+	p.cancelBtn.OnClick = func() {
+		if p.onCancel != nil {
+			p.onCancel()
+		}
+		p.Hide()
+	}
+
+	p.modal.Show()
+}
+
+func (p *pluginDropPrompt) Hide() {
+	if p.modal != nil {
+		p.modal.Hide()
+	}
+}
+
+func (p *pluginDropPrompt) IsVisible() bool {
+	return p != nil && p.modal != nil && p.modal.IsVisible()
+}
+
+func (p *pluginDropPrompt) Update() bool {
+	if !p.IsVisible() {
+		return false
+	}
+
+	p.modal.Update()
+	p.layoutButtons()
+	mx, my := ebiten.CursorPosition()
+	p.continueBtn.Update(mx, my)
+	p.cancelBtn.Update(mx, my)
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		if p.onCancel != nil {
+			p.onCancel()
+		}
+		p.Hide()
+		return true
+	}
+
+	return true
+}
+
+func (p *pluginDropPrompt) Draw(screen *ebiten.Image) {
+	if !p.IsVisible() {
+		return
+	}
+
+	p.modal.Draw(screen)
+
+	font := loadWynncraftFont(16)
+	contentX, contentY, contentW, _ := p.modal.GetContentArea()
+
+	primary := fmt.Sprintf("Load %s?", filepath.Base(p.path))
+	warning := "Loading arbitrary plugin can be dangerous, continue?"
+
+	text.Draw(screen, primary, font, contentX, contentY+20, EnhancedUIColors.Text)
+
+	wrapped := wrapTextFace(font, warning, contentW)
+	lineY := contentY + 50
+	for _, line := range wrapped {
+		text.Draw(screen, line, font, contentX, lineY, EnhancedUIColors.TextSecondary)
+		lineY += 20
+	}
+
+	p.continueBtn.Draw(screen)
+	p.cancelBtn.Draw(screen)
 }
 
 // hideAllUIExceptTerritorySelector closes visible host UI surfaces so the territory selector can take focus.
@@ -682,6 +796,7 @@ func NewPluginManager() *PluginManager {
 		uiTextInputs:    make(map[string]*MenuTextInput),
 		uiSelects:       make(map[string]*Dropdown),
 		uiLayout:        make(map[string]layoutSlot),
+		dropPrompt:      newPluginDropPrompt(),
 	}
 
 	pm.modalOverlay = newPluginModalOverlay(pm.host)
@@ -823,6 +938,9 @@ func (pm *PluginManager) Hide() {
 
 // IsVisible reports visibility of the plugin manager.
 func (pm *PluginManager) IsVisible() bool {
+	if pm.dropPrompt != nil && pm.dropPrompt.IsVisible() {
+		return true
+	}
 	if pm.pluginFileDialogue != nil && pm.pluginFileDialogue.IsVisible() {
 		return true
 	}
@@ -845,6 +963,11 @@ func (pm *PluginManager) Tick() {
 // Update processes input and layout.
 func (pm *PluginManager) Update() bool {
 	inputConsumed := false
+	if pm.dropPrompt != nil && pm.dropPrompt.IsVisible() {
+		if pm.dropPrompt.Update() {
+			return true
+		}
+	}
 	if pm.modalOverlay != nil && pm.modalOverlay.IsVisible() {
 		if pm.modalOverlay.Update() {
 			return true
@@ -933,6 +1056,10 @@ func (pm *PluginManager) Draw(screen *ebiten.Image) {
 
 	if pm.fileDialogue != nil && pm.fileDialogue.IsVisible() {
 		pm.fileDialogue.Draw(screen)
+	}
+
+	if pm.dropPrompt != nil && pm.dropPrompt.IsVisible() {
+		pm.dropPrompt.Draw(screen)
 	}
 }
 
@@ -1248,6 +1375,16 @@ func (pm *PluginManager) showFileDialogue() {
 	pm.fileDialogue.Show()
 }
 
+func (pm *PluginManager) promptPluginDrop(path string) {
+	if pm.dropPrompt == nil {
+		pm.dropPrompt = newPluginDropPrompt()
+	}
+
+	pm.dropPrompt.Show(path, func() {
+		pm.addPluginFromPathWithEnable(path, false)
+	}, func() {})
+}
+
 func (pm *PluginManager) showPluginFileDialog(spec pluginhost.FileDialogSpec) {
 	mode := FileDialogueOpen
 	if spec.Mode == pluginhost.FileDialogSave {
@@ -1343,6 +1480,10 @@ func (pm *PluginManager) showPluginTerritorySelector(spec pluginhost.TerritorySe
 }
 
 func (pm *PluginManager) addPluginFromPath(path string) {
+	pm.addPluginFromPathWithEnable(path, true)
+}
+
+func (pm *PluginManager) addPluginFromPathWithEnable(path string, enable bool) {
 	cleaned := filepath.Clean(path)
 	if cleaned == "" {
 		return
@@ -1358,7 +1499,7 @@ func (pm *PluginManager) addPluginFromPath(path string) {
 		ID:      cleaned,
 		Name:    base,
 		Path:    cleaned,
-		Enabled: true,
+		Enabled: enable,
 		Config: typedef.PluginConfig{
 			AllowFileSystem:  false,
 			AllowNetwork:     false,
@@ -1371,9 +1512,15 @@ func (pm *PluginManager) addPluginFromPath(path string) {
 
 	for i := range pm.plugins {
 		if pm.plugins[i].Path == cleaned {
+			if !enable {
+				plugin.Enabled = pm.plugins[i].Enabled
+			}
 			pm.plugins[i] = plugin
 			pm.selectedIndex = i
 			pm.updateToggleButtonText()
+			if enable {
+				pm.tryEnable(i)
+			}
 			return
 		}
 	}
@@ -1381,7 +1528,9 @@ func (pm *PluginManager) addPluginFromPath(path string) {
 	pm.plugins = append(pm.plugins, plugin)
 	pm.selectedIndex = len(pm.plugins) - 1
 	pm.updateToggleButtonText()
-	pm.tryEnable(pm.selectedIndex)
+	if enable {
+		pm.tryEnable(pm.selectedIndex)
+	}
 }
 
 func (pm *PluginManager) toggleSelectedPlugin() {
@@ -1498,6 +1647,16 @@ func (pm *PluginManager) handleSelectionChanged() {
 func pluginFileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func isPluginBinary(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".so", ".dll", ".dylib":
+		return true
+	default:
+		return false
+	}
 }
 
 func colorRGBA(r, g, b uint8) color.RGBA {
@@ -1662,7 +1821,6 @@ func (pm *PluginManager) setUserSetting(id string, val any) {
 			copyMap[k] = v
 		}
 		if err := pm.host.UpdateSettings(pm.plugins[idx].Path, copyMap); err != nil {
-			fmt.Printf("[plugins] update settings failed: %v\n", err)
 		}
 	}
 }
@@ -1786,7 +1944,6 @@ func (pm *PluginManager) rebuildDynamicUI() {
 			curY += tOpts.Height + 12
 		case pluginhost.UIControlSelect:
 			if len(c.Options) == 0 {
-				fmt.Printf("[plugins] select control %s has no options; skipping\n", c.ID)
 				continue
 			}
 			dd := NewDropdown(startX, curY, btnW, btnH, c.Options, func(selected string) {
@@ -1814,7 +1971,7 @@ func (pm *PluginManager) rebuildDynamicUI() {
 			pm.uiLayout[key] = layoutSlot{x: startX, y: curY, width: btnW, height: btnH}
 			curY += btnH + spacing
 		default:
-			fmt.Printf("[plugins] skipping unsupported control kind %d id=%s\n", c.Kind, c.ID)
+			// unsupported type
 		}
 	}
 

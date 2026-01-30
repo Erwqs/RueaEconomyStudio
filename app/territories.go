@@ -10,7 +10,6 @@ import (
 	"image/png"
 	"math"
 	"os"
-	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -511,85 +510,22 @@ func (tm *TerritoriesManager) loadTerritoryClaims() error {
 	data, err := os.ReadFile("territory_claims.json")
 	if err != nil {
 		// File doesn't exist or can't be read - not a fatal error
-		fmt.Printf("Warning: Could not load territory_claims.json: %v\n", err)
 		return nil
 	}
 
 	// Parse JSON array
 	var claims []TerritoryClaim
 	if err := json.Unmarshal(data, &claims); err != nil {
-		fmt.Printf("Warning: Could not parse territory_claims.json: %v\n", err)
 		return nil
 	}
 
 	// Build the mapping
 	tm.territoryClaims = make(map[string]TerritoryClaim)
 
-	// Prepare batch guild updates for eruntime
-	guildUpdates := make(map[string]*typedef.Guild)
-
 	for _, claim := range claims {
 		tm.territoryClaims[claim.Territory] = claim
-
-		// Get the current territory state from eruntime
-		currentTerritory := eruntime.GetTerritory(claim.Territory)
-
-		// Only synchronize if there's a difference in guild ownership
-		needsSync := false
-
-		if currentTerritory != nil {
-			currentTerritory.Mu.RLock()
-			currentGuildName := currentTerritory.Guild.Name
-			currentGuildTag := currentTerritory.Guild.Tag
-			currentTerritory.Mu.RUnlock()
-
-			// Check if the guild ownership is different
-			if currentGuildName != claim.GuildName || currentGuildTag != claim.GuildTag {
-				needsSync = true
-			}
-		} else {
-			// Territory doesn't exist in eruntime, so we need to sync it
-			needsSync = true
-		}
-
-		if needsSync {
-			// Prepare guild for batch update
-			guild := &typedef.Guild{
-				Name:   claim.GuildName,
-				Tag:    claim.GuildTag,
-				Allies: nil,
-			}
-			guildUpdates[claim.Territory] = guild
-		}
 	}
 
-	// Synchronize all claims with the eruntime system in a single batch operation
-	syncCount := 0
-	if len(guildUpdates) > 0 {
-		updatedTerritories := eruntime.SetGuildBatch(guildUpdates)
-		syncCount = len(updatedTerritories)
-
-		fmt.Printf("[TERRITORIES] Batch synchronized %d/%d claims with eruntime\n",
-			syncCount, len(guildUpdates))
-
-		// Log any failures
-		if syncCount < len(guildUpdates) {
-			for territoryName := range guildUpdates {
-				found := false
-				for _, updated := range updatedTerritories {
-					if updated.Name == territoryName {
-						found = true
-						break
-					}
-				}
-				if !found {
-					fmt.Printf("[TERRITORIES] Warning: Failed to sync claim %s with eruntime\n", territoryName)
-				}
-			}
-		}
-	}
-
-	fmt.Printf("Loaded %d territory claims, batch synchronized %d with eruntime\n", len(tm.territoryClaims), syncCount)
 	return nil
 }
 
@@ -612,7 +548,14 @@ func (tm *TerritoriesManager) getActualGuildForTerritory(territoryName string) (
 
 // getEffectiveGuildForTerritory returns the guild after applying any in-progress claim edits
 func (tm *TerritoriesManager) getEffectiveGuildForTerritory(territoryName string) (string, string) {
-	actualGuildName, actualGuildTag := tm.getActualGuildForTerritory(territoryName)
+	// Source guild ownership directly from live runtime territory state so UI stays in sync
+	actualGuildName, actualGuildTag := "", ""
+	if t := eruntime.GetTerritory(territoryName); t != nil {
+		t.Mu.RLock()
+		actualGuildName = t.Guild.Name
+		actualGuildTag = t.Guild.Tag
+		t.Mu.RUnlock()
+	}
 
 	if tm.territoryRenderer != nil && tm.territoryRenderer.editingGuildName != "" && tm.territoryRenderer.editingClaims != nil {
 		if claimedValue, exists := tm.territoryRenderer.editingClaims[territoryName]; exists {
@@ -663,14 +606,67 @@ func (tm *TerritoriesManager) getRouteToHQForTerritory(territoryName string) []s
 	return routeNames
 }
 
+// getRouteFromHQForTerritory returns the trading route from the guild HQ to the territory
+// Returns nil if no HQ, no guild, or no route exists
+func (tm *TerritoriesManager) getRouteFromHQForTerritory(territoryName string) []string {
+	territory := eruntime.GetTerritory(territoryName)
+	if territory == nil {
+		return nil
+	}
+
+	territory.Mu.RLock()
+	guildTag := territory.Guild.Tag
+	territory.Mu.RUnlock()
+
+	if guildTag == "" || guildTag == "NONE" {
+		return nil
+	}
+
+	// Find HQ for this guild
+	var hq *typedef.Territory
+	for _, t := range eruntime.GetTerritories() {
+		if t == nil {
+			continue
+		}
+		t.Mu.RLock()
+		isHQ := t.HQ
+		tag := t.Guild.Tag
+		t.Mu.RUnlock()
+		if isHQ && tag == guildTag {
+			hq = t
+			break
+		}
+	}
+
+	if hq == nil {
+		return nil
+	}
+
+	// Find the HQ route that ends at this territory
+	hq.Mu.RLock()
+	defer hq.Mu.RUnlock()
+	for _, route := range hq.TradingRoutes {
+		if len(route) == 0 {
+			continue
+		}
+		if route[len(route)-1] != nil && route[len(route)-1].Name == territoryName {
+			routeNames := make([]string, len(route))
+			for i, t := range route {
+				if t != nil {
+					routeNames[i] = t.Name
+				}
+			}
+			return routeNames
+		}
+	}
+
+	return nil
+}
+
 // LoadTerritoriesAsync loads territory data asynchronously
 func (tm *TerritoriesManager) LoadTerritoriesAsync() {
 	go func() {
-		if err := tm.LoadTerritories(); err != nil {
-			// Consider a more robust logging mechanism or error propagation if needed
-			fmt.Printf("Error loading territories data asynchronously: %v\n", err)
-			// Potentially set tm.loadError here, carefully considering concurrency
-		}
+		tm.LoadTerritories()
 	}()
 }
 
@@ -682,10 +678,7 @@ func (tm *TerritoriesManager) LoadTerritories() error {
 	}
 
 	// Load territory claims data
-	if err := tm.loadTerritoryClaims(); err != nil {
-		// This is not fatal, continue with empty claims
-		fmt.Printf("Warning: Failed to load territory claims: %v\n", err)
-	}
+	tm.loadTerritoryClaims()
 
 	// Process territory coordinates and initialize defaults
 	tm.processTerritoriesBorders()
@@ -694,7 +687,6 @@ func (tm *TerritoriesManager) LoadTerritories() error {
 	// Build spatial partitioning grid for efficient rendering
 	tm.buildSpatialGrid()
 
-	fmt.Printf("Loaded %d territories, %d with valid borders\n", len(tm.Territories), len(tm.TerritoryBorders))
 	tm.isLoaded = true
 	tm.loadError = nil // Clear any previous error on success
 	return nil
@@ -1060,10 +1052,7 @@ func (tm *TerritoriesManager) drawTerritoriesToBuffer(buffer *ebiten.Image, scal
 // DrawTerritories draws all territory boundaries and trading routes using the new GPU overlay system
 func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX, viewY float64, hoveredTerritory string) {
 	defer func() {
-		if r := recover(); r != nil {
-			fmt.Printf("[PANIC] DrawTerritories recovered: %v\n", r)
-			fmt.Printf("[PANIC] Stack trace:\n%s\n", debug.Stack())
-		}
+		recover()
 	}()
 
 	if !tm.isLoaded || tm.overlayGPU == nil {
@@ -1129,15 +1118,25 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 	sort.Strings(territoryNames)
 
 	// Get routes to highlight if feature is enabled and there's a hovered territory
-	var routesToHighlight map[string]bool
+	const (
+		routeHighlightToHQ   uint8 = 1 << 0
+		routeHighlightFromHQ uint8 = 1 << 1
+	)
+	var routesToHighlight map[string]uint8
 	if tm.showHoveredRoutes && hoveredTerritory != "" {
 		routesToHQ := tm.getRouteToHQForTerritory(hoveredTerritory)
-		if len(routesToHQ) > 1 { // Must have at least origin and destination
-			routesToHighlight = make(map[string]bool)
-			// Mark route segments for highlighting
+		routesFromHQ := tm.getRouteFromHQForTerritory(hoveredTerritory)
+		if len(routesToHQ) > 1 || len(routesFromHQ) > 1 { // Must have at least origin and destination
+			routesToHighlight = make(map[string]uint8)
+			// Mark route segments for territory -> HQ highlighting
 			for i := 0; i < len(routesToHQ)-1; i++ {
 				routeKey := routesToHQ[i] + "->" + routesToHQ[i+1]
-				routesToHighlight[routeKey] = true
+				routesToHighlight[routeKey] |= routeHighlightToHQ
+			}
+			// Mark route segments for HQ -> territory highlighting
+			for i := 0; i < len(routesFromHQ)-1; i++ {
+				routeKey := routesFromHQ[i] + "->" + routesFromHQ[i+1]
+				routesToHighlight[routeKey] |= routeHighlightFromHQ
 			}
 			// fmt.Printf("[ROUTE_HIGHLIGHT] Highlighting %d route segments for territory %s to HQ\n", len(routesToHighlight), hoveredTerritory)
 		}
@@ -1193,8 +1192,23 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 				centerX2 := float32((border2[0]+border2[2])/2*scale + viewX)
 				centerY2 := float32((border2[1]+border2[3])/2*scale + viewY)
 
+				// Check if this route segment should be highlighted
+				routeKey := name + "->" + routeName
+				reverseRouteKey := routeName + "->" + name
+				var routeFlags uint8
+				var reverseFlags uint8
+				if routesToHighlight != nil {
+					routeFlags = routesToHighlight[routeKey]
+					reverseFlags = routesToHighlight[reverseRouteKey]
+				}
+				isHighlighted := routeFlags != 0
+				hasBothDirections := (routeFlags&routeHighlightToHQ != 0 && routeFlags&routeHighlightFromHQ != 0) || (routeFlags != 0 && reverseFlags != 0)
+
 				// Create a thick line as a rectangle
-				thickness := float32(1.5) // Route thickness (was 3.0, thick functionality preserved for future)
+				thickness := float32(1.5) // Base route thickness
+				if isHighlighted {
+					thickness = 3.0 // Thicker for highlighted routes
+				}
 				dx := centerX2 - centerX1
 				dy := centerY2 - centerY1
 				length := float32(math.Sqrt(float64(dx*dx + dy*dy)))
@@ -1218,20 +1232,29 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 					{centerX1 - perpX, centerY1 - perpY},
 				}
 
-				// Check if this route segment should be highlighted
-				routeKey := name + "->" + routeName
-				isHighlighted := routesToHighlight != nil && routesToHighlight[routeKey]
-
 				// Determine route color and state
 				var routeColor [3]float32
 				var routeState OverlayState
 				var borderColor [3]float32
 
 				if isHighlighted {
-					// White for highlighted routes to HQ
-					routeColor = [3]float32{1.0, 1.0, 1.0}
+					// If both directions share this segment, show white like before
+					if hasBothDirections {
+						routeColor = [3]float32{1.0, 1.0, 1.0}
+						borderColor = [3]float32{0.95, 0.95, 0.95}
+					} else if routeFlags&routeHighlightFromHQ != 0 {
+						// HQ -> territory: vivid orange
+						routeColor = [3]float32{1.0, 0.65, 0.0}
+						borderColor = [3]float32{1.0, 0.75, 0.1}
+					} else {
+						// Territory -> HQ: vivid aqua
+						routeColor = [3]float32{0.0, 0.8, 1.0}
+						borderColor = [3]float32{0.15, 0.9, 1.0}
+					}
 					routeState = OverlayRouteHighlighted
-					borderColor = [3]float32{0.8, 0.8, 0.8} // Light gray border for highlighted routes
+					if borderColor == [3]float32{0, 0, 0} {
+						borderColor = [3]float32{0.8, 0.8, 0.8} // Fallback border
+					}
 				} else {
 					// Black for normal routes
 					routeColor = [3]float32{0.0, 0.0, 0.0}
@@ -1307,7 +1330,6 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 
 		// Check if this territory is selected for loadout application (highest priority override)
 		if tm.territoryRenderer != nil && tm.territoryRenderer.isLoadoutApplicationMode && tm.territoryRenderer.IsTerritorySelectedForLoadout(name) {
-			fmt.Printf("[TERRITORIES] Territory %s is selected for loadout application - applying bright yellow color in GPU overlay\n", name)
 			// Use bright yellow for selected territories (same as in renderer)
 			col = [3]float32{1.0, 1.0, 0.0} // Bright yellow (RGB: 255, 255, 0)
 		}
@@ -1431,7 +1453,6 @@ func (tm *TerritoriesManager) OpenGuildManagement() {
 	// The GuildManager reference is passed in from GameplayModule
 	// This function is called when the guild manager should be shown
 	if tm.guildManager != nil {
-		fmt.Printf("[TERRITORIES] Opening guild management menu\n")
 
 		// Close loadout manager if it's open (mutually exclusive)
 		loadoutManager := GetLoadoutManager()
@@ -1440,8 +1461,6 @@ func (tm *TerritoriesManager) OpenGuildManagement() {
 		}
 
 		tm.guildManager.Show()
-	} else {
-		fmt.Printf("[TERRITORIES] Guild manager is nil, can't open\n")
 	}
 }
 
@@ -1449,7 +1468,6 @@ func (tm *TerritoriesManager) OpenGuildManagement() {
 func (tm *TerritoriesManager) loadUpgradeData() {
 	data, err := assets.AssetFiles.ReadFile("upgrades.json")
 	if err != nil {
-		fmt.Printf("Failed to read upgrades file: %v\n", err)
 		return
 	}
 
@@ -1465,9 +1483,7 @@ func (tm *TerritoriesManager) loadUpgradeData() {
 
 	var upgradeData UpgradeData
 	if err := json.Unmarshal([]byte(jsonStr), &upgradeData); err != nil {
-		fmt.Printf("Warning: Failed to parse upgrades data after stripping comments: %v. Trying raw data.\n", err)
 		if errFallback := json.Unmarshal(data, &upgradeData); errFallback != nil {
-			fmt.Printf("Failed to parse upgrades data: %v\n", errFallback)
 			return
 		}
 	}
@@ -1481,20 +1497,17 @@ func (tm *TerritoriesManager) loadHQImage() {
 	// Load HQ image from embedded assets
 	hqImageData, err := assets.AssetFiles.ReadFile("hq.png")
 	if err != nil {
-		fmt.Printf("Warning: Could not load HQ image: %v\n", err)
 		return
 	}
 
 	// Decode the image
 	img, err := png.Decode(bytes.NewReader(hqImageData))
 	if err != nil {
-		fmt.Printf("Warning: Could not decode HQ image: %v\n", err)
 		return
 	}
 
 	// Convert to ebiten.Image
 	tm.hqImage = ebiten.NewImageFromImage(img)
-	fmt.Printf("Successfully loaded HQ image (%dx%d)\n", img.Bounds().Dx(), img.Bounds().Dy())
 }
 
 // drawTextOffset is a stub function (was part of side menu functionality)
@@ -1667,8 +1680,7 @@ func (tm *TerritoriesManager) CloseSideMenu() {
 
 // SelectTerritory method stub (commented out functionality)
 func (tm *TerritoriesManager) SelectTerritory(territoryName string, directTransition ...bool) {
-	// NO-OP: Side menu is disabled, EdgeMenu is used instead
-	fmt.Printf("SelectTerritory called for %s but old side menu is disabled\n", territoryName)
+	// moved to edge menu
 }
 
 // GetSelectedTerritoryName returns the name of the currently selected/blinking territory
@@ -1881,7 +1893,6 @@ func (tm *TerritoriesManager) SetTerritoryHQ(territoryName string, isHQ bool) bo
 		guildName := eruntimeTerritory.Guild.Name // Capture guild name before unlocking
 		eruntimeTerritory.HQ = false
 		eruntimeTerritory.Mu.Unlock()
-		fmt.Printf("[TERRITORIES] Removed HQ status from territory %s\n", territoryName)
 
 		// Trigger UI updates for HQ removal with specific guild notification
 		go func() {
@@ -1903,7 +1914,6 @@ func (tm *TerritoriesManager) SetTerritoryHQ(territoryName string, isHQ bool) bo
 	if territory, exists := tm.Territories[territoryName]; exists {
 		territory.isHQ = isHQ
 		tm.Territories[territoryName] = territory
-		fmt.Printf("[TERRITORIES] Updated local HQ status for %s to %v\n", territoryName, isHQ)
 		return true
 	}
 
@@ -1919,7 +1929,6 @@ func (tm *TerritoriesManager) UpdateTerritoryHQStatus(territoryName string, isHQ
 		if territory.isHQ != isHQ {
 			territory.isHQ = isHQ
 			tm.Territories[territoryName] = territory
-			fmt.Printf("[TERRITORIES] Updated HQ status for %s to %v\n", territoryName, isHQ)
 
 			// Mark buffer as needing update to refresh visual display
 			tm.bufferMutex.Lock()

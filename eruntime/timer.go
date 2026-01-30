@@ -15,14 +15,19 @@ func (s *state) start() {
 	}
 
 	s.timerChan = time.NewTicker(1 * time.Second)
+	stopCh := make(chan struct{})
+	s.timerStopCh = stopCh
 	go func() {
-		for range s.timerChan.C {
-			if s.halted {
-				continue
+		for {
+			select {
+			case <-s.timerChan.C:
+				if s.halted {
+					continue
+				}
+				s.nexttick() // Advance the simulation state by 1 tick
+			case <-stopCh:
+				return
 			}
-
-			s.nexttick() // Advance the simulation state by 1 tick
-
 		}
 	}()
 
@@ -56,10 +61,7 @@ func (s *state) start() {
 // This should only be called when the application is shutting down to prevent state corruption
 func (s *state) stop() {
 	s.halt()
-	if s.timerChan != nil {
-		s.timerChan.Stop()
-		s.timerChan = nil
-	}
+	s.stopTimerLoop()
 }
 
 // halt stops the ticker from calling update()
@@ -142,13 +144,22 @@ func (s *state) processQueuedTicks() {
 	}
 }
 
-// setTickRate changes the tick rate by stopping and restarting the timer
-func (s *state) setTickRate(ticksPerSecond int) {
-	// Stop current timer if running
+// stopTimerLoop stops the ticker and signals the timer goroutine to exit.
+func (s *state) stopTimerLoop() {
 	if s.timerChan != nil {
 		s.timerChan.Stop()
 		s.timerChan = nil
 	}
+	if s.timerStopCh != nil {
+		close(s.timerStopCh)
+		s.timerStopCh = nil
+	}
+}
+
+// setTickRate changes the tick rate by stopping and restarting the timer
+func (s *state) setTickRate(ticksPerSecond int) {
+	// Stop current timer if running
+	s.stopTimerLoop()
 
 	// Calculate interval based on ticks per second
 	var interval time.Duration
@@ -165,12 +176,19 @@ func (s *state) setTickRate(ticksPerSecond int) {
 
 	// Start new timer with new interval
 	s.timerChan = time.NewTicker(interval)
+	stopCh := make(chan struct{})
+	s.timerStopCh = stopCh
 	go func() {
-		for range s.timerChan.C {
-			if s.halted {
-				continue
+		for {
+			select {
+			case <-s.timerChan.C:
+				if s.halted {
+					continue
+				}
+				s.nexttick() // Advance the simulation state by 1 tick
+			case <-stopCh:
+				return
 			}
-			s.nexttick() // Advance the simulation state by 1 tick
 		}
 	}()
 }

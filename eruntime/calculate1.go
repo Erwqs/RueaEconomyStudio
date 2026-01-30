@@ -387,6 +387,9 @@ func calculateGenerationInternalWithTick(territory *typedef.Territory, tick uint
 	// Update territory's current generation
 	territory.ResourceGeneration.At = static
 
+	// Cache generation for this tick to avoid recomputation in doGenerate
+	storeCachedGeneration(territory, tick, static, costNow)
+
 	return static, now, costPerHr, costNow
 }
 
@@ -674,7 +677,12 @@ func doGenerate(territory *typedef.Territory) {
 	updateTerritoryWarnings(territory, st.tick)
 
 	// Calculate generation and costs WITHOUT re-locking (already locked)
-	staticGen, _, _, costNow := calculateGenerationInternalWithTick(territory, st.tick)
+	staticGen, costNow, ok := getCachedGeneration(territory, st.tick)
+	if !ok {
+		staticGen, _, _, costNow = calculateGenerationInternalWithTick(territory, st.tick)
+	} else {
+		territory.ResourceGeneration.At = staticGen
+	}
 
 	// Calculate storage capacity with bonuses
 	baseCapacity := typedef.BaseResourceCapacity

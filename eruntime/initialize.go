@@ -2,9 +2,9 @@ package eruntime
 
 import (
 	"RueaES/assets"
+	"RueaES/storage"
 	"RueaES/typedef"
 	"encoding/json"
-	"os"
 	"runtime"
 )
 
@@ -67,18 +67,13 @@ func loadTerritories() {
 
 	// Now load guilds from guilds.json, skip if running in WASM
 	if runtime.GOARCH != "wasm" {
-		f, err = os.ReadFile("guilds.json")
+		f, err = storage.ReadDataFile("guilds.json")
 		if err != nil {
 			// Create an empty guild list if file doesn't exist
 			st.guilds = []*typedef.Guild{}
-			f, err := os.Create("guilds.json") // Create empty file if it doesn't exist
-			if err != nil {
+			if err := storage.WriteDataFile("guilds.json", []byte("[]"), 0o644); err != nil {
 				panic("failed to create guilds.json: " + err.Error())
 			}
-
-			defer f.Close()
-
-			f.WriteString("[]") // Write empty JSON array
 			return
 		}
 	} else {
@@ -104,7 +99,7 @@ func loadTerritories() {
 }
 
 func loadTerritoryClaims() {
-	f, err := os.ReadFile("territory_claims.json")
+	f, err := storage.ReadDataFile("territory_claims.json")
 	if err != nil {
 		// Claims file might not exist, continue without it
 		return

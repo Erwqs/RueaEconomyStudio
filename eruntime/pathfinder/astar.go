@@ -114,14 +114,14 @@ func (pq AstarPriorityQueue) Swap(i, j int) {
 	pq[j].Index = j
 }
 
-func (pq *AstarPriorityQueue) Push(x interface{}) {
+func (pq *AstarPriorityQueue) Push(x any) {
 	n := len(*pq)
 	node := x.(*AstarNode)
 	node.Index = n
 	*pq = append(*pq, node)
 }
 
-func (pq *AstarPriorityQueue) Pop() interface{} {
+func (pq *AstarPriorityQueue) Pop() any {
 	old := *pq
 	n := len(old)
 	node := old[n-1]

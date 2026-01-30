@@ -75,6 +75,12 @@ func (p *PointerInput) Update() {
 	now := time.Now()
 	p.events = p.events[:0]
 
+	// Skip capturing pointer input when the window is unfocused.
+	if !ebiten.IsFocused() {
+		p.resetState()
+		return
+	}
+
 	// Mouse as a pointer
 	mx, my := ebiten.CursorPosition()
 	mousePos := image.Pt(mx, my)
@@ -152,6 +158,25 @@ func (p *PointerInput) Update() {
 		}
 	} else {
 		p.pinch = pinchState{}
+	}
+}
+
+// Reset clears all pointer state and outstanding events.
+func (p *PointerInput) Reset() {
+	p.resetState()
+}
+
+// resetState is the internal helper that clears pointer state without exporting implementation details.
+func (p *PointerInput) resetState() {
+	p.events = p.events[:0]
+	p.mouseDown = false
+	p.mouseStart = image.Point{}
+	p.mouseLast = image.Point{}
+	p.mouseStartTime = time.Time{}
+	p.pinch = pinchState{}
+
+	for id := range p.touches {
+		delete(p.touches, id)
 	}
 }
 

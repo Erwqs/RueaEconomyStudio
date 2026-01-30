@@ -3,12 +3,14 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"image/color"
-	"os"
 	"runtime"
 	"sort"
 	"strings"
 	"time"
+
+	"RueaES/storage"
 
 	"RueaES/eruntime"
 
@@ -19,6 +21,8 @@ import (
 	"golang.design/x/clipboard"
 	"golang.org/x/image/font"
 )
+
+var guildColorCRC32Table = crc32.MakeTable(crc32.IEEE)
 
 // EnhancedGuildData represents a guild entry
 type EnhancedGuildData struct {
@@ -44,6 +48,7 @@ type EnhancedTextInput struct {
 	selEnd         int       // Selection end position
 	backspaceTimer time.Time // Timer for continuous backspace
 	deleteTimer    time.Time // Timer for continuous delete
+	contextMenu    *SelectionAnywhere
 }
 
 // TextInput creates a new enhanced text input
@@ -76,6 +81,23 @@ func (t *EnhancedTextInput) Update() bool {
 func (t *EnhancedTextInput) UpdateWithSkipInput(skipInput bool) bool {
 	changed := false
 
+	if t.contextMenu != nil && t.contextMenu.IsVisible() {
+		if t.contextMenu.Update() {
+			return true
+		}
+	}
+
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
+		mx, my := ebiten.CursorPosition()
+		if mx >= t.X && mx < t.X+t.Width && my >= t.Y && my < t.Y+t.Height {
+			if !t.Focused {
+				t.Focused = true
+			}
+			t.showContextMenu(mx, my)
+			return true
+		}
+	}
+
 	// Note: Focus management is handled by the parent (guild manager)
 	// Don't handle clicks here to avoid conflicts
 
@@ -94,7 +116,7 @@ func (t *EnhancedTextInput) UpdateWithSkipInput(skipInput bool) bool {
 				for _, r := range chars {
 					// Allow A-Z, a-z characters, whitespace, numbers, and common punctuation
 					if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') ||
-						r == ' ' || r == '-' || r == '_' || r == '.' || r == ',' || r == '!' || r == '?' {
+						r == ' ' || r == '-' || r == '_' || r == '.' || r == ',' || r == '!' || r == '?' || r == '/' {
 						if t.MaxLength == 0 || len(t.Value) < t.MaxLength {
 							// Ensure cursor position is within bounds
 							if t.cursorPos < 0 {
@@ -396,6 +418,88 @@ func (t *EnhancedTextInput) getOrderedSelection() (int, int) {
 	return t.selEnd, t.selStart
 }
 
+func (t *EnhancedTextInput) showContextMenu(mx, my int) {
+	menu := NewSelectionAnywhere()
+	hasSelection := t.hasSelection()
+	clipboardAvailable := runtime.GOOS != "js"
+	canPaste := false
+	if clipboardAvailable {
+		if clipData := clipboard.Read(clipboard.FmtText); clipData != nil {
+			canPaste = len(clipData) > 0
+		}
+	}
+
+	menu.Option("Copy", "", hasSelection && clipboardAvailable, func() {
+		if !clipboardAvailable || !t.hasSelection() {
+			return
+		}
+		start, end := t.getOrderedSelection()
+		if start >= 0 && end <= len(t.Value) && start <= end {
+			selectedText := t.Value[start:end]
+			clipboard.Write(clipboard.FmtText, []byte(selectedText))
+		}
+	})
+
+	menu.Option("Cut", "", hasSelection && clipboardAvailable, func() {
+		if !clipboardAvailable || !t.hasSelection() {
+			return
+		}
+		oldValue := t.Value
+		start, end := t.getOrderedSelection()
+		if start >= 0 && end <= len(t.Value) && start <= end {
+			selectedText := t.Value[start:end]
+			clipboard.Write(clipboard.FmtText, []byte(selectedText))
+			t.deleteSelection()
+			t.applyContextValueChange(oldValue)
+		}
+	})
+
+	menu.Option("Paste", "", canPaste && clipboardAvailable, func() {
+		if !clipboardAvailable {
+			return
+		}
+		clipData := clipboard.Read(clipboard.FmtText)
+		if clipData == nil {
+			return
+		}
+		clipText := string(clipData)
+		if clipText == "" {
+			return
+		}
+		oldValue := t.Value
+		if t.hasSelection() {
+			t.deleteSelection()
+		}
+		if t.MaxLength == 0 || len(t.Value)+len(clipText) <= t.MaxLength {
+			if t.cursorPos < 0 {
+				t.cursorPos = 0
+			}
+			if t.cursorPos > len(t.Value) {
+				t.cursorPos = len(t.Value)
+			}
+			t.Value = t.Value[:t.cursorPos] + clipText + t.Value[t.cursorPos:]
+			t.cursorPos += len(clipText)
+			t.clearSelection()
+			t.applyContextValueChange(oldValue)
+		}
+	})
+
+	screenW, screenH := ebiten.WindowSize()
+	menu.Show(mx, my, screenW, screenH)
+	t.contextMenu = menu
+	SetActiveContextMenu(menu)
+}
+
+func (t *EnhancedTextInput) applyContextValueChange(oldValue string) {
+	sanitizedChanged, flagged := t.applyTextSanitization()
+	if sanitizedChanged || oldValue != t.Value {
+		// No callback here, but keep state consistent
+	}
+	if flagged {
+		showAdvertisingToast()
+	}
+}
+
 // moveCursorByWord moves the cursor to the next/previous word boundary
 func (t *EnhancedTextInput) moveCursorByWord(direction int, selecting bool) {
 	if selecting && t.selStart == -1 {
@@ -518,7 +622,7 @@ func NewEnhancedGuildManager() *EnhancedGuildManager {
 		scrollOffset:     0,
 		hoveredIndex:     -1,
 		selectedIndex:    -1,
-		guildFilePath:    "guilds.json",
+		guildFilePath:    storage.DataFile("guilds.json"),
 		modalX:           modalX,
 		modalY:           modalY,
 		modalWidth:       modalWidth,
@@ -577,13 +681,13 @@ func NewEnhancedGuildManager() *EnhancedGuildManager {
 
 	// Register for guild change notifications from eruntime (but only reload, don't let eruntime overwrite our file)
 	eruntime.SetGuildChangeCallback(func() {
-		fmt.Printf("[GUILD_MANAGER] Received guild change notification - checking for new guilds to add\n")
+		// fmt.Printf("[GUILD_MANAGER] Received guild change notification - checking for new guilds to add\n")
 		gm.loadGuildsFromFile() // This will reload and merge any new guilds while preserving existing colors
 	})
 
 	// Register for specific guild change notifications (more efficient for HQ changes)
 	eruntime.SetGuildSpecificChangeCallback(func(guildName string) {
-		fmt.Printf("[GUILD_MANAGER] Received specific guild change notification for guild: %s\n", guildName)
+		// fmt.Printf("[GUILD_MANAGER] Received specific guild change notification for guild: %s\n", guildName)
 		// For specific guild changes (like HQ updates), we only need to refresh the visual state
 		// No need to reload the entire guilds file since this is just a visual update
 		// The actual data is already updated in eruntime
@@ -594,7 +698,7 @@ func NewEnhancedGuildManager() *EnhancedGuildManager {
 
 // Show makes the guild manager visible
 func (gm *EnhancedGuildManager) Show() {
-	fmt.Printf("[GUILD_MANAGER] Showing guild manager\n")
+	// fmt.Printf("[GUILD_MANAGER] Showing guild manager\n")
 	gm.visible = true
 	gm.nameInput.Focused = true
 	gm.justOpened = true      // Set flag to prevent initial character input
@@ -643,7 +747,7 @@ channelDrained:
 
 // Hide makes the guild manager invisible
 func (gm *EnhancedGuildManager) Hide() {
-	fmt.Printf("[GUILD_MANAGER] Hiding guild manager\n")
+	// fmt.Printf("[GUILD_MANAGER] Hiding guild manager\n")
 	gm.visible = false
 	gm.nameInput.Focused = false
 	gm.tagInput.Focused = false
@@ -1689,8 +1793,8 @@ func (gm *EnhancedGuildManager) filterGuilds() {
 	nameFilter := strings.ToLower(gm.nameInput.Value)
 	tagFilter := strings.ToLower(gm.tagInput.Value)
 
-	fmt.Printf("[GUILD_FILTER] Filtering %d guilds with nameFilter='%s', tagFilter='%s'\n",
-		len(gm.guilds), nameFilter, tagFilter)
+	// fmt.Printf("[GUILD_FILTER] Filtering %d guilds with nameFilter='%s', tagFilter='%s'\n",
+	// len(gm.guilds), nameFilter, tagFilter)
 
 	for _, guild := range gm.guilds {
 		nameMatch := nameFilter == "" || strings.Contains(strings.ToLower(guild.Name), nameFilter)
@@ -1702,13 +1806,17 @@ func (gm *EnhancedGuildManager) filterGuilds() {
 		}
 	}
 
-	fmt.Printf("[GUILD_FILTER] Found %d matches\n", len(gm.filteredGuilds))
+	// fmt.Printf("[GUILD_FILTER] Found %d matches\n", len(gm.filteredGuilds))
 
 	// Reset scroll offset when filtering to ensure results are visible
 	gm.scrollOffset = 0
 }
 
-// addGuild adds a new guild to the list
+func colourFor(guildName string) string {
+	checksum := crc32.Checksum([]byte(guildName), guildColorCRC32Table)
+	return fmt.Sprintf("%08x", checksum)[2:]
+}
+
 func (gm *EnhancedGuildManager) addGuild(name, tag string) {
 	name, _, nameFlagged := sanitizeTextValue(name)
 	tag, _, tagFlagged := sanitizeTextValue(tag)
@@ -1740,7 +1848,7 @@ func (gm *EnhancedGuildManager) addGuild(name, tag string) {
 	newGuild := EnhancedGuildData{
 		Name:  name,
 		Tag:   tag,
-		Color: "#FFAA00", // Default yellow color
+		Color: "#" + colourFor(name),
 		Show:  true,
 	}
 
@@ -1807,7 +1915,7 @@ func (gm *EnhancedGuildManager) removeGuild(index int) {
 
 // loadGuildsFromFile loads guilds from JSON file and merges with guilds from eruntime
 func (gm *EnhancedGuildManager) loadGuildsFromFile() {
-	data, err := os.ReadFile(gm.guildFilePath)
+	data, err := storage.ReadDataFile("guilds.json")
 	if err != nil {
 		// File doesn't exist, start with empty list
 		gm.guilds = []EnhancedGuildData{}
@@ -1900,13 +2008,13 @@ func (gm *EnhancedGuildManager) loadGuildsFromFile() {
 		}
 		gm.guilds = append(gm.guilds, newGuild)
 		newGuildsAdded = true
-		fmt.Printf("[GUILD_MANAGER] Added new guild from eruntime: %s [%s]\n", guildName, guildTag)
+		// fmt.Printf("[GUILD_MANAGER] Added new guild from eruntime: %s [%s]\n", guildName, guildTag)
 	}
 
 	// If we added new guilds, save the updated list
 	if newGuildsAdded {
 		gm.saveGuildsToFile()
-		fmt.Printf("[GUILD_MANAGER] Saved updated guild list with new guilds from state file\n")
+		// fmt.Printf("[GUILD_MANAGER] Saved updated guild list with new guilds from state file\n")
 	}
 
 	gm.cachesDirty = true // Invalidate caches when loading new data
@@ -1950,11 +2058,11 @@ func (gm *EnhancedGuildManager) saveGuildsToFile() {
 		return
 	}
 
-	os.WriteFile(gm.guildFilePath, data, 0644)
+	storage.WriteDataFile("guilds.json", data, 0644)
 
 	// Notify territory system that guild data has changed
 	if gm.onGuildDataChanged != nil {
-		fmt.Printf("[GUILD_MANAGER] Guild data changed, calling callback to invalidate territory cache\n")
+		// fmt.Printf("[GUILD_MANAGER] Guild data changed, calling callback to invalidate territory cache\n")
 		gm.onGuildDataChanged()
 	}
 }
@@ -2348,6 +2456,7 @@ func (t *EnhancedTextInput) Draw(screen *ebiten.Image) {
 			vector.DrawFilledRect(screen, float32(textX), float32(t.Y+t.Height-6), 8, 2, EnhancedUIColors.Text, false)
 		}
 	}
+
 }
 
 // GetEnhancedGuildManager returns the singleton instance of the Enhanced Guild Manager
@@ -2675,7 +2784,7 @@ func (gm *EnhancedGuildManager) runAPIImport() {
 	importedGuilds, skippedGuilds, err := gm.ImportGuildsFromAPI()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error importing guilds: %v", err)
-		fmt.Printf("[GUILD_MANAGER] %s\n", errMsg)
+		// fmt.Printf("[GUILD_MANAGER] %s\n", errMsg)
 
 		// Show error toast with dismiss button
 		NewToast().
@@ -2689,7 +2798,7 @@ func (gm *EnhancedGuildManager) runAPIImport() {
 
 	// Show result message for guilds with success styling
 	guildMsg := fmt.Sprintf("Imported %d guilds, skipped %d existing", importedGuilds, skippedGuilds)
-	fmt.Printf("[GUILD_MANAGER] %s\n", guildMsg)
+	// fmt.Printf("[GUILD_MANAGER] %s\n", guildMsg)
 
 	NewToast().
 		Text("Guild Import Complete", ToastOption{Colour: color.RGBA{100, 255, 100, 255}}).
@@ -2701,7 +2810,7 @@ func (gm *EnhancedGuildManager) runAPIImport() {
 	importedTerritories, skippedTerritories, err := gm.ImportTerritoriesFromAPI()
 	if err != nil {
 		errMsg := fmt.Sprintf("Error importing territories: %v", err)
-		fmt.Printf("[GUILD_MANAGER] %s\n", errMsg)
+		// fmt.Printf("[GUILD_MANAGER] %s\n", errMsg)
 
 		// Show error toast with retry option
 		NewToast().
@@ -2716,7 +2825,7 @@ func (gm *EnhancedGuildManager) runAPIImport() {
 
 	// Show final success toast with statistics
 	territoryMsg := fmt.Sprintf("Updated %d territory claims, skipped %d", importedTerritories, skippedTerritories)
-	fmt.Printf("[GUILD_MANAGER] %s\n", territoryMsg)
+	// fmt.Printf("[GUILD_MANAGER] %s\n", territoryMsg)
 
 	totalMsg := fmt.Sprintf("Import complete! %d guilds, %d territories", importedGuilds, importedTerritories)
 
@@ -2759,7 +2868,7 @@ func (gm *EnhancedGuildManager) clearAllGuilds() {
 	gm.saveGuildsToFile()
 
 	// Show success message
-	fmt.Println("[GUILD_MANAGER] All guilds cleared successfully")
+	// fmt.Println("[GUILD_MANAGER] All guilds cleared successfully")
 	NewToast().Text("All guilds cleared!", ToastOption{Colour: color.RGBA{255, 100, 100, 255}}).
 		AutoClose(3 * time.Second).
 		Show()
@@ -2839,7 +2948,7 @@ func (gm *EnhancedGuildManager) showEdgeMenuForTerritory(territoryName string) {
 	// Get the global MapView instance
 	mapView := GetMapView()
 	if mapView == nil {
-		fmt.Printf("[GUILD_MANAGER] MapView not available\n")
+		// fmt.Printf("[GUILD_MANAGER] MapView not available\n")
 		return
 	}
 
@@ -2853,14 +2962,13 @@ func (gm *EnhancedGuildManager) showEdgeMenuForTerritory(territoryName string) {
 
 	// Show EdgeMenu with territory information
 	if mapView.edgeMenu != nil {
-		mapView.populateTerritoryMenu(territoryName)
-		mapView.edgeMenu.Show()
-		fmt.Printf("[GUILD_MANAGER] Opened EdgeMenu for territory: %s\n", territoryName)
+		mapView.OpenTerritoryMenu(territoryName)
+		// fmt.Printf("[GUILD_MANAGER] Opened EdgeMenu for territory: %s\n", territoryName)
 
 		// Hide the entire guild manager so EdgeMenu is visible
 		gm.Hide()
 	} else {
-		fmt.Printf("[GUILD_MANAGER] EdgeMenu not available\n")
+		// fmt.Printf("[GUILD_MANAGER] EdgeMenu not available\n")
 	}
 }
 

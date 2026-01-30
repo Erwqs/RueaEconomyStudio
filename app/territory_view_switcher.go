@@ -29,6 +29,7 @@ const (
 	ViewTreasuryOverrides
 	ViewWarning
 	ViewTax
+	ViewFilter
 	ViewThroughput
 	ViewAnalysis
 	ViewPluginsExtension
@@ -52,6 +53,16 @@ type TerritoryViewSwitcher struct {
 	views         []TerritoryViewInfo
 	color         map[string]color.RGBA // Map of hidden guild names to their colors
 
+	highlightPos         float64
+	highlightTarget      float64
+	highlightLastUpdate  time.Time
+	highlightInitialized bool
+	lastMouseX           int
+	lastMouseY           int
+	lastMouseMove        time.Time
+	highlightWrapDir     int
+	highlightWrapTo      int
+
 	throughputCache         map[string]float64 // Territory name -> summed in-guild transit value
 	throughputGuildPeak     map[string]float64 // Guild tag -> max throughput for normalization
 	throughputCacheTick     uint64             // Tick the throughput cache was built on
@@ -61,6 +72,9 @@ type TerritoryViewSwitcher struct {
 	analysisScoresCardinal map[string]float64 // normalized 0..1 by max
 	analysisScoresOrdinal  map[string]float64 // percentile-based 0..1 for ordinal mode
 	analysisGuild          string
+
+	filteredTerritories map[string]float64
+	filterActive        bool
 }
 
 // NewTerritoryViewSwitcher creates a new territory view switcher
@@ -82,11 +96,23 @@ func NewTerritoryViewSwitcher() *TerritoryViewSwitcher {
 			{Name: "Treasury Overrides", Description: "Treasury override view", HiddenGuild: "__VIEW_TREASURY_OVERRIDES__"},
 			{Name: "Warning", Description: "Warning status view", HiddenGuild: "__VIEW_WARNING__"},
 			{Name: "Tax", Description: "Territory taxation level", HiddenGuild: "__VIEW_TAX__"},
+			{Name: "Filter", Description: "Filtered territories view", HiddenGuild: "__VIEW_FILTER__"},
 			{Name: "Throughput", Description: "In-guild transit load heatmap", HiddenGuild: "__VIEW_THROUGHPUT__"},
 			{Name: "Analysis", Description: "Analysis results view", HiddenGuild: "__VIEW_ANALYSIS__"},
 			{Name: "Extension", Description: "Extension provided overlays", HiddenGuild: "__VIEW_PLUGINS_EXTENSION__"},
 		},
-		color: make(map[string]color.RGBA),
+		color:                make(map[string]color.RGBA),
+		filteredTerritories:  make(map[string]float64),
+		filterActive:         false,
+		highlightPos:         0,
+		highlightTarget:      0,
+		highlightLastUpdate:  time.Now(),
+		highlightInitialized: false,
+		lastMouseX:           0,
+		lastMouseY:           0,
+		lastMouseMove:        time.Now(),
+		highlightWrapDir:     0,
+		highlightWrapTo:      0,
 	}
 
 	// Initialize hidden guild colors
@@ -102,6 +128,22 @@ func (tvs *TerritoryViewSwitcher) SetCurrentView(view TerritoryViewType) {
 	}
 	tvs.currentView = view
 	tvs.selectedIndex = int(view)
+	tvs.highlightTarget = float64(tvs.selectedIndex)
+	if !tvs.modalVisible {
+		tvs.highlightPos = tvs.highlightTarget
+		tvs.highlightInitialized = true
+	}
+	tvs.highlightWrapDir = 0
+}
+
+func smoothstep(t float64) float64 {
+	if t < 0 {
+		return 0
+	}
+	if t > 1 {
+		return 1
+	}
+	return t * t * (3 - 2*t)
 }
 
 func scaledColor(c color.RGBA, factor float64) color.RGBA {
@@ -117,6 +159,14 @@ func scaledColor(c color.RGBA, factor float64) color.RGBA {
 	}
 
 	return color.RGBA{R: scale(c.R), G: scale(c.G), B: scale(c.B), A: c.A}
+}
+
+func blendColors(a, b color.RGBA, t float64) color.RGBA {
+	t = math.Min(1, math.Max(0, t))
+	mix := func(x, y uint8) uint8 {
+		return uint8(float64(x) + (float64(y)-float64(x))*t)
+	}
+	return color.RGBA{R: mix(a.R, b.R), G: mix(a.G, b.G), B: mix(a.B, b.B), A: mix(a.A, b.A)}
 }
 
 // initializeHiddenGuilds sets up the color schemes for each view type
@@ -182,11 +232,41 @@ func (tvs *TerritoryViewSwitcher) initializeHiddenGuilds() {
 	tvs.color["__PRODUCTION_ERROR__"] = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Pure red
 	// Default dark grey for no production
 	tvs.color["__PRODUCTION_NONE__"] = color.RGBA{R: 64, G: 64, B: 64, A: 255} // Dark grey
+
+	// Filter view default color (pink highlight)
+	tvs.color["__VIEW_FILTER__"] = color.RGBA{R: 247, G: 119, B: 169, A: 255}
+}
+
+// SetFilteredTerritories updates the set of territories that should be highlighted in filter view.
+func (tvs *TerritoryViewSwitcher) SetFilteredTerritories(matches map[string]float64, active bool) {
+	tvs.filterActive = active
+	if matches == nil {
+		tvs.filteredTerritories = make(map[string]float64)
+		return
+	}
+	if tvs.filteredTerritories == nil {
+		tvs.filteredTerritories = make(map[string]float64, len(matches))
+	} else {
+		for k := range tvs.filteredTerritories {
+			delete(tvs.filteredTerritories, k)
+		}
+	}
+	for k, v := range matches {
+		if v > 0 {
+			tvs.filteredTerritories[k] = v
+		}
+	}
 }
 
 // Update handles input and modal visibility logic
 func (tvs *TerritoryViewSwitcher) Update() {
 	now := time.Now()
+	mx, my := ebiten.CursorPosition()
+	if mx != tvs.lastMouseX || my != tvs.lastMouseY {
+		tvs.lastMouseMove = now
+		tvs.lastMouseX = mx
+		tvs.lastMouseY = my
+	}
 
 	tabPressed := ebiten.IsKeyPressed(ebiten.KeyTab)
 	shiftPressed := ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight)
@@ -204,31 +284,224 @@ func (tvs *TerritoryViewSwitcher) Update() {
 		if !tvs.modalVisible {
 			tvs.modalVisible = true
 			tvs.selectedIndex = int(tvs.currentView)
+			tvs.highlightTarget = float64(tvs.selectedIndex)
+			tvs.highlightPos = tvs.highlightTarget
+			tvs.highlightInitialized = true
+			tvs.highlightWrapDir = 0
 		}
 
-		if shiftPressed {
-			// Shift+Tab: go backwards
-			tvs.selectedIndex--
-			if tvs.selectedIndex < 0 {
-				tvs.selectedIndex = len(tvs.views) - 1
+		// If mouse is over the list and moving, jump to hovered entry.
+		// Otherwise, advance by Tab/Shift+Tab.
+		mouseMovedRecently := now.Sub(tvs.lastMouseMove) < 150*time.Millisecond
+		if tvs.modalVisible {
+			screenW, screenH := ebiten.WindowSize()
+			modalWidth := 400
+			modalHeight := 60 + len(tvs.views)*40 + 20
+			modalX := (screenW - modalWidth) / 2
+			modalY := (screenH - modalHeight) / 2
+			startY := modalY + 50
+			itemHeight := 40
+			itemX := modalX + 10
+			itemW := modalWidth - 20
+			itemH := itemHeight - 5
+			listTop := startY
+			listBottom := startY + len(tvs.views)*itemHeight - 5
+			mouseInList := mx >= itemX && mx <= itemX+itemW && my >= listTop && my <= listBottom
+
+			if mouseInList && mouseMovedRecently {
+				index := int((my - startY) / itemHeight)
+				if index < 0 {
+					index = 0
+				}
+				if index >= len(tvs.views) {
+					index = len(tvs.views) - 1
+				}
+				itemY := startY + index*itemHeight
+				if my <= itemY+itemH {
+					tvs.selectedIndex = index
+					tvs.currentView = TerritoryViewType(tvs.selectedIndex)
+					tvs.highlightWrapDir = 0
+				} else {
+					if shiftPressed {
+						// Shift+Tab: go backwards
+						prevIndex := tvs.selectedIndex
+						tvs.selectedIndex--
+						if tvs.selectedIndex < 0 {
+							tvs.selectedIndex = len(tvs.views) - 1
+							tvs.highlightWrapDir = -1
+							tvs.highlightWrapTo = tvs.selectedIndex
+							tvs.highlightTarget = -1
+							_ = prevIndex
+						}
+					} else {
+						// Tab: go forwards
+						prevIndex := tvs.selectedIndex
+						tvs.selectedIndex++
+						if tvs.selectedIndex >= len(tvs.views) {
+							tvs.selectedIndex = 0
+							tvs.highlightWrapDir = 1
+							tvs.highlightWrapTo = tvs.selectedIndex
+							tvs.highlightTarget = float64(len(tvs.views))
+							_ = prevIndex
+						}
+					}
+				}
+			} else {
+				if shiftPressed {
+					// Shift+Tab: go backwards
+					prevIndex := tvs.selectedIndex
+					tvs.selectedIndex--
+					if tvs.selectedIndex < 0 {
+						tvs.selectedIndex = len(tvs.views) - 1
+						tvs.highlightWrapDir = -1
+						tvs.highlightWrapTo = tvs.selectedIndex
+						tvs.highlightTarget = -1
+						_ = prevIndex
+					}
+				} else {
+					// Tab: go forwards
+					prevIndex := tvs.selectedIndex
+					tvs.selectedIndex++
+					if tvs.selectedIndex >= len(tvs.views) {
+						tvs.selectedIndex = 0
+						tvs.highlightWrapDir = 1
+						tvs.highlightWrapTo = tvs.selectedIndex
+						tvs.highlightTarget = float64(len(tvs.views))
+						_ = prevIndex
+					}
+				}
 			}
 		} else {
-			// Tab: go forwards
-			tvs.selectedIndex++
-			if tvs.selectedIndex >= len(tvs.views) {
-				tvs.selectedIndex = 0
+			if shiftPressed {
+				// Shift+Tab: go backwards
+				prevIndex := tvs.selectedIndex
+				tvs.selectedIndex--
+				if tvs.selectedIndex < 0 {
+					tvs.selectedIndex = len(tvs.views) - 1
+					tvs.highlightWrapDir = -1
+					tvs.highlightWrapTo = tvs.selectedIndex
+					tvs.highlightTarget = -1
+					_ = prevIndex
+				}
+			} else {
+				// Tab: go forwards
+				prevIndex := tvs.selectedIndex
+				tvs.selectedIndex++
+				if tvs.selectedIndex >= len(tvs.views) {
+					tvs.selectedIndex = 0
+					tvs.highlightWrapDir = 1
+					tvs.highlightWrapTo = tvs.selectedIndex
+					tvs.highlightTarget = float64(len(tvs.views))
+					_ = prevIndex
+				}
 			}
 		}
 
 		// Apply the view change immediately
 		if tvs.selectedIndex >= 0 && tvs.selectedIndex < len(tvs.views) {
 			tvs.currentView = TerritoryViewType(tvs.selectedIndex)
+			if tvs.highlightWrapDir == 0 {
+				tvs.highlightTarget = float64(tvs.selectedIndex)
+			}
 		}
 	}
 
 	// Hide modal after delay if no Tab is pressed
 	if tvs.modalVisible && !tabPressed && now.Sub(tvs.lastKeyCheck) > tvs.hideDelay {
 		tvs.modalVisible = false
+	}
+
+	// While holding Tab, hovering an entry switches to that view (only while mouse is moving)
+	if tabPressed && tvs.modalVisible {
+		// reuse mx,my from movement tracking
+		// Modal dimensions (match Draw)
+		screenW, screenH := ebiten.WindowSize()
+		modalWidth := 400
+		modalHeight := 60 + len(tvs.views)*40 + 20
+		modalX := (screenW - modalWidth) / 2
+		modalY := (screenH - modalHeight) / 2
+		startY := modalY + 50
+		itemHeight := 40
+		itemX := modalX + 10
+		itemW := modalWidth - 20
+		itemH := itemHeight - 5
+		listTop := startY
+		listBottom := startY + len(tvs.views)*itemHeight - 5
+
+		mouseInList := mx >= itemX && mx <= itemX+itemW && my >= listTop && my <= listBottom
+		mouseMovedRecently := now.Sub(tvs.lastMouseMove) < 150*time.Millisecond
+		if mouseInList && mouseMovedRecently {
+			index := int((my - startY) / itemHeight)
+			if index < 0 {
+				index = 0
+			}
+			if index >= len(tvs.views) {
+				index = len(tvs.views) - 1
+			}
+			itemY := startY + index*itemHeight
+			if my <= itemY+itemH {
+				desiredIndex := (float64(my) - float64(startY)) / float64(itemHeight)
+				if desiredIndex < 0 {
+					desiredIndex = 0
+				}
+				maxIndex := float64(len(tvs.views) - 1)
+				if desiredIndex > maxIndex {
+					desiredIndex = maxIndex
+				}
+
+				nearest := index
+				stickiness := 0.75
+				tvs.highlightTarget = desiredIndex*(1.0-stickiness) + float64(nearest)*stickiness
+
+				if tvs.selectedIndex != nearest {
+					tvs.selectedIndex = nearest
+					tvs.currentView = TerritoryViewType(tvs.selectedIndex)
+					tvs.highlightWrapDir = 0
+				}
+			} else {
+				if tvs.highlightWrapDir == 0 {
+					tvs.highlightTarget = float64(tvs.selectedIndex)
+				}
+			}
+		} else {
+			if tvs.highlightWrapDir == 0 {
+				tvs.highlightTarget = float64(tvs.selectedIndex)
+			}
+		}
+	}
+
+	if !tvs.highlightInitialized {
+		tvs.highlightPos = float64(tvs.selectedIndex)
+		tvs.highlightTarget = tvs.highlightPos
+		tvs.highlightInitialized = true
+		tvs.highlightLastUpdate = now
+	}
+
+	dt := now.Sub(tvs.highlightLastUpdate).Seconds()
+	if dt < 0 {
+		dt = 0
+	}
+	if dt > 0.1 {
+		dt = 0.1
+	}
+	tvs.highlightLastUpdate = now
+
+	moveSpeed := 50.0
+	alpha := 1 - math.Exp(-moveSpeed*dt)
+	ease := smoothstep(alpha)
+	tvs.highlightPos = tvs.highlightPos + (tvs.highlightTarget-tvs.highlightPos)*ease
+
+	if tvs.highlightWrapDir != 0 {
+		maxIndex := float64(len(tvs.views) - 1)
+		if tvs.highlightWrapDir < 0 && tvs.highlightPos <= -0.5 {
+			tvs.highlightPos = maxIndex + 1
+			tvs.highlightTarget = float64(tvs.highlightWrapTo)
+			tvs.highlightWrapDir = 0
+		} else if tvs.highlightWrapDir > 0 && tvs.highlightPos >= maxIndex+0.5 {
+			tvs.highlightPos = -1
+			tvs.highlightTarget = float64(tvs.highlightWrapTo)
+			tvs.highlightWrapDir = 0
+		}
 	}
 }
 
@@ -288,6 +561,9 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorForCurrentView(territoryName 
 	case ViewTax:
 		return tvs.getTaxColor(territory), true
 
+	case ViewFilter:
+		return tvs.getFilterColor(), true
+
 	case ViewProduction:
 		return tvs.getProductionColor(territory), true
 
@@ -301,12 +577,40 @@ func (tvs *TerritoryViewSwitcher) GetTerritoryColorForCurrentView(territoryName 
 	}
 }
 
+func (tvs *TerritoryViewSwitcher) getFilterColor() color.RGBA {
+	if col, ok := tvs.color["__VIEW_FILTER__"]; ok {
+		return col
+	}
+	return color.RGBA{R: 110, G: 110, B: 110, A: 255}
+}
+
 // GetTerritoryColorsForCurrentView returns colors for multiple territories at once (batched optimization)
 func (tvs *TerritoryViewSwitcher) GetTerritoryColorsForCurrentView(territoryNames []string) map[string]color.RGBA {
 	result := make(map[string]color.RGBA, len(territoryNames))
 
 	// Guild view uses normal coloring; Analysis view is handled separately below
 	if tvs.currentView == ViewGuild {
+		return result
+	}
+
+	// Filter view uses a uniform neutral color for all territories
+	if tvs.currentView == ViewFilter {
+		col := tvs.getFilterColor()
+		base := color.RGBA{R: 40, G: 40, B: 45, A: 255}
+		if !tvs.filterActive {
+			for _, name := range territoryNames {
+				result[name] = base
+			}
+			return result
+		}
+		for _, name := range territoryNames {
+			weight, ok := tvs.filteredTerritories[name]
+			if !ok || weight <= 0 {
+				result[name] = base
+				continue
+			}
+			result[name] = blendColors(base, col, weight)
+		}
 		return result
 	}
 
@@ -400,6 +704,14 @@ func (tvs *TerritoryViewSwitcher) getResourceColor(territory *typedef.Territory)
 	resources := territory.ResourceGeneration.Base
 	options := eruntime.GetRuntimeOptions()
 
+	woodColor := options.ResourceColors.Wood.ToRGBA()
+	cropColor := options.ResourceColors.Crop.ToRGBA()
+	fishColor := options.ResourceColors.Fish.ToRGBA()
+	oreColor := options.ResourceColors.Ore.ToRGBA()
+	multiColor := options.ResourceColors.Multi.ToRGBA()
+
+	doubleFactor := 0.85
+
 	// Optionally highlight emerald-generating territories using the emerald palette.
 	if options.ShowEmeraldGenerators && resources.Emeralds >= 18000 {
 		emeraldColor := options.ResourceColors.Emerald.ToRGBA()
@@ -457,38 +769,38 @@ func (tvs *TerritoryViewSwitcher) getResourceColor(territory *typedef.Territory)
 	// If multiple resources or none, return appropriate color
 	if resourceCount != 1 {
 		if isDoubleProduction {
-			return tvs.color["__RESOURCE_MULTI_DOUBLE__"]
+			return scaledColor(multiColor, doubleFactor)
 		}
-		return tvs.color["__RESOURCE_MULTI__"]
+		return multiColor
 	}
 
 	// Return color based on the single resource type and production level
 	switch dominantResource {
 	case "wood":
 		if isDoubleProduction {
-			return tvs.color["__RESOURCE_WOOD_DOUBLE__"]
+			return scaledColor(woodColor, doubleFactor)
 		}
-		return tvs.color["__RESOURCE_WOOD__"]
+		return woodColor
 	case "crops":
 		if isDoubleProduction {
-			return tvs.color["__RESOURCE_CROP_DOUBLE__"]
+			return scaledColor(cropColor, doubleFactor)
 		}
-		return tvs.color["__RESOURCE_CROP__"]
+		return cropColor
 	case "fish":
 		if isDoubleProduction {
-			return tvs.color["__RESOURCE_FISH_DOUBLE__"]
+			return scaledColor(fishColor, doubleFactor)
 		}
-		return tvs.color["__RESOURCE_FISH__"]
+		return fishColor
 	case "ore":
 		if isDoubleProduction {
-			return tvs.color["__RESOURCE_ORE_DOUBLE__"]
+			return scaledColor(oreColor, doubleFactor)
 		}
-		return tvs.color["__RESOURCE_ORE__"]
+		return oreColor
 	default:
 		if isDoubleProduction {
-			return tvs.color["__RESOURCE_MULTI_DOUBLE__"]
+			return scaledColor(multiColor, doubleFactor)
 		}
-		return tvs.color["__RESOURCE_MULTI__"]
+		return multiColor
 	}
 }
 
@@ -880,15 +1192,30 @@ func (tvs *TerritoryViewSwitcher) Draw(screen *ebiten.Image) {
 	// Draw view options
 	startY := modalY + 50
 	itemHeight := 40
+	itemX := modalX + 10
+	itemW := modalWidth - 20
+	itemH := itemHeight - 5
+	listHeight := len(tvs.views)*itemHeight - 5
+
+	// Animated highlight
+	highlightPos := tvs.highlightPos
+	if !tvs.highlightInitialized {
+		highlightPos = float64(tvs.selectedIndex)
+	}
+	highlightY := float64(startY) + highlightPos*float64(itemHeight)
+	clipTop := float64(startY)
+	clipBottom := float64(startY + listHeight)
+	drawTop := math.Max(highlightY, clipTop)
+	drawBottom := math.Min(highlightY+float64(itemH), clipBottom)
+	if drawBottom > drawTop {
+		drawY := float32(drawTop)
+		drawH := float32(drawBottom - drawTop)
+		vector.DrawFilledRect(screen, float32(itemX), drawY, float32(itemW), drawH, color.RGBA{R: 70, G: 130, B: 180, A: 200}, false)
+	}
 
 	for i, view := range tvs.views {
 		itemY := startY + i*itemHeight
-		itemRect := [4]int{modalX + 10, itemY, modalWidth - 20, itemHeight - 5}
-
-		// Highlight selected item
-		if i == tvs.selectedIndex {
-			vector.DrawFilledRect(screen, float32(itemRect[0]), float32(itemRect[1]), float32(itemRect[2]), float32(itemRect[3]), color.RGBA{R: 70, G: 130, B: 180, A: 200}, false)
-		}
+		itemRect := [4]int{itemX, itemY, itemW, itemH}
 
 		// Draw view name
 		viewFont := loadWynncraftFont(16)
@@ -945,6 +1272,8 @@ func (tvs *TerritoryViewSwitcher) GetHiddenGuildNameForTerritory(territoryName s
 		return tvs.getWarningHiddenGuild(territory.Warning)
 	case ViewTax:
 		return tvs.getTaxHiddenGuild(territory)
+	case ViewFilter:
+		return ""
 	case ViewAnalysis:
 		return ""
 	default:

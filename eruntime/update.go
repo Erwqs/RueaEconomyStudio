@@ -9,6 +9,8 @@ import (
 // update() handles resource generation, territorial defences
 // should be called every second
 func (s *state) update() {
+	prepareGenerationCache(s.tick)
+
 	// External calculators must run sequentially to avoid races with the engine's parallel mode.
 	if s.externalCalculatorActive {
 		s.updateSequential()
@@ -63,10 +65,9 @@ func (s *state) updateParallel() {
 					continue
 				}
 
-				
 				doGenerate(territory)
 				territory.TowerStats = calculateTowerStats(territory)
-				
+
 				updateTreasuryLevel(territory)
 				updateGenerationBonus(territory)
 			}

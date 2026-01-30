@@ -3,6 +3,7 @@ package app
 import (
 	"image"
 	"image/color"
+	"math"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -37,6 +38,15 @@ type SelectionAnywhere struct {
 	animSpeed   float64
 	isAnimating bool
 
+	// Highlight animation
+	highlightPosY        float64
+	highlightTargetY     float64
+	highlightLastUpdate  time.Time
+	highlightInitialized bool
+	lastMouseX           int
+	lastMouseY           int
+	lastMouseMove        time.Time
+
 	// Visual properties
 	backgroundColor color.RGBA
 	borderColor     color.RGBA
@@ -62,6 +72,8 @@ type SelectionAnywhere struct {
 	hoverDelay    time.Duration      // Delay before showing submenu
 }
 
+var activeContextMenu *SelectionAnywhere
+
 // NewSelectionAnywhere creates a new context menu with builder pattern
 func NewSelectionAnywhere() *SelectionAnywhere {
 	return &SelectionAnywhere{
@@ -74,6 +86,14 @@ func NewSelectionAnywhere() *SelectionAnywhere {
 		animPhase:    0.0,
 		animSpeed:    8.0,
 		isAnimating:  false,
+
+		highlightPosY:        0,
+		highlightTargetY:     0,
+		highlightLastUpdate:  time.Now(),
+		highlightInitialized: false,
+		lastMouseX:           0,
+		lastMouseY:           0,
+		lastMouseMove:        time.Now(),
 
 		// Use enhanced UI colors for consistency
 		backgroundColor: EnhancedUIColors.ModalBackground,
@@ -230,6 +250,9 @@ func (sa *SelectionAnywhere) Show(x, y int, screenW, screenH int) {
 	sa.hoveredIndex = -1
 	sa.lastShowTime = time.Now()
 	sa.activeSubMenu = nil
+	sa.highlightInitialized = false
+	sa.highlightLastUpdate = time.Now()
+	activeContextMenu = sa
 }
 
 // Hide hides the context menu and any submenus
@@ -238,11 +261,15 @@ func (sa *SelectionAnywhere) Hide() {
 	sa.isAnimating = false
 	sa.animPhase = 0.0
 	sa.hoveredIndex = -1
+	sa.highlightInitialized = false
 
 	// Hide any active submenu
 	if sa.activeSubMenu != nil {
 		sa.activeSubMenu.Hide()
 		sa.activeSubMenu = nil
+	}
+	if activeContextMenu == sa {
+		activeContextMenu = nil
 	}
 }
 
@@ -256,6 +283,8 @@ func (sa *SelectionAnywhere) Update() bool {
 	if !sa.isVisible {
 		return false
 	}
+
+	now := time.Now()
 
 	// Update animation
 	if sa.isAnimating && sa.animPhase < 1.0 {
@@ -275,6 +304,11 @@ func (sa *SelectionAnywhere) Update() bool {
 
 	// Get primary pointer position (touch first, mouse fallback)
 	mx, my := primaryPointerPosition()
+	if mx != sa.lastMouseX || my != sa.lastMouseY {
+		sa.lastMouseMove = now
+		sa.lastMouseX = mx
+		sa.lastMouseY = my
+	}
 
 	// Update hover state
 	oldHoveredIndex := sa.hoveredIndex
@@ -321,6 +355,56 @@ func (sa *SelectionAnywhere) Update() bool {
 				sa.activeSubMenu = nil
 			}
 		}
+	}
+
+	// Update highlight animation target
+	if sa.hoveredIndex >= 0 && sa.hoveredIndex < len(sa.items) {
+		item := sa.items[sa.hoveredIndex]
+		if !item.Divider && item.Enabled {
+			itemY, itemHeight, ok := sa.itemTop(sa.hoveredIndex)
+			if ok {
+				mouseMovedRecently := now.Sub(sa.lastMouseMove) < 150*time.Millisecond
+				if mouseMovedRecently {
+					pointerOffset := float64(my - (sa.Y + sa.padding + itemY))
+					desiredTop := float64(itemY) + (pointerOffset-float64(itemHeight)/2.0)*0.6
+					maxShift := float64(itemHeight) * 0.35
+					minTop := float64(itemY) - maxShift
+					maxTop := float64(itemY) + maxShift
+					if desiredTop < minTop {
+						desiredTop = minTop
+					}
+					if desiredTop > maxTop {
+						desiredTop = maxTop
+					}
+					stickiness := 0.7
+					sa.highlightTargetY = desiredTop*(1.0-stickiness) + float64(itemY)*stickiness
+				} else {
+					sa.highlightTargetY = float64(itemY)
+				}
+
+				if !sa.highlightInitialized {
+					sa.highlightPosY = sa.highlightTargetY
+					sa.highlightInitialized = true
+					sa.highlightLastUpdate = now
+				}
+			}
+		}
+	}
+
+	if sa.highlightInitialized {
+		dt := now.Sub(sa.highlightLastUpdate).Seconds()
+		if dt < 0 {
+			dt = 0
+		}
+		if dt > 0.1 {
+			dt = 0.1
+		}
+		sa.highlightLastUpdate = now
+
+		moveSpeed := 90.0
+		alpha := 1 - math.Exp(-moveSpeed*dt)
+		ease := smoothstep(alpha)
+		sa.highlightPosY = sa.highlightPosY + (sa.highlightTargetY-sa.highlightPosY)*ease
 	}
 
 	// Check if we should show submenu after hover delay
@@ -391,10 +475,12 @@ func (sa *SelectionAnywhere) Update() bool {
 		}
 	}
 
-	// Handle right-click to hide menu
+	// Handle right-click to hide menu (ignore immediate right-click after show)
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
-		sa.Hide()
-		return true
+		if time.Since(sa.lastShowTime) > 120*time.Millisecond {
+			sa.Hide()
+			return true
+		}
 	}
 
 	// Handle escape key to hide menu
@@ -476,9 +562,28 @@ func (sa *SelectionAnywhere) Draw(screen *ebiten.Image) {
 
 	// Draw items
 	if sa.font != nil && alpha > 0 {
+		// Draw animated highlight
+		if sa.hoveredIndex >= 0 && sa.hoveredIndex < len(sa.items) {
+			item := sa.items[sa.hoveredIndex]
+			if !item.Divider && item.Enabled && sa.highlightInitialized {
+				hoverColor := color.RGBA{
+					R: sa.hoverColor.R,
+					G: sa.hoverColor.G,
+					B: sa.hoverColor.B,
+					A: uint8(float64(sa.hoverColor.A) * float64(alpha) / 255),
+				}
+				itemHeight := int(float64(sa.itemHeight) * scale)
+				highlightY := drawY + int(float64(sa.padding)*scale) + int(sa.highlightPosY*scale)
+				ebitenutil.DrawRect(screen,
+					float64(drawX), float64(highlightY),
+					float64(scaledWidth), float64(itemHeight),
+					hoverColor)
+			}
+		}
+
 		currentY := drawY + int(float64(sa.padding)*scale)
 
-		for i, item := range sa.items {
+		for _, item := range sa.items {
 			if item.Divider {
 				// Draw divider line
 				dividerY := currentY + 4
@@ -496,20 +601,6 @@ func (sa *SelectionAnywhere) Draw(screen *ebiten.Image) {
 			} else {
 				itemY := currentY
 				itemHeight := int(float64(sa.itemHeight) * scale)
-
-				// Draw hover highlight
-				if i == sa.hoveredIndex && item.Enabled {
-					hoverColor := color.RGBA{
-						R: sa.hoverColor.R,
-						G: sa.hoverColor.G,
-						B: sa.hoverColor.B,
-						A: uint8(float64(sa.hoverColor.A) * float64(alpha) / 255),
-					}
-					ebitenutil.DrawRect(screen,
-						float64(drawX), float64(itemY),
-						float64(scaledWidth), float64(itemHeight),
-						hoverColor)
-				}
 
 				// Choose text color based on enabled state
 				leftTextColor := sa.textColor
@@ -566,6 +657,21 @@ func (sa *SelectionAnywhere) Draw(screen *ebiten.Image) {
 	}
 }
 
+func (sa *SelectionAnywhere) itemTop(index int) (int, int, bool) {
+	currentY := 0
+	for i, item := range sa.items {
+		if item.Divider {
+			currentY += 8
+			continue
+		}
+		if i == index {
+			return currentY, sa.itemHeight, true
+		}
+		currentY += sa.itemHeight
+	}
+	return 0, 0, false
+}
+
 // GetClickPosition returns the position where the context menu was triggered
 func (sa *SelectionAnywhere) GetClickPosition() image.Point {
 	return sa.clickPos
@@ -575,4 +681,14 @@ func (sa *SelectionAnywhere) GetClickPosition() image.Point {
 func (sa *SelectionAnywhere) SetMaxWidth(width int) {
 	sa.maxWidth = width
 	sa.updateDimensions()
+}
+
+func SetActiveContextMenu(menu *SelectionAnywhere) {
+	activeContextMenu = menu
+}
+
+func DrawActiveContextMenu(screen *ebiten.Image) {
+	if activeContextMenu != nil && activeContextMenu.IsVisible() {
+		activeContextMenu.Draw(screen)
+	}
 }

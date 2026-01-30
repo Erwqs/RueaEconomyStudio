@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"RueaES/storage"
 )
 
 // StateChangeCallback is a function type for notifications when state changes
@@ -29,8 +31,14 @@ var guildSpecificChangeCallback GuildSpecificChangeCallback
 // TerritoryChangeCallback is a function type for notifications when territory data changes
 type TerritoryChangeCallback func(territoryName string)
 
+// GPUComputeFailureCallback is a function type for notifications when GPU compute fails.
+type GPUComputeFailureCallback func(message, stackTrace string)
+
 // Global callback for territory changes
 var territoryChangeCallback TerritoryChangeCallback
+
+// Global callback for GPU compute failures
+var gpuComputeFailureCallback GPUComputeFailureCallback
 
 // SetStateChangeCallback allows external packages to register for state change notifications
 func SetStateChangeCallback(callback StateChangeCallback) {
@@ -50,6 +58,11 @@ func SetGuildSpecificChangeCallback(callback GuildSpecificChangeCallback) {
 // SetTerritoryChangeCallback allows external packages to register for territory change notifications
 func SetTerritoryChangeCallback(callback TerritoryChangeCallback) {
 	territoryChangeCallback = callback
+}
+
+// SetGPUComputeFailureCallback allows external packages to register GPU compute failure notifications
+func SetGPUComputeFailureCallback(callback GPUComputeFailureCallback) {
+	gpuComputeFailureCallback = callback
 }
 
 // TerritoryStats represents comprehensive territory statistics for GUI display
@@ -473,11 +486,6 @@ func SetGuildT(territory *typedef.Territory, guild typedef.Guild) *typedef.Terri
 		territory.CapturedAt = st.tick
 		territory.Treasury = typedef.TreasuryLevelVeryLow
 
-		// If territory changes ownership, it should no longer be an HQ
-		// The new guild must explicitly set a new HQ
-		fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to guild change in SetGuildT from %s[%s] to %s[%s]\n",
-			territory.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
-
 		// Remove from old guild's HQ map entry if it was an HQ
 		if territory.HQ {
 			setHQInMap(territory, false)
@@ -503,7 +511,6 @@ func SetGuildBatch(opts map[string]*typedef.Guild) []*typedef.Territory {
 
 	// Don't allow modifications during state loading
 	if st.stateLoading {
-		fmt.Printf("[ERUNTIME] SetGuildBatch blocked during state loading for %d territories\n", len(opts))
 		return nil
 	}
 
@@ -535,8 +542,6 @@ func SetGuildBatch(opts map[string]*typedef.Guild) []*typedef.Territory {
 		// Only clear HQ status if territory changes ownership
 		// Don't clear HQ if it's just a guild update during state loading with same guild
 		if oldGuildName != guild.Name || oldGuildTag != guild.Tag {
-			fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to ownership change from %s[%s] to %s[%s]\n",
-				t.Name, oldGuildName, oldGuildTag, guild.Name, guild.Tag)
 
 			// Remove from old guild's HQ map entry if it was an HQ
 			if t.HQ {
@@ -565,7 +570,6 @@ func SetT(territory *typedef.Territory, opts typedef.TerritoryOptions) *typedef.
 
 	// Don't allow modifications during state loading
 	if st.stateLoading {
-		fmt.Printf("[ERUNTIME] SetT blocked during state loading for territory: %s\n", territory.Name)
 		return nil
 	}
 
@@ -640,7 +644,6 @@ func Set(territory string, opts typedef.TerritoryOptions) *typedef.Territory {
 
 	// Don't allow modifications during state loading
 	if st.stateLoading {
-		fmt.Printf("[ERUNTIME] Set blocked during state loading for territory: %s\n", territory)
 		return nil
 	}
 
@@ -806,7 +809,6 @@ func Reset() {
 			}
 
 			// Reset HQ status
-			fmt.Printf("[HQ_DEBUG] Clearing HQ for territory %s due to Reset operation\n", territory.Name)
 			territory.HQ = false
 
 			// Reset treasury and generation bonus
@@ -898,6 +900,7 @@ func Reset() {
 		ShowEmeraldGenerators:       st.runtimeOptions.ShowEmeraldGenerators,
 		PluginKeybinds:              st.runtimeOptions.PluginKeybinds,
 		ImposeCooldown:              st.runtimeOptions.ImposeCooldown,
+		SidemenuAnimations:          st.runtimeOptions.SidemenuAnimations,
 	}
 
 	// Recreate transit manager
@@ -946,58 +949,36 @@ func Reset() {
 }
 
 func SaveState(path string) {
-	fmt.Printf("[STATE] SaveState called with path: '%s'\n", path)
+	// fmt.Printf("[STATE] SaveState called with path: '%s'\n", path)
 	if path == "" {
 		// Trigger file dialogue from the app layer - this will be handled by app
 		// fmt.Println("[STATE] SaveState called - triggering save dialogue")
 		return
 	}
 
-	fmt.Printf("[STATE] Calling SaveStateToFile with path: %s\n", path)
-	err := SaveStateToFile(path)
-	if err != nil {
-		fmt.Printf("[STATE] Error saving state: %v\n", err)
-	} else {
-		fmt.Printf("[STATE] Successfully saved state to: %s\n", path)
-	}
+	// fmt.Printf("[STATE] Calling SaveStateToFile with path: %s\n", path)
+	SaveStateToFile(path)
 }
 
 func LoadState(path string) {
-	fmt.Printf("[STATE] LoadState called with path: '%s'\n", path)
 	if path == "" {
-		// Trigger file dialogue from the app layer - this will be handled by app
-		// fmt.Println("[STATE] LoadState called - triggering load dialogue")
 		return
 	}
 
-	fmt.Printf("[STATE] Calling LoadStateFromFile with path: %s\n", path)
-	err := LoadStateFromFile(path)
-	if err != nil {
-		fmt.Printf("[STATE] Error loading state: %v\n", err)
-	} else {
-		fmt.Printf("[STATE] Successfully loaded state from: %s\n", path)
-	}
+	LoadStateFromFile(path)
 }
 
 func LoadStateSelective(path string, importOptions map[string]bool) {
-	fmt.Printf("[STATE] LoadStateSelective called with path: '%s' and options: %+v\n", path, importOptions)
 	if path == "" {
-		// fmt.Println("[STATE] LoadStateSelective called with empty path")
 		return
 	}
 
-	fmt.Printf("[STATE] Calling LoadStateFromFileSelective with path: %s\n", path)
-	err := LoadStateFromFileSelective(path, importOptions)
-	if err != nil {
-		fmt.Printf("[STATE] Error loading state selectively: %v\n", err)
-	} else {
-		fmt.Printf("[STATE] Successfully loaded state selectively from: %s\n", path)
-	}
+	LoadStateFromFileSelective(path, importOptions)
+
 }
 
 // ValidateStateFileAPI checks if a state file is valid without loading it
 func ValidateStateFileAPI(path string) error {
-	fmt.Printf("[STATE] ValidateStateFileAPI called with path: '%s'\n", path)
 	if path == "" {
 		return fmt.Errorf("empty file path")
 	}
@@ -1357,7 +1338,6 @@ func SetTreasuryOverride(t *typedef.Territory, level typedef.TreasuryOverride) {
 	defer t.Mu.Unlock()
 
 	t.TreasuryOverride = level
-	fmt.Printf("[ERUNTIME] Set treasury override for territory %s to level %d\n", t.Name, level)
 
 	// Update the generation bonus immediately when treasury override is changed
 	updateGenerationBonus(t)
@@ -1403,29 +1383,32 @@ func TriggerAutoSave() {
 
 	// Perform auto-save in a goroutine to avoid blocking the main thread
 	go func() {
-		err := SaveStateToFile("autosave.lz4")
-		if err != nil {
-			fmt.Printf("[AUTOSAVE] Failed to auto-save: %v\n", err)
-		} else {
-			// fmt.Println("[AUTOSAVE] Auto-save completed successfully")
-		}
+		autosavePath := storage.DataFile("autosave.lz4")
+		SaveStateToFile(autosavePath)
+
 		lastAutoSaveTime = time.Now()
 	}()
 }
 
 // LoadAutoSave attempts to load the auto-save file if it exists
 func LoadAutoSave() bool {
+	// If explicitly told to skip (e.g., when a launch file was provided), do nothing.
+	if os.Getenv("RUEAES_SKIP_AUTOSAVE_LOAD") == "1" {
+		autoSaveWasLoadedOnStartup = false
+		return false
+	}
+
 	// Check if autosave.lz4 exists
-	if _, err := os.Stat("autosave.lz4"); os.IsNotExist(err) {
+	autosavePath := storage.DataFile("autosave.lz4")
+	if _, err := os.Stat(autosavePath); os.IsNotExist(err) {
 		// fmt.Println("[AUTOSAVE] No auto-save file found")
 		autoSaveWasLoadedOnStartup = false
 		return false
 	}
 
 	// fmt.Println("[AUTOSAVE] Auto-save file found, loading...")
-	err := LoadStateFromFile("autosave.lz4")
+	err := LoadStateFromFile(autosavePath)
 	if err != nil {
-		fmt.Printf("[AUTOSAVE] Failed to load auto-save: %v\n", err)
 		autoSaveWasLoadedOnStartup = false
 		return false
 	}
@@ -1460,7 +1443,6 @@ func NotifyGuildManagerUpdate() {
 func NotifyGuildSpecificUpdate(guildName string) {
 	if guildSpecificChangeCallback != nil {
 		guildSpecificChangeCallback(guildName)
-		fmt.Printf("[ERUNTIME] Guild-specific update notification sent for guild: %s\n", guildName)
 	}
 }
 

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -71,20 +70,15 @@ func (tc *TerritoryCache) AttachManager(manager *TerritoriesManager) {
 
 // ForceRedraw marks the buffer as needing update, forcing a redraw next frame.
 func (tc *TerritoryCache) ForceRedraw() {
-	fmt.Printf("[TERRITORY_CACHE] ForceRedraw called\n")
 	if tc.manager != nil {
 		tc.manager.bufferMutex.Lock()
 		tc.manager.bufferNeedsUpdate = true
 		tc.manager.bufferMutex.Unlock()
-		fmt.Printf("[TERRITORY_CACHE] Set bufferNeedsUpdate = true\n")
-	} else {
-		fmt.Printf("[TERRITORY_CACHE] Manager is nil\n")
 	}
 }
 
 // InvalidateCache is an alias for ForceRedraw.
 func (tc *TerritoryCache) InvalidateCache() {
-	fmt.Printf("[TERRITORY_CACHE] InvalidateCache called\n")
 	tc.ForceRedraw()
 }
 
@@ -313,8 +307,6 @@ func (tc *TerritoryCache) renderDirectly(buffer *ebiten.Image, scale, viewX, vie
 
 	// Call the actual territory drawing function that handles guild colors and editing
 	renderer.drawTerritoriesToOverlayWithHover(buffer, visible, scale, viewX, viewY, screenWidth, screenHeight, hoveredTerritory)
-
-	fmt.Printf("[TERRITORY_CACHE] renderDirectly completed territory drawing\n")
 }
 
 // drawRoutesToOverlay draws trading routes to the overlay buffer
@@ -394,11 +386,6 @@ func (tr *TerritoryRenderer) drawRoutesToOverlay(overlay *ebiten.Image, visible 
 // drawTerritoriesToOverlayWithHover draws territory rectangles to the overlay buffer with hover information
 func (tr *TerritoryRenderer) drawTerritoriesToOverlayWithHover(overlay *ebiten.Image, visible map[string]struct{}, scale, viewX, viewY, screenWidth, screenHeight float64, hoveredTerritory string) {
 	tm := tr.manager
-
-	// Debug: Log when we're in editing mode
-	if tr.editingGuildName != "" {
-		fmt.Printf("[RENDERER DEBUG] Drawing in editing mode for guild: %s, territories visible: %d\n", tr.editingGuildName, len(visible))
-	}
 
 	// Create a 1x1 white pixel if we don't have one
 	if tr.whitePixel == nil {
@@ -567,11 +554,6 @@ func (tr *TerritoryRenderer) drawTerritoriesToOverlayWithHover(overlay *ebiten.I
 			tx1 == tx1 && ty1 == ty1 && tx2 == tx2 && ty2 == ty2 && // Check for NaN
 			tx1 > -10000 && ty1 > -10000 && tx2 < 20000 && ty2 < 20000 { // Reasonable bounds
 
-			// Debug: Check for potential problematic rectangles that might cause green stripes
-			if rect.Dx() > int(screenWidth) || rect.Dy() > int(screenHeight) {
-				fmt.Printf("[RENDERER DEBUG] Large territory rectangle detected: %s, rect=%v, screen=%.0fx%.0f\n",
-					name, rect, screenWidth, screenHeight)
-			}
 			// Use DrawTriangles instead of Fill to avoid potential SubImage issues
 			// Add vertices to batch instead of drawing individually
 			colorR := float32(fillColor.R) / 255

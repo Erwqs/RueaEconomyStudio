@@ -416,6 +416,13 @@ func ResourceTraversalAndTaxV2() {
 
 	debugf("Found %d HQs\n", len(hqs))
 
+	var netByTerritory map[*typedef.Territory]typedef.BasicResources
+	if UseGPUCompute() {
+		if netMap, ok := computeNetResourcesBatch(st.territories); ok {
+			netByTerritory = netMap
+		}
+	}
+
 	// 2. Process all territories for surplus/deficit
 	// First pass: calculate net values without calling functions that might lock other territories
 	type territoryNetInfo struct {
@@ -431,13 +438,25 @@ func ResourceTraversalAndTaxV2() {
 		territory.Mu.Lock()
 
 		if !territory.HQ {
-			// DEBUG: Calculate Net field manually as it might not be set properly
-			// Net = Generation - Costs
-			territory.Net.Emeralds = territory.ResourceGeneration.At.Emeralds - territory.Costs.Emeralds
-			territory.Net.Ores = territory.ResourceGeneration.At.Ores - territory.Costs.Ores
-			territory.Net.Wood = territory.ResourceGeneration.At.Wood - territory.Costs.Wood
-			territory.Net.Fish = territory.ResourceGeneration.At.Fish - territory.Costs.Fish
-			territory.Net.Crops = territory.ResourceGeneration.At.Crops - territory.Costs.Crops
+			if netByTerritory != nil {
+				if net, ok := netByTerritory[territory]; ok {
+					territory.Net = net
+				} else {
+					territory.Net.Emeralds = territory.ResourceGeneration.At.Emeralds - territory.Costs.Emeralds
+					territory.Net.Ores = territory.ResourceGeneration.At.Ores - territory.Costs.Ores
+					territory.Net.Wood = territory.ResourceGeneration.At.Wood - territory.Costs.Wood
+					territory.Net.Fish = territory.ResourceGeneration.At.Fish - territory.Costs.Fish
+					territory.Net.Crops = territory.ResourceGeneration.At.Crops - territory.Costs.Crops
+				}
+			} else {
+				// DEBUG: Calculate Net field manually as it might not be set properly
+				// Net = Generation - Costs
+				territory.Net.Emeralds = territory.ResourceGeneration.At.Emeralds - territory.Costs.Emeralds
+				territory.Net.Ores = territory.ResourceGeneration.At.Ores - territory.Costs.Ores
+				territory.Net.Wood = territory.ResourceGeneration.At.Wood - territory.Costs.Wood
+				territory.Net.Fish = territory.ResourceGeneration.At.Fish - territory.Costs.Fish
+				territory.Net.Crops = territory.ResourceGeneration.At.Crops - territory.Costs.Crops
+			}
 
 			// Check for deficit while we have the lock
 			hasDeficit := territory.Net.Emeralds < 0 || territory.Net.Ores < 0 || territory.Net.Wood < 0 || territory.Net.Fish < 0 || territory.Net.Crops < 0

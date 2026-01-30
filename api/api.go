@@ -400,7 +400,6 @@ func (c *WSClient) readPump() {
 	}
 }
 
-// handleMessage processes incoming messages from clients
 func (c *WSClient) handleMessage(message WSMessage) error {
 	handler, exists := c.api.handlers[message.Type]
 	if !exists {

@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"strings"
 	"time"
 
@@ -52,6 +53,11 @@ type Toast struct {
 	Background   color.RGBA
 	Border       color.RGBA
 	visible      bool
+	currentX     float64
+	currentY     float64
+	targetX      float64
+	targetY      float64
+	dismissing   bool
 }
 
 // ToastBuilder provides a fluent interface for building toasts
@@ -69,6 +75,7 @@ type ToastManager struct {
 	toastWidth  int
 	toastHeight int
 	margin      int
+	lastUpdate  time.Time
 }
 
 var globalToastManager *ToastManager
@@ -286,12 +293,13 @@ func InitToastManager() {
 	globalToastManager = &ToastManager{
 		toasts:      []*Toast{},
 		nextID:      0,
-		maxToasts:   5,
+		maxToasts:   8,
 		screenW:     screenW,
 		screenH:     screenH,
 		toastWidth:  300,
 		toastHeight: 80,
 		margin:      15,
+		lastUpdate:  time.Now(),
 	}
 }
 
@@ -305,9 +313,29 @@ func GetToastManager() *ToastManager {
 
 // AddToast adds a toast to the manager
 func (tm *ToastManager) AddToast(toast *Toast) {
+	activeCount := 0
+	for _, existing := range tm.toasts {
+		if existing.visible && !existing.dismissing {
+			activeCount++
+		}
+	}
+
 	// Remove oldest toast if we're at the limit
-	if len(tm.toasts) >= tm.maxToasts {
-		tm.toasts = tm.toasts[1:]
+	if activeCount >= tm.maxToasts {
+		var oldestAutoClose *Toast
+		for _, existing := range tm.toasts {
+			if existing.dismissing || existing.AutoCloseAt == nil {
+				continue
+			}
+			if oldestAutoClose == nil || existing.CreatedAt.Before(oldestAutoClose.CreatedAt) {
+				oldestAutoClose = existing
+			}
+		}
+		if oldestAutoClose == nil {
+			return
+		}
+		oldestAutoClose.dismissing = true
+		oldestAutoClose.targetX = float64(tm.screenW + tm.margin)
 	}
 
 	// Position the toast
@@ -327,31 +355,68 @@ func (tm *ToastManager) positionToast(toast *Toast) {
 
 	// Stack toasts vertically
 	for _, existingToast := range tm.toasts {
-		if existingToast.visible {
+		if existingToast.visible && !existingToast.dismissing {
 			y += existingToast.Height + tm.margin
 		}
 	}
 
-	toast.X = x
-	toast.Y = y
+	toast.targetX = float64(x)
+	toast.targetY = float64(y)
+	if toast.currentX == 0 && toast.currentY == 0 {
+		toast.currentX = float64(screenW + tm.margin)
+		toast.currentY = float64(y)
+	}
+	toast.X = int(toast.currentX)
+	toast.Y = int(toast.currentY)
 }
 
 // Update updates all toasts and handles input
 func (tm *ToastManager) Update() {
 	now := time.Now()
+	dt := now.Sub(tm.lastUpdate).Seconds()
+	if dt < 0 {
+		dt = 0
+	}
+	if dt > 0.1 {
+		dt = 0.1
+	}
+	tm.lastUpdate = now
 
-	// Remove expired toasts
-	var activeToasts []*Toast
+	// Mark expired toasts for dismissal
 	for _, toast := range tm.toasts {
 		if toast.AutoCloseAt != nil && now.After(*toast.AutoCloseAt) {
-			continue // Skip expired toast
+			if !toast.dismissing {
+				toast.dismissing = true
+				toast.targetX = float64(tm.screenW + tm.margin)
+			}
+		}
+	}
+
+	// Reposition toasts if needed
+	tm.repositionToasts()
+	for _, toast := range tm.toasts {
+		if toast.dismissing {
+			toast.targetX = float64(tm.screenW + tm.margin)
+		}
+	}
+
+	// Animate positions and remove fully dismissed toasts
+	var activeToasts []*Toast
+	moveSpeed := 18.0
+	alpha := 1 - math.Exp(-moveSpeed*dt)
+	for _, toast := range tm.toasts {
+		toast.currentX = toast.currentX + (toast.targetX-toast.currentX)*alpha
+		toast.currentY = toast.currentY + (toast.targetY-toast.currentY)*alpha
+		toast.X = int(math.Round(toast.currentX))
+		toast.Y = int(math.Round(toast.currentY))
+
+		offscreenX := float64(tm.screenW + tm.margin + toast.Width)
+		if toast.dismissing && toast.currentX > offscreenX-1 {
+			continue
 		}
 		activeToasts = append(activeToasts, toast)
 	}
 	tm.toasts = activeToasts
-
-	// Reposition toasts if needed
-	tm.repositionToasts()
 }
 
 // HandleInput handles input for all toasts and returns true if input was consumed
@@ -361,7 +426,7 @@ func (tm *ToastManager) HandleInput() bool {
 	// Handle input for each toast (from top to bottom, so newer toasts get priority)
 	for i := len(tm.toasts) - 1; i >= 0; i-- {
 		toast := tm.toasts[i]
-		if !toast.visible {
+		if !toast.visible || toast.dismissing {
 			continue
 		}
 
@@ -415,8 +480,13 @@ func (tm *ToastManager) repositionToasts() {
 			continue
 		}
 
-		toast.X = screenW - toast.Width - tm.margin
-		toast.Y = y
+		if toast.dismissing {
+			toast.targetX = float64(screenW + tm.margin)
+			continue
+		}
+
+		toast.targetX = float64(screenW - toast.Width - tm.margin)
+		toast.targetY = float64(y)
 		y += toast.Height + tm.margin
 	}
 }
@@ -536,8 +606,9 @@ func (tm *ToastManager) drawToast(screen *ebiten.Image, toast *Toast, font font.
 func (tm *ToastManager) RemoveToast(id string) {
 	for i, toast := range tm.toasts {
 		if toast.ID == id {
-			tm.toasts = append(tm.toasts[:i], tm.toasts[i+1:]...)
-			tm.repositionToasts()
+			toast.dismissing = true
+			toast.targetX = float64(tm.screenW + tm.margin)
+			_ = i
 			return
 		}
 	}

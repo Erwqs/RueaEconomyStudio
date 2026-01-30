@@ -90,6 +90,8 @@ func (im *InputManager) UnsubscribeMouseEvents(ch <-chan MouseButtonEvent) {
 
 // Update should be called every frame to check for input changes
 func (im *InputManager) Update() {
+	focused := ebiten.IsFocused()
+
 	// Use efficient inpututil functions to get only changed keys
 	// This is much more efficient than checking all possible keys every frame
 
@@ -103,6 +105,10 @@ func (im *InputManager) Update() {
 	for _, key := range inpututil.AppendJustReleasedKeys(nil) {
 		event := KeyEvent{Key: key, Pressed: false}
 		im.broadcastEvent(event)
+	}
+
+	if !focused {
+		return
 	}
 
 	// Check for mouse button events

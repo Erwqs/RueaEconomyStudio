@@ -29,7 +29,9 @@ type state struct {
 
 	// time.Ticker
 	timerChan *time.Ticker
-	halted    bool
+	// timerStopCh signals timer goroutine to exit when the ticker is stopped/reset
+	timerStopCh chan struct{}
+	halted      bool
 
 	// Tick processing queue for high-performance tick processing
 	tickQueue chan struct{}
@@ -82,6 +84,7 @@ func init() {
 		runtimeOptions: typedef.RuntimeOptions{
 			TreasuryEnabled:             true,
 			PathfindingAlgorithm:        typedef.PathfindingDijkstra, // Default to Dijkstra (cheapest route)
+			ComputationSource:           typedef.ComputationCPU,
 			PathfinderProvider:          "",
 			MapOpacityPercent:           100,
 			ThroughputCurve:             0,
@@ -92,6 +95,7 @@ func init() {
 			ResourceColors:              typedef.DefaultResourceColors(),
 			ShowEmeraldGenerators:       false,
 			Keybinds:                    typedef.DefaultKeybinds(),
+			SidemenuAnimations:          false,
 		},
 		transitManager:        NewTransitManager(),
 		hqMap:                 make(map[string]*typedef.Territory),
@@ -107,18 +111,12 @@ func init() {
 	if err := ReloadDefaultCosts(); err != nil {
 		panic("failed to load default costs: " + err.Error())
 	}
-	fmt.Println("[ERUNTIME] Bootstrap complete. Loaded", len(st.territories), "territories and", len(st.guilds), "guilds.")
 
 	// Start the timer for resource generation
 	st.start()
-	fmt.Println("[ERUNTIME] Resource generation timer started.")
 
 	// Attempt to load auto-save file if it exists
-	if LoadAutoSave() {
-		fmt.Println("[ERUNTIME] Auto-save file loaded successfully on startup")
-	} else {
-		fmt.Println("[ERUNTIME] No auto-save file found, starting with fresh state")
-	}
+	LoadAutoSave()
 }
 
 // GetAllTransits returns all active transits in the system

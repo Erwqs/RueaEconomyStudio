@@ -4,8 +4,12 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"io"
+	"io/fs"
 	"log"
 	"math"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 
@@ -436,6 +440,13 @@ func (s *State) Update() error {
 	// Handle panic recovery for the Update loop
 	defer HandlePanic()
 
+	// If a lock warning is visible, block the rest of the app until dismissed.
+	lockWarning := GetLockWarningModal()
+	if lockWarning.IsVisible() {
+		lockWarning.Update()
+		return nil
+	}
+
 	// Update panic notification first and check if it consumes input
 	panicNotifier := GetPanicNotifier()
 	if panicNotifier.IsVisible() {
@@ -447,6 +458,11 @@ func (s *State) Update() error {
 
 	// Update input manager ONLY ONCE per frame
 	s.inputManager.Update()
+
+	// Handle OS-level file drops (e.g., dragging a .lz4 onto the window)
+	if dropped := collectDroppedPaths(); len(dropped) > 0 {
+		s.handleFileDrops(dropped)
+	}
 
 	// Update toast manager
 	GetToastManager().Update()
@@ -525,64 +541,85 @@ func (s *State) handleKeyEvent(event KeyEvent) {
 	if event.Pressed {
 		switch event.Key {
 		case ebiten.KeyEscape:
-			// Completely disable ESC handling to prevent weird menu behavior
-			// Since we start directly in game mode and don't want main menu
-			// if s.gameState == StateSession {
-			// 	// Prevent ESC from returning to menu if loadout manager is visible or in apply mode
-			// 	loadoutManager := GetLoadoutManager()
-			// 	if loadoutManager != nil && (loadoutManager.IsVisible() || loadoutManager.IsApplyingLoadout()) {
-			// 		// Let the loadout manager handle ESC/back, do not close gameplay or go to menu
-			// 		return
-			// 	}
-			// 	// Only go to menu if neither territory menu nor guild manager nor EdgeMenu is open
-			// 	if s.gameplayModule != nil {
-			// 		// Check if EdgeMenu is open first
-			// 		if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().IsEdgeMenuOpen() {
-			// 			// Do nothing - the map view will handle closing the EdgeMenu
-			// 			// Do nothing - the map view will handle cancelling claim edit mode
-			// 		} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().JustHandledEscKey() {
-			// 			// Do nothing - the map view already handled the ESC key
-			// 		} else if s.gameplayModule.GetMapView() != nil && s.gameplayModule.GetMapView().TributeMenuJustHandledEscKey() {
-			// 			// Do nothing - the tribute menu already handled the ESC key
-			// 		} else if s.gameplayModule.IsTerritoryMenuOpen() {
-			// 			// Do nothing - the map handler will close the territory menu
-			// 			// and we don't want to go back to the main menu
-			// 		} else if s.gameplayModule.guildManager != nil && s.gameplayModule.guildManager.IsVisible() {
-			// 			// Do nothing - the guild manager will handle its own closure
-			// 		} else {
-			// 			// Commented out to disable main menu return
-			// 			// s.gameState = StateMenu
-			// 			// s.gameplayModule.SetActive(false)
-			// 		}
-			// 	}
-			// } else if s.gameState == StateSettings {
-			// 	// Commented out to disable main menu return
-			// 	// s.gameState = StateMenu
-			// } else if s.gameState == StateSessionManager {
-			// 	// Commented out to disable main menu return
-			// 	// s.gameState = StateMenu
-			// }
+
 		case ebiten.KeyF11:
-			// Toggle fullscreen (example)
 			if ebiten.IsFullscreen() {
 				ebiten.SetFullscreen(false)
 			} else {
 				ebiten.SetFullscreen(true)
 			}
-		case ebiten.KeyF12:
-			// Toggle debug module
-			s.debugModule.SetActive(!s.debugModule.IsActive())
-		case ebiten.KeyF10:
-			// Toggle settings module
-			s.settingsModule.SetActive(!s.settingsModule.IsActive())
-		case ebiten.KeyP:
-			// CTRL + ALT + P - Trigger panic for demonstration
-			if ebiten.IsKeyPressed(ebiten.KeyControl) && ebiten.IsKeyPressed(ebiten.KeyAlt) {
-				// fmt.Println("[PANIC_DEMO] User triggered panic via CTRL+ALT+P")
-				panic("User-triggered panic for demonstration (CTRL+ALT+P)")
-			}
 		}
 	}
+}
+
+// handleFileDrops routes dropped files through the file system manager so the import modal opens.
+func (s *State) handleFileDrops(paths []string) {
+	mgr := GetFileSystemManager()
+	var pm *PluginManager
+	if s.gameplayModule != nil {
+		pm = s.gameplayModule.GetPluginManager()
+	}
+
+	if mgr == nil && pm == nil {
+		return
+	}
+
+	for _, path := range paths {
+		cleaned := filepath.Clean(path)
+
+		if pm != nil && isPluginBinary(cleaned) {
+			pm.promptPluginDrop(cleaned)
+			continue
+		}
+
+		if mgr != nil {
+			mgr.handleFileOpen(cleaned)
+		}
+	}
+}
+
+// collectDroppedPaths converts Ebiten's dropped file virtual FS into plain paths.
+func collectDroppedPaths() []string {
+	droppedFS := ebiten.DroppedFiles()
+	if droppedFS == nil {
+		return nil
+	}
+
+	entries, err := fs.ReadDir(droppedFS, ".")
+	if err != nil {
+		return nil
+	}
+
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		file, err := droppedFS.Open(entry.Name())
+		if err != nil {
+			continue
+		}
+
+		tmp, err := os.CreateTemp("", "(dropped)*"+filepath.Ext(entry.Name()))
+		if err != nil {
+			file.Close()
+			continue
+		}
+
+		if _, err := io.Copy(tmp, file); err != nil {
+			tmp.Close()
+			os.Remove(tmp.Name())
+			file.Close()
+			continue
+		}
+
+		_ = tmp.Close()
+		_ = file.Close()
+		paths = append(paths, tmp.Name())
+	}
+
+	return paths
 }
 
 func (s *State) Draw(screen *ebiten.Image) {
@@ -622,11 +659,20 @@ func (s *State) Draw(screen *ebiten.Image) {
 	// Draw toasts on top of everything else
 	GetToastManager().Draw(screen)
 
+	// Draw lock warning overlay above toasts but below panic notifications
+	lockWarning := GetLockWarningModal()
+	if lockWarning.IsVisible() {
+		lockWarning.Draw(screen)
+	}
+
 	// Draw panic notification on top of absolutely everything
 	panicNotifier := GetPanicNotifier()
 	if panicNotifier.IsVisible() {
 		panicNotifier.Draw(screen)
 	}
+
+	// Draw context menu above all UI
+	DrawActiveContextMenu(screen)
 }
 
 // Game implements ebiten.Game interface
@@ -645,6 +691,9 @@ func New() *Game {
 
 	// Initialize global file system manager for state save/load
 	InitializeFileSystemManager(inputManager)
+
+	// Prepare lock warning modal early so it can appear before other UI
+	InitLockWarningModal()
 
 	// Initialize loadout persistence callbacks
 	eruntime.SetLoadoutCallbacks(
@@ -705,6 +754,9 @@ func New() *Game {
 		},
 	}
 
+	// If a lock was detected before UI initialization, show the warning immediately
+	ShowScheduledLockWarning()
+
 	// Initialize the menu and settings screen
 	game.state.menu = game.createMenu()
 	game.state.settingsScreen = NewSettingsScreen(settingsModule)
@@ -739,8 +791,10 @@ func New() *Game {
 		})
 
 		welcomeScreen.Show()
-		fmt.Println("[APP] No autosave loaded on startup, showing welcome screen")
 	}
+
+	// Trigger state import if a file path was provided on launch
+	triggerStartupImportIfPresent()
 
 	return game
 }

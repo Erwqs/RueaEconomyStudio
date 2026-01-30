@@ -1,17 +1,21 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 
 	"RueaES/api"
 	"RueaES/app"
 	"RueaES/eruntime"
 	_ "RueaES/eruntime"
+	"RueaES/storage"
 
 	"net/http"
 	_ "net/http/pprof"
@@ -24,7 +28,6 @@ import (
 
 func init() {
 	go func() {
-		fmt.Println("pprof listening on :6060")
 		http.ListenAndServe(":6060", nil)
 	}()
 }
@@ -32,41 +35,93 @@ func init() {
 func main() {
 	// Parse command line flags
 	var headless bool
+	var stateFilePath string
 	flag.BoolVar(&headless, "headless", false, "Run in headless mode without GUI")
 	flag.BoolVar(&headless, "h", false, "Run in headless mode without GUI (shorthand)")
+	flag.StringVar(&stateFilePath, "file", "", "State file (.lz4/.ruea) to import on launch")
+	flag.StringVar(&stateFilePath, "f", "", "State file (.lz4/.ruea) to import on launch (shorthand)")
 	flag.Parse()
 
-	// Check for session lock, if exists, exit
-	if _, err := os.Stat(".rueaes.lock"); err == nil {
-		fmt.Println("Another instance of Ruea Economy Studio is already running.")
-		fmt.Println("If none is running, remove .rueaes.lock file to continue.")
-		fmt.Println("Exiting...")
-		os.Exit(1)
+	// Support positional file argument so double-clicking a .lz4 passes the path through
+	if stateFilePath == "" {
+		if args := flag.Args(); len(args) > 0 {
+			stateFilePath = args[0]
+		}
 	}
 
-	// Create lock file
-	lockFile, err := os.Create(".rueaes.lock")
+	if stateFilePath != "" {
+		cleanPath := filepath.Clean(stateFilePath)
+		if _, err := os.Stat(cleanPath); err != nil {
+		} else {
+			app.SetStartupImportPath(cleanPath)
+			os.Setenv("RUEAES_SKIP_AUTOSAVE_LOAD", "1")
+		}
+	}
+
+	lockPath := storage.DataFile(".rueaes.lock")
+	lockFile, lockOwned, cleanupLock, err := prepareLock(lockPath)
 	if err != nil {
-		fmt.Printf("Failed to create lock file: %v\n", err)
 		os.Exit(1)
 	}
 
-	defer func() {
-		if err := lockFile.Close(); err != nil {
-			fmt.Printf("Failed to close lock file: %v\n", err)
-		}
-		if err := os.Remove(".rueaes.lock"); err != nil {
-			fmt.Printf("Failed to remove lock file: %v\n", err)
-		}
-	}()
+	_ = lockFile // retained to keep handle open for lifetime
+	defer cleanupLock()
 
 	if headless {
+		if !lockOwned {
+			os.Exit(1)
+		}
 		// Run in headless mode with shared memory server
 		runHeadless()
-	} else {
-		// Run with GUI
-		runWithGUI()
+		return
 	}
+
+	if !lockOwned {
+		app.ScheduleLockWarning(lockPath,
+			func() {
+				// User chose to continue; close our handle and remove the existing lock file.
+				cleanupLock()
+				_ = os.Remove(lockPath)
+			},
+			func() {
+				cleanupLock()
+				os.Exit(0)
+			},
+		)
+	}
+
+	// Run with GUI
+	runWithGUI(lockOwned, cleanupLock)
+}
+
+func prepareLock(lockPath string) (*os.File, bool, func(), error) {
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	owned := true
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			owned = false
+			lockFile, err = os.OpenFile(lockPath, os.O_WRONLY, 0o644)
+			if err != nil {
+				return nil, false, nil, err
+			}
+		} else {
+			return nil, false, nil, err
+		}
+	}
+
+	var cleanupOnce sync.Once
+	cleanup := func() {
+		cleanupOnce.Do(func() {
+			if lockFile != nil {
+				_ = lockFile.Close()
+			}
+			if owned {
+				os.Remove(lockPath)
+			}
+		})
+	}
+
+	return lockFile, owned, cleanup, nil
 }
 
 func runHeadless() {
@@ -83,7 +138,6 @@ func runHeadless() {
 	// 	log.Fatalf("Failed to initialize shared memory server: %v", err)
 	// }
 
-	fmt.Println("Shared memory server started. RueaES is ready for external connections.")
 	fmt.Println("WebSocket API is available at ws://localhost:42069/ws")
 
 	// Set up signal handling for graceful shutdown
@@ -97,7 +151,10 @@ func runHeadless() {
 	fmt.Println("Shutdown complete.")
 }
 
-func runWithGUI() {
+func runWithGUI(lockOwned bool, cleanup func()) {
+	if !lockOwned {
+		fmt.Println("Lock file already existed; showing warning modal before continuing.")
+	}
 	// Start WebSocket API server for GUI mode as well
 	go func() {
 		fmt.Println("Starting WebSocket API server on port 42069...")
@@ -110,12 +167,7 @@ func runWithGUI() {
 
 	// Clipboard is only initialized on supported platforms
 	if runtime.GOARCH != "wasm" && runtime.GOOS != "js" {
-		err := initClipboard()
-		if err != nil {
-			// Clipboard initialization failed, but we can continue without it
-			// The clipboard operations will simply not work
-			fmt.Printf("Warning: Clipboard initialization failed: %v\n", err)
-		}
+		initClipboard()
 	}
 
 	signalChan := make(chan os.Signal, 1)
@@ -126,16 +178,8 @@ func runWithGUI() {
 		fmt.Println("Received shutdown signal. Cleaning up...")
 		// trigger autosave
 		eruntime.TriggerAutoSave()
-
-		// Delete lock file if exists
-		if _, err := os.Stat(".rueaes.lock"); err == nil {
-			if err := os.Remove(".rueaes.lock"); err != nil {
-				fmt.Printf("Failed to remove lock file: %v\n", err)
-			} else {
-				fmt.Println("Lock file removed successfully.")
-			}
-		} else {
-			fmt.Println("No lock file found, nothing to remove.")
+		if cleanup != nil {
+			cleanup()
 		}
 		os.Exit(0)
 	}()
@@ -160,6 +204,8 @@ func runWithGUI() {
 	if err := ebiten.RunGameWithOptions(game, &ebiten.RunGameOptions{
 		X11ClassName:    "Ruea Economy Studio",
 		X11InstanceName: "RueaES",
+		SingleThread: false,
+		ScreenTransparent: true,
 	}); err != nil {
 		panic(err)
 	}

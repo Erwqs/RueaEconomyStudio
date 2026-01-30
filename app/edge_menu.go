@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"RueaES/eruntime"
 	"RueaES/typedef"
@@ -69,18 +70,20 @@ type EdgeMenuElement interface {
 
 // BaseMenuElement provides common functionality for menu elements
 type BaseMenuElement struct {
-	visible      bool
-	animProgress float64
-	animTarget   float64
-	animSpeed    float64
+	visible        bool
+	animProgress   float64
+	animTarget     float64
+	animSpeed      float64
+	revealProgress float64
 }
 
 func NewBaseMenuElement() BaseMenuElement {
 	return BaseMenuElement{
-		visible:      true,
-		animProgress: 1.0,
-		animTarget:   1.0,
-		animSpeed:    8.0,
+		visible:        true,
+		animProgress:   1.0,
+		animTarget:     1.0,
+		animSpeed:      24.0,
+		revealProgress: 1.0,
 	}
 }
 
@@ -94,6 +97,20 @@ func (b *BaseMenuElement) SetVisible(visible bool) {
 	if visible {
 		b.animTarget = 1.0
 	}
+}
+
+func (b *BaseMenuElement) SetRevealProgress(progress float64) {
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 1 {
+		progress = 1
+	}
+	b.revealProgress = progress
+}
+
+func (b *BaseMenuElement) displayAlpha() float64 {
+	return b.animProgress * b.revealProgress
 }
 
 func (b *BaseMenuElement) updateAnimation(deltaTime float64) {
@@ -251,12 +268,12 @@ func (b *MenuColorButton) Update(mx, my int, deltaTime float64) bool {
 }
 
 func (b *MenuButton) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !b.visible || b.animProgress <= 0.01 {
+	if !b.visible || b.displayAlpha() <= 0.01 {
 		return 0
 	}
 
 	height := b.options.Height
-	alpha := float32(b.animProgress)
+	alpha := float32(b.displayAlpha())
 
 	// Store rect for click detection
 	b.rect = image.Rect(x, y, x+width, y+height)
@@ -298,12 +315,12 @@ func (b *MenuButton) Draw(screen *ebiten.Image, x, y, width int, font font.Face)
 }
 
 func (b *MenuColorButton) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !b.visible || b.animProgress <= 0.01 {
+	if !b.visible || b.displayAlpha() <= 0.01 {
 		return 0
 	}
 
 	height := b.options.Height
-	alpha := float32(b.animProgress)
+	alpha := float32(b.displayAlpha())
 
 	// Store rect for click detection
 	b.rect = image.Rect(x, y, x+width, y+height)
@@ -392,12 +409,12 @@ func (t *MenuText) Update(mx, my int, deltaTime float64) bool {
 }
 
 func (t *MenuText) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !t.visible || t.animProgress <= 0.01 {
+	if !t.visible || t.displayAlpha() <= 0.01 {
 		return 0
 	}
 
 	height := t.options.Height
-	alpha := float32(t.animProgress)
+	alpha := float32(t.displayAlpha())
 
 	textColor := t.options.Color
 	textColor.A = uint8(float32(textColor.A) * alpha)
@@ -466,12 +483,12 @@ func (t *MenuClickableText) Update(mx, my int, deltaTime float64) bool {
 }
 
 func (t *MenuClickableText) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !t.visible || t.animProgress <= 0.01 {
+	if !t.visible || t.displayAlpha() <= 0.01 {
 		return 0
 	}
 
 	height := t.options.Height
-	alpha := float32(t.animProgress)
+	alpha := float32(t.displayAlpha())
 
 	// Store rect for click detection
 	t.rect = image.Rect(x, y, x+width, y+height)
@@ -578,12 +595,12 @@ func (c *MenuCheckbox) Update(mx, my int, deltaTime float64) bool {
 }
 
 func (c *MenuCheckbox) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !c.visible || c.animProgress <= 0.01 {
+	if !c.visible || c.displayAlpha() <= 0.01 {
 		return 0
 	}
 
 	height := c.options.Height
-	alpha := float32(c.animProgress)
+	alpha := float32(c.displayAlpha())
 
 	c.rect = image.Rect(x, y, x+width, y+height)
 
@@ -647,6 +664,7 @@ type SliderOptions struct {
 	Step            float64
 	BackgroundColor color.RGBA
 	FillColor       color.RGBA
+	ExclusionFill   color.RGBA
 	HandleColor     color.RGBA
 	TextColor       color.RGBA
 	Height          int
@@ -663,10 +681,48 @@ func DefaultSliderOptions() SliderOptions {
 		Step:            1.0,
 		BackgroundColor: color.RGBA{40, 40, 50, 255},
 		FillColor:       color.RGBA{100, 150, 255, 255},
+		ExclusionFill:   color.RGBA{200, 110, 110, 255},
 		HandleColor:     color.RGBA{255, 255, 255, 255},
 		TextColor:       color.RGBA{255, 255, 255, 255},
 		Height:          35,
 		FontSize:        16,
+		ShowValue:       true,
+		ValueFormat:     "%.0f",
+		Enabled:         true,
+	}
+}
+
+// RangeSliderOptions configures dual-handle slider appearance and behavior
+type RangeSliderOptions struct {
+	MinValue        float64
+	MaxValue        float64
+	Step            float64
+	BackgroundColor color.RGBA
+	FillColor       color.RGBA
+	ExclusionFill   color.RGBA
+	HandleColor     color.RGBA
+	TextColor       color.RGBA
+	Height          int
+	FontSize        int
+	ShowValue       bool
+	ValueFormat     string
+	ValueFormatter  func(low, high float64) string
+	Enabled         bool
+	CompactLabel    bool
+}
+
+func DefaultRangeSliderOptions() RangeSliderOptions {
+	return RangeSliderOptions{
+		MinValue:        0,
+		MaxValue:        100,
+		Step:            1,
+		BackgroundColor: color.RGBA{40, 40, 50, 255},
+		FillColor:       color.RGBA{100, 150, 255, 255},
+		ExclusionFill:   color.RGBA{200, 110, 110, 255},
+		HandleColor:     color.RGBA{255, 255, 255, 255},
+		TextColor:       color.RGBA{255, 255, 255, 255},
+		Height:          40,
+		FontSize:        14,
 		ShowValue:       true,
 		ValueFormat:     "%.0f",
 		Enabled:         true,
@@ -841,12 +897,12 @@ func easeOutBack(t float64, s float64) float64 {
 }
 
 func (s *MenuSlider) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !s.visible || s.animProgress <= 0.01 {
+	if !s.visible || s.displayAlpha() <= 0.01 {
 		return 0
 	}
 
 	height := s.options.Height
-	alpha := float32(s.animProgress)
+	alpha := float32(s.displayAlpha())
 
 	// Draw label
 	labelY := y + 6
@@ -924,6 +980,306 @@ func (s *MenuSlider) SetFillColor(color color.RGBA) {
 	s.options.FillColor = color
 }
 
+// MenuRangeSlider represents a dual-handle slider for selecting ranges.
+type MenuRangeSlider struct {
+	BaseMenuElement
+	label         string
+	lowValue      float64
+	highValue     float64
+	displayLow    float64
+	displayHigh   float64
+	options       RangeSliderOptions
+	callback      func(low, high float64)
+	onDragEnd     func()
+	sliderRect    image.Rectangle
+	dragging      bool
+	dragHigh      bool
+	dragSecondary bool
+	baseFill      color.RGBA
+	startLow      float64
+	startHigh     float64
+	startValue    float64
+	exclusion     bool
+}
+
+func NewMenuRangeSlider(label string, low, high float64, options RangeSliderOptions, callback func(float64, float64)) *MenuRangeSlider {
+	s := &MenuRangeSlider{
+		BaseMenuElement: NewBaseMenuElement(),
+		label:           label,
+		options:         options,
+		callback:        callback,
+		baseFill:        options.FillColor,
+	}
+	s.SetValues(low, high)
+	return s
+}
+
+func (s *MenuRangeSlider) Update(mx, my int, deltaTime float64) bool {
+	if !s.visible {
+		return false
+	}
+
+	s.updateAnimation(deltaTime)
+
+	if !s.options.Enabled {
+		return false
+	}
+
+	leftDown := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
+	rightDown := inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight)
+	leftHeld := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	rightHeld := ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight)
+	leftUp := inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft)
+	rightUp := inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonRight)
+
+	clickInside := mx != -1 && my != -1 && pointInRect(mx, my, s.sliderRect)
+	if clickInside && (leftDown || rightDown) {
+		clickedValue := s.valueFromPosition(mx)
+		useSecondary := rightDown
+		if rightDown {
+			// Right drag moves the whole block; capture starting span.
+			s.startLow = s.lowValue
+			s.startHigh = s.highValue
+			s.startValue = clickedValue
+			s.dragHigh = false
+		} else {
+			s.dragHigh = s.shouldDragHigh(mx)
+		}
+		s.dragSecondary = useSecondary
+		s.dragging = true
+		s.updateHandleFromPosition(mx)
+		return true
+	}
+
+	if s.dragging {
+		stillHeld := (s.dragSecondary && rightHeld) || (!s.dragSecondary && leftHeld)
+		if stillHeld {
+			if mx != -1 {
+				s.updateHandleFromPosition(mx)
+				return true
+			}
+		} else if leftUp || rightUp {
+			s.dragging = false
+			if s.onDragEnd != nil {
+				s.onDragEnd()
+			}
+			return true
+		}
+	}
+
+	return false
+}
+
+func (s *MenuRangeSlider) updateHandleFromPosition(mx int) {
+	val := s.valueFromPosition(mx)
+	if s.dragSecondary {
+		width := s.startHigh - s.startLow
+		delta := val - s.startValue
+		newLow := s.startLow + delta
+		newHigh := newLow + width
+		if newLow < s.options.MinValue {
+			newLow = s.options.MinValue
+			newHigh = newLow + width
+		}
+		if newHigh > s.options.MaxValue {
+			newHigh = s.options.MaxValue
+			newLow = newHigh - width
+		}
+		s.lowValue, s.highValue = s.clampValues(newLow, newHigh)
+	} else if s.dragHigh {
+		newHigh := val
+		if newHigh < s.lowValue {
+			newHigh = s.lowValue
+		}
+		if newHigh > s.options.MaxValue {
+			newHigh = s.options.MaxValue
+		}
+		s.highValue = newHigh
+	} else {
+		newLow := val
+		if newLow > s.highValue {
+			newLow = s.highValue
+		}
+		if newLow < s.options.MinValue {
+			newLow = s.options.MinValue
+		}
+		s.lowValue = newLow
+	}
+	s.displayLow, s.displayHigh = s.lowValue, s.highValue
+	s.invokeCallback()
+}
+
+func (s *MenuRangeSlider) shouldDragHigh(mx int) bool {
+	if s.highValue == s.lowValue {
+		// When collapsed, choose the closest handle by position.
+		lowX := s.positionForValue(s.lowValue)
+		highX := s.positionForValue(s.highValue)
+		if math.Abs(float64(mx-lowX)) >= math.Abs(float64(mx-highX)) {
+			return true
+		}
+		return false
+	}
+	lowX := s.positionForValue(s.lowValue)
+	highX := s.positionForValue(s.highValue)
+	return math.Abs(float64(mx-highX)) <= math.Abs(float64(mx-lowX))
+}
+
+func (s *MenuRangeSlider) valueFromPosition(mx int) float64 {
+	sliderWidth := s.sliderRect.Dx()
+	if sliderWidth == 0 {
+		return s.lowValue
+	}
+	relativeX := mx - s.sliderRect.Min.X
+	ratio := float64(relativeX) / float64(sliderWidth)
+	ratio = math.Max(0, math.Min(1, ratio))
+	val := s.options.MinValue + ratio*(s.options.MaxValue-s.options.MinValue)
+	if s.options.Step > 0 {
+		val = math.Round(val/s.options.Step) * s.options.Step
+	}
+	return val
+}
+
+func (s *MenuRangeSlider) clampValues(low, high float64) (float64, float64) {
+	min := s.options.MinValue
+	max := s.options.MaxValue
+	if low < min {
+		low = min
+	}
+	if high > max {
+		high = max
+	}
+	if low > high {
+		low = high
+	}
+	return low, high
+}
+
+func (s *MenuRangeSlider) invokeCallback() {
+	if s.callback != nil {
+		s.callback(s.lowValue, s.highValue)
+	}
+}
+
+func (s *MenuRangeSlider) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
+	if !s.visible || s.displayAlpha() <= 0.01 {
+		return 0
+	}
+
+	height := s.options.Height
+	alpha := float32(s.displayAlpha())
+	labelY := y + 8
+
+	textColor := s.options.TextColor
+	textColor.A = uint8(float32(textColor.A) * alpha)
+	text.Draw(screen, s.label, font, x, labelY, textColor)
+
+	valueText := ""
+	if s.options.ShowValue {
+		if s.options.ValueFormatter != nil {
+			valueText = s.options.ValueFormatter(s.displayLow, s.displayHigh)
+		} else {
+			valueText = fmt.Sprintf(s.options.ValueFormat+" – "+s.options.ValueFormat, s.displayLow, s.displayHigh)
+		}
+		valueBounds := text.BoundString(font, valueText)
+		text.Draw(screen, valueText, font, x+width-valueBounds.Dx(), labelY, textColor)
+	}
+
+	sliderY := y + 26
+	sliderHeight := 14
+	sliderX := x + 5
+	sliderWidth := width - 10
+	if s.options.CompactLabel {
+		sliderY = y + 20
+		height = s.options.Height - 6
+	}
+
+	s.sliderRect = image.Rect(sliderX, sliderY-sliderHeight/2, sliderX+sliderWidth, sliderY+sliderHeight/2)
+
+	bg := s.options.BackgroundColor
+	if !s.options.Enabled {
+		bg = color.RGBA{60, 60, 60, 255}
+	}
+	bg.A = uint8(float32(bg.A) * alpha)
+	vector.DrawFilledRect(screen, float32(s.sliderRect.Min.X), float32(s.sliderRect.Min.Y), float32(s.sliderRect.Dx()), float32(s.sliderRect.Dy()), bg, false)
+
+	rangeStart := s.positionForValue(s.displayLow)
+	rangeEnd := s.positionForValue(s.displayHigh)
+	fillColor := s.baseFill
+	if !s.options.Enabled {
+		fillColor = color.RGBA{80, 80, 80, 255}
+	}
+	fillColor.A = uint8(float32(fillColor.A) * alpha)
+
+	if s.exclusion {
+		// Shade outer regions instead of the selected band.
+		leftWidth := rangeStart - s.sliderRect.Min.X
+		rightWidth := s.sliderRect.Max.X - rangeEnd
+		if leftWidth > 0 {
+			vector.DrawFilledRect(screen, float32(s.sliderRect.Min.X), float32(s.sliderRect.Min.Y), float32(leftWidth), float32(s.sliderRect.Dy()), fillColor, false)
+		}
+		if rightWidth > 0 {
+			vector.DrawFilledRect(screen, float32(rangeEnd), float32(s.sliderRect.Min.Y), float32(rightWidth), float32(s.sliderRect.Dy()), fillColor, false)
+		}
+	} else {
+		fillWidth := rangeEnd - rangeStart
+		vector.DrawFilledRect(screen, float32(rangeStart), float32(s.sliderRect.Min.Y), float32(fillWidth), float32(s.sliderRect.Dy()), fillColor, false)
+	}
+
+	handleColor := s.options.HandleColor
+	if !s.options.Enabled {
+		handleColor = color.RGBA{100, 100, 100, 255}
+	}
+	handleColor.A = uint8(float32(handleColor.A) * alpha)
+
+	vector.DrawFilledRect(screen, float32(rangeStart-5), float32(s.sliderRect.Min.Y), 10, float32(s.sliderRect.Dy()), handleColor, false)
+	vector.DrawFilledRect(screen, float32(rangeEnd-5), float32(s.sliderRect.Min.Y), 10, float32(s.sliderRect.Dy()), handleColor, false)
+
+	return height
+}
+
+func (s *MenuRangeSlider) positionForValue(value float64) int {
+	rangeWidth := s.sliderRect.Dx()
+	if rangeWidth <= 0 {
+		return s.sliderRect.Min.X
+	}
+	clamped := math.Max(s.options.MinValue, math.Min(s.options.MaxValue, value))
+	ratio := (clamped - s.options.MinValue) / (s.options.MaxValue - s.options.MinValue)
+	return s.sliderRect.Min.X + int(float64(rangeWidth)*ratio)
+}
+
+func (s *MenuRangeSlider) GetMinHeight() int {
+	return s.options.Height
+}
+
+func (s *MenuRangeSlider) SetValues(low, high float64) {
+	s.lowValue, s.highValue = s.clampValues(low, high)
+	s.displayLow, s.displayHigh = s.lowValue, s.highValue
+}
+
+func (s *MenuRangeSlider) SetFillColor(fill color.RGBA) {
+	s.options.FillColor = fill
+	s.baseFill = fill
+}
+
+func (s *MenuRangeSlider) SetExclusion(active bool) {
+	s.exclusion = active
+}
+
+func (s *MenuRangeSlider) SetOnDragEnd(callback func()) {
+	s.onDragEnd = callback
+}
+
+func (s *MenuRangeSlider) GetValues() (float64, float64) {
+	return s.lowValue, s.highValue
+}
+
+func (s *MenuRangeSlider) SetEnabled(enabled bool) {
+	s.options.Enabled = enabled
+	if !enabled {
+		s.dragging = false
+	}
+}
+
 // CollapsibleMenuOptions configures collapsible section appearance
 type CollapsibleMenuOptions struct {
 	HeaderColor     color.RGBA
@@ -960,6 +1316,7 @@ type CollapsibleMenu struct {
 	lastX, lastY  int     // Store last known position from Draw call
 	lastWidth     int     // Store last known width from Draw call
 	lastClickTime float64 // Track when last click was processed to prevent double-clicks
+	revealStart   map[EdgeMenuElement]time.Time
 }
 
 func NewCollapsibleMenu(title string, options CollapsibleMenuOptions) *CollapsibleMenu {
@@ -969,6 +1326,7 @@ func NewCollapsibleMenu(title string, options CollapsibleMenuOptions) *Collapsib
 		options:         options,
 		collapsed:       options.Collapsed,
 		elements:        make([]EdgeMenuElement, 0),
+		revealStart:     make(map[EdgeMenuElement]time.Time),
 	}
 }
 
@@ -1011,6 +1369,18 @@ func (c *CollapsibleMenu) Slider(label string, initialValue float64, options Sli
 	slider := NewMenuSlider(label, initialValue, options, callback)
 	c.elements = append(c.elements, slider)
 	return c
+}
+
+func (c *CollapsibleMenu) RangeSlider(label string, low, high float64, options RangeSliderOptions, callback func(float64, float64)) *MenuRangeSlider {
+	slider := NewMenuRangeSlider(label, low, high, options, callback)
+	c.elements = append(c.elements, slider)
+	return slider
+}
+
+func (c *CollapsibleMenu) Card() *Card {
+	card := NewCard()
+	c.elements = append(c.elements, card)
+	return card
 }
 
 func (c *CollapsibleMenu) UpgradeControl(label, upgradeType, territoryName string, currentLevel int) *CollapsibleMenu {
@@ -1078,7 +1448,6 @@ func (c *CollapsibleMenu) Update(mx, my int, deltaTime float64) bool {
 			// If this is a trading route submenu, save its state
 			if c.parentMenu != nil && strings.HasPrefix(c.title, "Route to ") {
 				c.parentMenu.tradingRouteStates[c.title] = !c.collapsed
-				fmt.Printf("DEBUG: Saved trading route state: %s = %t\n", c.title, !c.collapsed)
 			}
 
 			return true
@@ -1098,7 +1467,7 @@ func (c *CollapsibleMenu) Update(mx, my int, deltaTime float64) bool {
 }
 
 func (c *CollapsibleMenu) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !c.visible || c.animProgress <= 0.01 {
+	if !c.visible || c.displayAlpha() <= 0.01 {
 		return 0
 	}
 
@@ -1107,7 +1476,7 @@ func (c *CollapsibleMenu) Draw(screen *ebiten.Image, x, y, width int, font font.
 	c.lastY = y
 	c.lastWidth = width
 
-	alpha := float32(c.animProgress)
+	alpha := float32(c.displayAlpha())
 	currentY := y
 
 	// Draw header
@@ -1141,10 +1510,66 @@ func (c *CollapsibleMenu) Draw(screen *ebiten.Image, x, y, width int, font font.
 
 	// Draw elements if not collapsed
 	if !c.collapsed {
+		if !eruntime.GetRuntimeOptions().SidemenuAnimations {
+			c.revealStart = make(map[EdgeMenuElement]time.Time)
+			for _, element := range c.elements {
+				if element.IsVisible() {
+					if r, ok := element.(interface{ SetRevealProgress(float64) }); ok {
+						r.SetRevealProgress(1)
+					}
+					elementHeight := element.Draw(screen, x+10, currentY+5, width-20, font)
+					currentY += elementHeight + 5
+				}
+			}
+			currentY += 10 // Extra spacing at bottom
+			return currentY - y
+		}
+
+		now := time.Now()
+		revealDuration := 0.45
+		revealDelayStep := 0.035
+		revealOffset := 6.0
+		easeOutCubic := func(t float64) float64 {
+			if t <= 0 {
+				return 0
+			}
+			if t >= 1 {
+				return 1
+			}
+			p := 1 - t
+			return 1 - p*p*p
+		}
+		visibleNow := make(map[EdgeMenuElement]struct{})
+		viewIndex := 0
 		for _, element := range c.elements {
 			if element.IsVisible() {
-				elementHeight := element.Draw(screen, x+10, currentY+5, width-20, font)
+				viewIndex++
+				start, ok := c.revealStart[element]
+				if !ok {
+					delay := time.Duration(float64(viewIndex) * revealDelayStep * float64(time.Second))
+					start = now.Add(delay)
+					c.revealStart[element] = start
+				}
+				progress := (now.Sub(start).Seconds()) / revealDuration
+				if progress < 0 {
+					progress = 0
+				}
+				if progress > 1 {
+					progress = 1
+				}
+				progress = easeOutCubic(progress)
+				if r, ok := element.(interface{ SetRevealProgress(float64) }); ok {
+					r.SetRevealProgress(progress)
+				}
+				yOffset := int((1.0 - progress) * revealOffset)
+				elementHeight := element.Draw(screen, x+10, currentY+5+yOffset, width-20, font)
 				currentY += elementHeight + 5
+				visibleNow[element] = struct{}{}
+			}
+		}
+		for element := range c.revealStart {
+			if _, ok := visibleNow[element]; !ok {
+				delete(c.revealStart, element)
 			}
 		}
 		currentY += 10 // Extra spacing at bottom
@@ -1168,6 +1593,9 @@ func (c *CollapsibleMenu) GetMinHeight() int {
 
 func (c *CollapsibleMenu) SetCollapsed(collapsed bool) {
 	c.collapsed = collapsed
+	if collapsed {
+		c.revealStart = make(map[EdgeMenuElement]time.Time)
+	}
 }
 
 func (c *CollapsibleMenu) IsCollapsed() bool {
@@ -1206,6 +1634,8 @@ type EdgeMenu struct {
 	animating    bool
 	animProgress float64
 	animTarget   float64
+	revealReady  bool
+	revealStart  map[EdgeMenuElement]time.Time
 
 	// Modal background
 	modal                *TerritoryModal
@@ -1270,6 +1700,8 @@ func NewEdgeMenu(title string, options EdgeMenuOptions) *EdgeMenu {
 		animating:           false,
 		animProgress:        0.0,
 		animTarget:          0.0,
+		revealReady:         false,
+		revealStart:         make(map[EdgeMenuElement]time.Time),
 		modal:               NewTerritoryModal(),
 		font:                loadWynncraftFont(16),
 		titleFont:           loadWynncraftFont(22),
@@ -1293,6 +1725,10 @@ func NewEdgeMenu(title string, options EdgeMenuOptions) *EdgeMenu {
 // Button adds a button to the menu
 func (m *EdgeMenu) Button(text string, options ButtonOptions, callback func()) *EdgeMenu {
 	button := NewMenuButton(text, options, callback)
+	if m.revealReady {
+		button.SetRevealProgress(0)
+		delete(m.revealStart, button)
+	}
 	m.elements = append(m.elements, button)
 	return m
 }
@@ -1300,6 +1736,10 @@ func (m *EdgeMenu) Button(text string, options ButtonOptions, callback func()) *
 // Text adds text to the menu
 func (m *EdgeMenu) Text(text string, options TextOptions) *EdgeMenu {
 	textElement := NewMenuText(text, options)
+	if m.revealReady {
+		textElement.SetRevealProgress(0)
+		delete(m.revealStart, textElement)
+	}
 	m.elements = append(m.elements, textElement)
 	return m
 }
@@ -1307,6 +1747,10 @@ func (m *EdgeMenu) Text(text string, options TextOptions) *EdgeMenu {
 // Checkbox adds a checkbox to the menu
 func (m *EdgeMenu) Checkbox(label string, checked bool, options CheckboxOptions, callback func(bool)) *MenuCheckbox {
 	checkbox := NewMenuCheckbox(label, checked, options, callback)
+	if m.revealReady {
+		checkbox.SetRevealProgress(0)
+		delete(m.revealStart, checkbox)
+	}
 	m.elements = append(m.elements, checkbox)
 	return checkbox
 }
@@ -1314,13 +1758,34 @@ func (m *EdgeMenu) Checkbox(label string, checked bool, options CheckboxOptions,
 // Slider adds a slider to the menu
 func (m *EdgeMenu) Slider(label string, initialValue float64, options SliderOptions, callback func(float64)) *EdgeMenu {
 	slider := NewMenuSlider(label, initialValue, options, callback)
+	if m.revealReady {
+		slider.SetRevealProgress(0)
+		delete(m.revealStart, slider)
+	}
 	m.elements = append(m.elements, slider)
 	return m
+}
+
+// RangeSlider adds a dual-handle slider to the menu
+func (m *EdgeMenu) RangeSlider(label string, low, high float64, options RangeSliderOptions, callback func(float64, float64)) *MenuRangeSlider {
+	slider := NewMenuRangeSlider(label, low, high, options, callback)
+	if m.revealReady {
+		slider.SetRevealProgress(0)
+		delete(m.revealStart, slider)
+	}
+	m.elements = append(m.elements, slider)
+	return slider
 }
 
 // Card adds a card container to the menu
 func (m *EdgeMenu) Card() *Card {
 	card := NewCard()
+	if m.revealReady {
+		if r, ok := interface{}(card).(interface{ SetRevealProgress(float64) }); ok {
+			r.SetRevealProgress(0)
+		}
+		delete(m.revealStart, card)
+	}
 	m.elements = append(m.elements, card)
 	return card
 }
@@ -1328,6 +1793,12 @@ func (m *EdgeMenu) Card() *Card {
 // Container adds a horizontal scrolling container to the menu
 func (m *EdgeMenu) Container() *Container {
 	container := NewContainer()
+	if m.revealReady {
+		if r, ok := interface{}(container).(interface{ SetRevealProgress(float64) }); ok {
+			r.SetRevealProgress(0)
+		}
+		delete(m.revealStart, container)
+	}
 	m.elements = append(m.elements, container)
 	return container
 }
@@ -1336,6 +1807,10 @@ func (m *EdgeMenu) Container() *Container {
 func (m *EdgeMenu) CollapsibleMenu(title string, options CollapsibleMenuOptions) *CollapsibleMenu {
 	collapsible := NewCollapsibleMenu(title, options)
 	// collapsible.setParentMenu(m) // Set parent menu for focus management
+	if m.revealReady {
+		collapsible.SetRevealProgress(0)
+		delete(m.revealStart, collapsible)
+	}
 	m.elements = append(m.elements, collapsible)
 	return collapsible
 }
@@ -1391,6 +1866,13 @@ func (m *EdgeMenu) Show() {
 	m.visible = true
 	m.animating = true
 	m.animTarget = 1.0
+	m.revealReady = false
+	m.revealStart = make(map[EdgeMenuElement]time.Time)
+	for _, element := range m.elements {
+		if r, ok := element.(interface{ SetRevealProgress(float64) }); ok {
+			r.SetRevealProgress(0)
+		}
+	}
 	// Only show the modal if we're displaying territory content
 	if m.modal != nil && m.currentTerritory != "" {
 		m.modal.Show()
@@ -1401,6 +1883,7 @@ func (m *EdgeMenu) Show() {
 func (m *EdgeMenu) Hide() {
 	m.animTarget = 0.0
 	m.animating = true
+	m.revealReady = false
 	// Always hide the modal when the menu is hidden
 	if m.modal != nil {
 		m.modal.Hide()
@@ -1435,6 +1918,10 @@ func (m *EdgeMenu) HasDraggingSliders() bool {
 func hasSlidersDragging(element EdgeMenuElement) bool {
 	switch e := element.(type) {
 	case *MenuSlider:
+		if e.dragging {
+			return true
+		}
+	case *MenuRangeSlider:
 		if e.dragging {
 			return true
 		}
@@ -1550,12 +2037,21 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 	if m.animating {
 		if math.Abs(m.animProgress-m.animTarget) > 0.01 {
 			diff := m.animTarget - m.animProgress
-			m.animProgress += diff * 8.0 * deltaTime
+			m.animProgress += diff * 16.0 * deltaTime
 		} else {
 			m.animProgress = m.animTarget
 			m.animating = false
 			if m.animProgress <= 0.01 {
 				m.visible = false
+			}
+		}
+	}
+
+	if m.animTarget >= 1.0 && m.animProgress >= 0.99 {
+		if !m.revealReady {
+			m.revealReady = true
+			if m.revealStart == nil {
+				m.revealStart = make(map[EdgeMenuElement]time.Time)
 			}
 		}
 	}
@@ -1571,7 +2067,7 @@ func (m *EdgeMenu) Update(screenWidth, screenHeight int, deltaTime float64) bool
 	if m.titleAnimating {
 		if math.Abs(m.titleProgress-m.titleTarget) > 0.01 {
 			diff := m.titleTarget - m.titleProgress
-			m.titleProgress += diff * 6.0 * deltaTime
+			m.titleProgress += diff * 16.0 * deltaTime
 		} else {
 			m.titleProgress = m.titleTarget
 			m.titleAnimating = false
@@ -1950,17 +2446,98 @@ func (m *EdgeMenu) Draw(screen *ebiten.Image) {
 	contentY := m.bounds.Min.Y + titleHeight
 	contentHeight := m.bounds.Dy() - titleHeight
 	elementWidth := m.bounds.Dx() - 40
+	if !eruntime.GetRuntimeOptions().SidemenuAnimations {
+		if m.options.HorizontalScroll {
+			currentX := m.bounds.Min.X + 20 - m.scrollOffset
+			cardWidth := 200
+			cardSpacing := 20
+
+			for _, element := range m.elements {
+				if element.IsVisible() {
+					if r, ok := element.(interface{ SetRevealProgress(float64) }); ok {
+						r.SetRevealProgress(1)
+					}
+					if currentX+cardWidth > m.bounds.Min.X && currentX < m.bounds.Max.X {
+						element.Draw(screen, currentX, contentY+10, cardWidth, m.font)
+					}
+					currentX += cardWidth + cardSpacing
+				}
+			}
+		} else {
+			currentY := contentY - m.scrollOffset
+
+			for _, element := range m.elements {
+				if element.IsVisible() {
+					elementHeight := element.GetMinHeight()
+					if r, ok := element.(interface{ SetRevealProgress(float64) }); ok {
+						r.SetRevealProgress(1)
+					}
+					if currentY+elementHeight > contentY && currentY < contentY+contentHeight {
+						element.Draw(screen, m.bounds.Min.X+20, currentY, elementWidth, m.font)
+					}
+					currentY += elementHeight + 10
+				}
+			}
+		}
+
+		// Draw scrollbar if needed
+		if m.options.Scrollable && m.maxScroll > 0 {
+			m.drawScrollbar(screen, contentY, contentHeight)
+		}
+		return
+	}
+	if !m.revealReady {
+		return
+	}
+
+	now := time.Now()
+	revealDuration := 0.65
+	revealDelayStep := 0.04
+	revealOffset := 7.0
+	easeOutCubic := func(t float64) float64 {
+		if t <= 0 {
+			return 0
+		}
+		if t >= 1 {
+			return 1
+		}
+		p := 1 - t
+		return 1 - p*p*p
+	}
+	visibleNow := make(map[EdgeMenuElement]struct{})
 
 	if m.options.HorizontalScroll {
 		// Horizontal layout
 		currentX := m.bounds.Min.X + 20 - m.scrollOffset
 		cardWidth := 200
 		cardSpacing := 20
+		viewIndex := 0
 
 		for _, element := range m.elements {
 			if element.IsVisible() {
-				if currentX+cardWidth > m.bounds.Min.X && currentX < m.bounds.Max.X {
-					element.Draw(screen, currentX, contentY+10, cardWidth, m.font)
+				inView := currentX+cardWidth > m.bounds.Min.X && currentX < m.bounds.Max.X
+				if inView {
+					viewIndex++
+					start, ok := m.revealStart[element]
+					if !ok {
+						delay := time.Duration(float64(viewIndex) * revealDelayStep * float64(time.Second))
+						start = now.Add(delay)
+						m.revealStart[element] = start
+					}
+					progress := (now.Sub(start).Seconds()) / revealDuration
+					if progress < 0 {
+						progress = 0
+					}
+					if progress > 1 {
+						progress = 1
+					}
+					progress = easeOutCubic(progress)
+					if r, ok := element.(interface{ SetRevealProgress(float64) }); ok {
+						r.SetRevealProgress(progress)
+					}
+					yOffset := int((1.0 - progress) * revealOffset)
+					element.Draw(screen, currentX, contentY+10+yOffset, cardWidth, m.font)
+					visibleNow[element] = struct{}{}
 				}
 				currentX += cardWidth + cardSpacing
 			}
@@ -1968,18 +2545,46 @@ func (m *EdgeMenu) Draw(screen *ebiten.Image) {
 	} else {
 		// Vertical layout
 		currentY := contentY - m.scrollOffset
+		viewIndex := 0
 
 		for _, element := range m.elements {
 			if element.IsVisible() {
 				elementHeight := element.GetMinHeight()
 
-				if currentY+elementHeight > contentY && currentY < contentY+contentHeight {
-					element.Draw(screen, m.bounds.Min.X+20, currentY, elementWidth, m.font)
+				inView := currentY+elementHeight > contentY && currentY < contentY+contentHeight
+				if inView {
+					viewIndex++
+					start, ok := m.revealStart[element]
+					if !ok {
+						delay := time.Duration(float64(viewIndex) * revealDelayStep * float64(time.Second))
+						start = now.Add(delay)
+						m.revealStart[element] = start
+					}
+					progress := (now.Sub(start).Seconds()) / revealDuration
+					if progress < 0 {
+						progress = 0
+					}
+					if progress > 1 {
+						progress = 1
+					}
+					progress = easeOutCubic(progress)
+					if r, ok := element.(interface{ SetRevealProgress(float64) }); ok {
+						r.SetRevealProgress(progress)
+					}
+					yOffset := int((1.0 - progress) * revealOffset)
+					element.Draw(screen, m.bounds.Min.X+20, currentY+yOffset, elementWidth, m.font)
+					visibleNow[element] = struct{}{}
 				}
 				currentY += elementHeight + 10
 			}
 		}
 
+	}
+
+	for element := range m.revealStart {
+		if _, ok := visibleNow[element]; !ok {
+			delete(m.revealStart, element)
+		}
 	}
 
 	// Draw scrollbar if needed
@@ -2238,22 +2843,29 @@ func (uc *UpgradeControl) Update(mx, my int, deltaTime float64) bool {
 }
 
 func (uc *UpgradeControl) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !uc.visible || uc.animProgress <= 0.01 {
+	if !uc.visible || uc.displayAlpha() <= 0.01 {
 		return 0
 	}
 
 	currentY := y
+	alpha := float32(uc.displayAlpha())
 	rowHeight := 30
 
 	// Draw label
 	labelText := fmt.Sprintf("%s: Level %d", uc.label, uc.currentLevel)
-	textColor := color.RGBA{255, 255, 255, uint8(float32(255) * float32(uc.animProgress))}
+	textColor := color.RGBA{255, 255, 255, uint8(float32(255) * alpha)}
 	text.Draw(screen, labelText, font, x, currentY+20, textColor)
 	currentY += rowHeight
 
 	// Draw buttons and slider on the same row
 	buttonWidth := 30
 	sliderWidth := width - (buttonWidth * 2) - 20 // Leave space for buttons and padding
+	uc.decrementBtn.SetRevealProgress(uc.displayAlpha())
+	uc.incrementBtn.SetRevealProgress(uc.displayAlpha())
+	uc.slider.SetRevealProgress(uc.displayAlpha())
+	if uc.costText != nil {
+		uc.costText.SetRevealProgress(uc.displayAlpha())
+	}
 
 	// Calculate button Y offset to center with slider bar
 	// Slider bar center is at currentY + 24 (see MenuSlider.Draw), button should be centered on that
@@ -2698,7 +3310,7 @@ func (bc *BonusControl) Update(mx, my int, deltaTime float64) bool {
 }
 
 func (bc *BonusControl) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !bc.visible || bc.animProgress <= 0.01 {
+	if !bc.visible || bc.displayAlpha() <= 0.01 {
 		return 0
 	}
 
@@ -2707,13 +3319,19 @@ func (bc *BonusControl) Draw(screen *ebiten.Image, x, y, width int, font font.Fa
 
 	// Draw label
 	labelText := fmt.Sprintf("%s: Level %d", bc.label, bc.currentLevel)
-	textColor := color.RGBA{255, 255, 255, uint8(float32(255) * float32(bc.animProgress))}
+	textColor := color.RGBA{255, 255, 255, uint8(float32(255) * float32(bc.displayAlpha()))}
 	text.Draw(screen, labelText, font, x, currentY+20, textColor)
 	currentY += rowHeight
 
 	// Draw buttons and slider on the same row
 	buttonWidth := 30
 	sliderWidth := width - (buttonWidth * 2) - 20 // Leave space for buttons and padding
+	bc.decrementBtn.SetRevealProgress(bc.displayAlpha())
+	bc.incrementBtn.SetRevealProgress(bc.displayAlpha())
+	bc.slider.SetRevealProgress(bc.displayAlpha())
+	if bc.costText != nil {
+		bc.costText.SetRevealProgress(bc.displayAlpha())
+	}
 
 	// Calculate button Y offset to center with slider bar
 	// Slider bar center is at currentY + 24 (see MenuSlider.Draw), button should be centered on that
@@ -2924,6 +3542,9 @@ func (m *EdgeMenu) UpdateTotalCosts(territoryName string) {
 			if collapsible.title == "Total Costs" {
 				// Clear existing cost text elements
 				collapsible.elements = collapsible.elements[:0]
+				if collapsible.revealStart == nil {
+					collapsible.revealStart = make(map[EdgeMenuElement]time.Time)
+				}
 
 				// Re-add updated cost text elements
 				emeraldCostOptions := DefaultTextOptions()
@@ -2950,6 +3571,14 @@ func (m *EdgeMenu) UpdateTotalCosts(territoryName string) {
 				cropCostOptions.Color = color.RGBA{255, 255, 0, 255} // Yellow for crops
 				cropText := NewMenuText(fmt.Sprintf("%d Crop per Hour", int(territory.Costs.Crops)), cropCostOptions)
 				collapsible.elements = append(collapsible.elements, cropText)
+
+				revealDoneAt := time.Now().Add(-time.Second)
+				for _, child := range collapsible.elements {
+					if r, ok := child.(interface{ SetRevealProgress(float64) }); ok {
+						r.SetRevealProgress(1)
+					}
+					collapsible.revealStart[child] = revealDoneAt
+				}
 
 				return // Found and updated, exit
 			}
@@ -3420,7 +4049,7 @@ func (rsc *ResourceStorageControl) updateStorage(newValue int) {
 }
 
 func (rsc *ResourceStorageControl) Draw(screen *ebiten.Image, x, y, width int, font font.Face) int {
-	if !rsc.visible || rsc.animProgress <= 0.01 {
+	if !rsc.visible || rsc.displayAlpha() <= 0.01 {
 		return 0
 	}
 
@@ -3433,7 +4062,7 @@ func (rsc *ResourceStorageControl) Draw(screen *ebiten.Image, x, y, width int, f
 
 	// Draw resource name
 	nameColor := rsc.color
-	nameColor.A = uint8(float32(nameColor.A) * float32(rsc.animProgress))
+	nameColor.A = uint8(float32(nameColor.A) * float32(rsc.displayAlpha()))
 	text.Draw(screen, rsc.resourceName+":", font, x, y+20, nameColor)
 
 	// Draw input box for current value
@@ -3443,11 +4072,11 @@ func (rsc *ResourceStorageControl) Draw(screen *ebiten.Image, x, y, width int, f
 
 	if rsc.isEditing {
 		// Draw input box background (darker when editing)
-		boxColor := color.RGBA{40, 40, 50, uint8(float32(255) * float32(rsc.animProgress))}
+		boxColor := color.RGBA{40, 40, 50, uint8(float32(255) * float32(rsc.displayAlpha()))}
 		vector.DrawFilledRect(screen, float32(inputX), float32(inputY), float32(inputBoxWidth), float32(inputHeight), boxColor, false)
 
 		// Draw border (highlighted when editing)
-		borderColor := color.RGBA{100, 150, 255, uint8(float32(255) * float32(rsc.animProgress))}
+		borderColor := color.RGBA{100, 150, 255, uint8(float32(255) * float32(rsc.displayAlpha()))}
 		vector.StrokeRect(screen, float32(inputX), float32(inputY), float32(inputBoxWidth), float32(inputHeight), 2, borderColor, false)
 
 		// Draw text selection background if any
@@ -3477,7 +4106,7 @@ func (rsc *ResourceStorageControl) Draw(screen *ebiten.Image, x, y, width int, f
 		}
 
 		// Draw input text
-		textColor := color.RGBA{255, 255, 255, uint8(float32(255) * float32(rsc.animProgress))}
+		textColor := color.RGBA{255, 255, 255, uint8(float32(255) * float32(rsc.displayAlpha()))}
 		text.Draw(screen, rsc.inputText, font, inputX+3, y+17, textColor)
 
 		// Draw cursor if no selection
@@ -3491,35 +4120,35 @@ func (rsc *ResourceStorageControl) Draw(screen *ebiten.Image, x, y, width int, f
 			// Draw blinking cursor
 			time := float64(ebiten.ActualTPS()) * 0.1
 			if int(time)%2 == 0 {
-				cursorColor := color.RGBA{255, 255, 255, uint8(float32(255) * float32(rsc.animProgress))}
+				cursorColor := color.RGBA{255, 255, 255, uint8(float32(255) * float32(rsc.displayAlpha()))}
 				vector.StrokeLine(screen, float32(cursorX), float32(inputY+3), float32(cursorX), float32(inputY+inputHeight-3), 1, cursorColor, false)
 			}
 		}
 	} else {
 		// Draw input box background (normal)
-		boxColor := color.RGBA{30, 30, 35, uint8(float32(200) * float32(rsc.animProgress))}
+		boxColor := color.RGBA{30, 30, 35, uint8(float32(200) * float32(rsc.displayAlpha()))}
 		vector.DrawFilledRect(screen, float32(inputX), float32(inputY), float32(inputBoxWidth), float32(inputHeight), boxColor, false)
 
 		// Draw border (subtle when not editing)
-		borderColor := color.RGBA{80, 80, 90, uint8(float32(150) * float32(rsc.animProgress))}
+		borderColor := color.RGBA{80, 80, 90, uint8(float32(150) * float32(rsc.displayAlpha()))}
 		vector.StrokeRect(screen, float32(inputX), float32(inputY), float32(inputBoxWidth), float32(inputHeight), 1, borderColor, false)
 
 		// Draw current value
 		valueText := fmt.Sprintf("%d", rsc.currentValue)
-		textColor := color.RGBA{255, 255, 255, uint8(float32(255) * float32(rsc.animProgress))}
+		textColor := color.RGBA{255, 255, 255, uint8(float32(255) * float32(rsc.displayAlpha()))}
 		text.Draw(screen, valueText, font, inputX+3, y+17, textColor)
 	}
 
 	// Draw the rest of the text (max capacity and traversing)
 	restX := inputX + inputBoxWidth + spacing
 	restText := fmt.Sprintf("/%d (%d traversing)", rsc.maxValue, rsc.transitValue)
-	restColor := color.RGBA{200, 200, 200, uint8(float32(200) * float32(rsc.animProgress))}
+	restColor := color.RGBA{200, 200, 200, uint8(float32(200) * float32(rsc.displayAlpha()))}
 	text.Draw(screen, restText, font, restX, y+20, restColor)
 
 	// Draw generation per hour on the second line
 	generationY := y + 44 // Increased from 40 to 44 for more spacing
 	generationText := fmt.Sprintf("+%d per hour", rsc.generationPerHour)
-	generationColor := color.RGBA{150, 255, 150, uint8(float32(180) * float32(rsc.animProgress))} // Light green
+	generationColor := color.RGBA{150, 255, 150, uint8(float32(180) * float32(rsc.displayAlpha()))} // Light green
 	text.Draw(screen, generationText, font, inputX, generationY, generationColor)
 
 	return 49 // Increased from 45 to 49 to accommodate more spacing

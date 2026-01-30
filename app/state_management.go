@@ -417,6 +417,20 @@ func (smm *StateManagementMenu) Show() {
 	optionsSection.ToggleSwitch("Treasury Calculation", 0, treasureToggleOpts, treasureToggleCBFunc)
 
 	optionsSection.Spacer(DefaultSpacerOptions())
+	optionsSection.Text("Sidemenu Animations", DefaultTextOptions())
+	animOpts := DefaultToggleSwitchOptions()
+	animOpts.Options = []string{"On", "Off"}
+	animIndex := 1
+	if eruntime.GetRuntimeOptions().SidemenuAnimations {
+		animIndex = 0
+	}
+	optionsSection.ToggleSwitch("Sidemenu Animations", animIndex, animOpts, func(index int, value string) {
+		opts := eruntime.GetRuntimeOptions()
+		opts.SidemenuAnimations = index == 0
+		eruntime.SetRuntimeOptions(opts)
+	})
+
+	optionsSection.Spacer(DefaultSpacerOptions())
 
 	// Encode Treasury toggle switch
 	options := []string{"Enabled", "Disabled"}
@@ -442,10 +456,10 @@ func (smm *StateManagementMenu) Show() {
 	optionsSection.Spacer(DefaultSpacerOptions())
 
 	// Pathfinding Algorithm toggle switch
-	pathfindingOptions := []string{"Dijkstra", "A*", "FloodFill"}
+	pathfindingOptions := []string{"Dijkstra", "A*", "FloodFill", "BF", "FW"}
 	pathfindingToggleOpts := DefaultToggleSwitchOptions()
 	pathfindingToggleOpts.Options = pathfindingOptions
-	pathfindingToggleOpts.Width = 210 // Wider to accommodate 3 options
+	pathfindingToggleOpts.Width = 280 // Wider to fit 5 options cleanly
 	pathfindingToggleOpts.FontSize = 12
 	pathfindingToggleCBFunc := func(index int, value string) {
 		currOpts := eruntime.GetRuntimeOptions()
@@ -456,6 +470,10 @@ func (smm *StateManagementMenu) Show() {
 			currOpts.PathfindingAlgorithm = typedef.PathfindingAstar
 		case "FloodFill":
 			currOpts.PathfindingAlgorithm = typedef.PathfindingFloodFill
+		case "BF":
+			currOpts.PathfindingAlgorithm = typedef.PathfindingBellmanFord
+		case "FW":
+			currOpts.PathfindingAlgorithm = typedef.PathfindingFloydWarshall
 		}
 		eruntime.SetRuntimeOptions(currOpts)
 	}
@@ -471,11 +489,41 @@ func (smm *StateManagementMenu) Show() {
 		currentPathfindingIndex = 1
 	case typedef.PathfindingFloodFill:
 		currentPathfindingIndex = 2
+	case typedef.PathfindingBellmanFord:
+		currentPathfindingIndex = 3
+	case typedef.PathfindingFloydWarshall:
+		currentPathfindingIndex = 4
 	default:
 		currentPathfindingIndex = 0 // default when something doesnt work
 	}
 
 	optionsSection.ToggleSwitch("Algorithm", currentPathfindingIndex, pathfindingToggleOpts, pathfindingToggleCBFunc)
+
+	optionsSection.Spacer(DefaultSpacerOptions())
+
+	// Computation Source toggle switch
+	compOptions := []string{"CPU", "GPU"}
+	compToggleOpts := DefaultToggleSwitchOptions()
+	compToggleOpts.Options = compOptions
+	compToggleOpts.Width = 210
+	compToggleOpts.FontSize = 12
+	compToggleCBFunc := func(index int, value string) {
+		currOpts := eruntime.GetRuntimeOptions()
+		if value == "GPU" {
+			currOpts.ComputationSource = typedef.ComputationGPU
+		} else {
+			currOpts.ComputationSource = typedef.ComputationCPU
+		}
+		eruntime.SetRuntimeOptions(currOpts)
+	}
+
+	compIndex := 0
+	if currentOpts.ComputationSource == typedef.ComputationGPU {
+		compIndex = 1
+	}
+
+	optionsSection.Text("Computation Source", DefaultTextOptions())
+	optionsSection.ToggleSwitch("Computation Source", compIndex, compToggleOpts, compToggleCBFunc)
 
 	// Pathfinder provider selector (dropdown to handle many entries)
 	providers := pluginhost.ListPathfinderProviders()
@@ -550,8 +598,10 @@ func (smm *StateManagementMenu) Show() {
 		setter func(*typedef.Keybinds, string)
 	}{
 		{name: "analysis", label: "Analysis Modal", getter: func(k typedef.Keybinds) string { return k.AnalysisModal }, setter: func(k *typedef.Keybinds, v string) { k.AnalysisModal = v }},
+		{name: "auto_setup", label: "Auto Setup Modal", getter: func(k typedef.Keybinds) string { return k.AutoSetupModal }, setter: func(k *typedef.Keybinds, v string) { k.AutoSetupModal = v }},
 		{name: "state", label: "State Menu", getter: func(k typedef.Keybinds) string { return k.StateMenu }, setter: func(k *typedef.Keybinds, v string) { k.StateMenu = v }},
 		{name: "tribute", label: "Tribute Menu", getter: func(k typedef.Keybinds) string { return k.TributeMenu }, setter: func(k *typedef.Keybinds, v string) { k.TributeMenu = v }},
+		{name: "filter", label: "Filter Menu", getter: func(k typedef.Keybinds) string { return k.FilterMenu }, setter: func(k *typedef.Keybinds, v string) { k.FilterMenu = v }},
 		{name: "guild", label: "Guild Manager", getter: func(k typedef.Keybinds) string { return k.GuildManager }, setter: func(k *typedef.Keybinds, v string) { k.GuildManager = v }},
 		{name: "loadout", label: "Loadout Manager", getter: func(k typedef.Keybinds) string { return k.LoadoutManager }, setter: func(k *typedef.Keybinds, v string) { k.LoadoutManager = v }},
 		{name: "script", label: "Script Manager", getter: func(k typedef.Keybinds) string { return k.ScriptManager }, setter: func(k *typedef.Keybinds, v string) { k.ScriptManager = v }},
@@ -653,8 +703,7 @@ func (smm *StateManagementMenu) Show() {
 			updated := prevOpts
 			field.setter(&updated.Keybinds, normalized)
 
-			if a, b, dup := checkDuplicates(updated.Keybinds, prevOpts.PluginKeybinds); dup {
-				fmt.Printf("Keybind conflict between %s and %s\n", a, b)
+			if _, _, dup := checkDuplicates(updated.Keybinds, prevOpts.PluginKeybinds); dup {
 				if input != nil {
 					input.SetValue(prevVal)
 					input.selectionStart = 0
@@ -697,8 +746,7 @@ func (smm *StateManagementMenu) Show() {
 				prevVal := updated.PluginKeybinds[key]
 				updated.PluginKeybinds[key] = normalized
 
-				if a, b, dup := checkDuplicates(updated.Keybinds, updated.PluginKeybinds); dup {
-					fmt.Printf("Keybind conflict between %s and %s\n", a, b)
+				if _, _, dup := checkDuplicates(updated.Keybinds, updated.PluginKeybinds); dup {
 					if input != nil {
 						input.SetValue(prevVal)
 						input.selectionStart = 0

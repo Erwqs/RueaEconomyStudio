@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"RueaES/eruntime"
+	"RueaES/storage"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -37,7 +38,7 @@ func InitializeFileSystemManager(inputManager *InputManager) {
 	globalStateImportModal.SetCallbacks(
 		func(selectedOptions map[string]bool, filePath string) {
 			// Handle import
-			fmt.Printf("[STATE] Importing state with options: %+v\n", selectedOptions)
+			// fmt.Printf("[STATE] Importing state with options: %+v\n", selectedOptions)
 			// Use the public API (it handles errors internally with logging)
 			eruntime.LoadStateSelective(filePath, selectedOptions)
 
@@ -49,13 +50,13 @@ func InitializeFileSystemManager(inputManager *InputManager) {
 		},
 		func() {
 			// Handle cancel
-			fmt.Printf("[STATE] Import cancelled\n")
+			// fmt.Printf("[STATE] Import cancelled\n")
 		},
 	)
 
 	// Set up state save/load callbacks
 	globalFileSystemManager.SetOnFileSaved(func(filepath string, content []byte) error {
-		fmt.Printf("[FILE] onFileSaved callback called for: %s\n", filepath)
+		// fmt.Printf("[FILE] onFileSaved callback called for: %s\n", filepath)
 		// For state saves, ignore content parameter and call SaveState API
 		eruntime.SaveState(filepath)
 
@@ -67,7 +68,7 @@ func InitializeFileSystemManager(inputManager *InputManager) {
 	})
 
 	globalFileSystemManager.SetOnFileOpened(func(filepath string, content []byte) error {
-		fmt.Printf("[FILE] onFileOpened callback called for: %s\n", filepath)
+		// fmt.Printf("[FILE] onFileOpened callback called for: %s\n", filepath)
 
 		// Check if this is a state file (has .lz4 extension)
 		if filepath != "" && (strings.HasSuffix(filepath, ".lz4") || strings.Contains(filepath, "state")) {
@@ -119,10 +120,8 @@ func NewFileSystemManager(inputManager *InputManager) *FileSystemManager {
 		active:           true,
 	}
 
-	// Set default working directory
-	if wd, err := filepath.Abs("."); err == nil {
-		fsm.workingDirectory = wd
-	}
+	// Set default working directory to the app data directory
+	fsm.workingDirectory = storage.DataDir()
 
 	return fsm
 }
@@ -247,28 +246,28 @@ func (fsm *FileSystemManager) ShowSaveDialogue() {
 
 	// Set callbacks
 	fsm.saveDialogue.SetOnFileSelected(func(filepath string) {
-		fmt.Printf("[FILE] Save file selected: %s\n", filepath)
+		// fmt.Printf("[FILE] Save file selected: %s\n", filepath)
 		fsm.handleFileSave(filepath)
 	})
 
 	fsm.saveDialogue.SetOnCancelled(func() {
-		log.Println("[FILE] Save dialogue cancelled")
+		// log.Println("[FILE] Save dialogue cancelled")
 	})
 
 	// Show the dialogue
 	fsm.saveDialogue.Show()
 
-	log.Println("[FILE] Save dialogue displayed")
+	// log.Println("[FILE] Save dialogue displayed")
 }
 
 // handleFileOpen processes opening a selected file
 func (fsm *FileSystemManager) handleFileOpen(filepath string) {
-	log.Printf("[FILE] Opening file: %s", filepath)
+	// log.Printf("[FILE] Opening file: %s", filepath)
 
 	// Read file content
 	content, err := fsm.readFile(filepath)
 	if err != nil {
-		log.Printf("[FILE] Error reading file %s: %v", filepath, err)
+		// log.Printf("[FILE] Error reading file %s: %v", filepath, err)
 		return
 	}
 
@@ -283,38 +282,38 @@ func (fsm *FileSystemManager) handleFileOpen(filepath string) {
 	// Call callback if set
 	if fsm.onFileOpened != nil {
 		if err := fsm.onFileOpened(filepath, content); err != nil {
-			log.Printf("[FILE] Error processing opened file %s: %v", filepath, err)
+			// log.Printf("[FILE] Error processing opened file %s: %v", filepath, err)
 			return
 		}
 	}
 
-	log.Printf("[FILE] Successfully opened file: %s (%d bytes)", filepath, len(content))
+	// log.Printf("[FILE] Successfully opened file: %s (%d bytes)", filepath, len(content))
 }
 
 // handleFileSave processes saving to a selected file
 func (fsm *FileSystemManager) handleFileSave(filepath string) {
-	fmt.Printf("[FILE] handleFileSave called with: %s\n", filepath)
-	log.Printf("[FILE] Saving file: %s", filepath)
+	// fmt.Printf("[FILE] handleFileSave called with: %s\n", filepath)
+	// log.Printf("[FILE] Saving file: %s", filepath)
 
 	// Ensure file has proper extension
 	if !fsm.hasValidExtension(filepath) {
 		filepath = fsm.addDefaultExtension(filepath)
-		fmt.Printf("[FILE] Added default extension, new path: %s\n", filepath)
+		// fmt.Printf("[FILE] Added default extension, new path: %s\n", filepath)
 	}
 
 	// Call the save callback
 	if fsm.onFileSaved != nil {
-		fmt.Printf("[FILE] Calling onFileSaved callback for: %s\n", filepath)
+		// fmt.Printf("[FILE] Calling onFileSaved callback for: %s\n", filepath)
 		content := []byte("") // Placeholder - actual content handled by callback
 
 		if err := fsm.onFileSaved(filepath, content); err != nil {
-			log.Printf("[FILE] Error saving file %s: %v", filepath, err)
-			fmt.Printf("[FILE] Error in save callback: %v\n", err)
+			// log.Printf("[FILE] Error saving file %s: %v", filepath, err)
+			// fmt.Printf("[FILE] Error in save callback: %v\n", err)
 			return
 		}
-		fmt.Printf("[FILE] Save callback completed successfully\n")
+		// fmt.Printf("[FILE] Save callback completed successfully\n")
 	} else {
-		fmt.Printf("[FILE] No onFileSaved callback set!\n")
+		// fmt.Printf("[FILE] No onFileSaved callback set!\n")
 	}
 
 	// Update current file context
@@ -325,7 +324,7 @@ func (fsm *FileSystemManager) handleFileSave(filepath string) {
 		fsm.workingDirectory = "."
 	}
 
-	log.Printf("[FILE] Successfully saved file: %s", filepath)
+	// log.Printf("[FILE] Successfully saved file: %s", filepath)
 }
 
 // readFile reads content from a file

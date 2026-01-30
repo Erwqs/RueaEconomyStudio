@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"os"
@@ -247,7 +246,6 @@ func (sm *ScriptManager) loadScripts() {
 
 	scripts, err := javascript.GetScripts()
 	if err != nil {
-		fmt.Printf("[SCRIPT_MANAGER] Failed to load scripts: %v\n", err)
 		sm.scripts = []string{}
 		return
 	}
@@ -274,9 +272,7 @@ func (sm *ScriptManager) executeSelectedScript() {
 			// Send termination signal (don't close the channel, just send signal)
 			select {
 			case runtime.Cancel <- struct{}{}:
-				fmt.Printf("[SCRIPT_MANAGER] Sent termination signal to script %s\n", scriptName)
 			default:
-				fmt.Printf("[SCRIPT_MANAGER] Script %s already terminating\n", scriptName)
 			}
 		}
 		return
@@ -287,11 +283,8 @@ func (sm *ScriptManager) executeSelectedScript() {
 	// Read script content
 	content, err := os.ReadFile(scriptPath)
 	if err != nil {
-		fmt.Printf("[SCRIPT_MANAGER] Failed to read script %s: %v\n", scriptName, err)
 		return
 	}
-
-	fmt.Printf("[SCRIPT_MANAGER] Starting script: %s (with init() and tick() support)\n", scriptName)
 
 	// Clear any previous error state
 	delete(sm.erroredScripts, scriptName)
@@ -300,7 +293,6 @@ func (sm *ScriptManager) executeSelectedScript() {
 	runtime := javascript.Run(string(content), scriptName)
 	sm.runningScripts[scriptName] = runtime.Cancel
 	sm.scriptRuntimes[scriptName] = runtime
-	fmt.Printf("[SCRIPT_MANAGER] Added script %s to running scripts map. Total running: %d\n", scriptName, len(sm.runningScripts))
 	sm.updateExecuteButtonText()
 
 	// Monitor the script in a separate goroutine
@@ -309,17 +301,14 @@ func (sm *ScriptManager) executeSelectedScript() {
 			delete(sm.runningScripts, scriptName)
 			delete(sm.scriptRuntimes, scriptName)
 			sm.updateExecuteButtonText()
-			fmt.Printf("[SCRIPT_MANAGER] Script %s stopped\n", scriptName)
 		}()
 
 		// Wait for the script to complete or error
 		select {
 		case <-runtime.Done:
 			// Script completed normally or was terminated
-			fmt.Printf("[SCRIPT_MANAGER] Script %s completed\n", scriptName)
-		case err := <-runtime.Error:
+		case <-runtime.Error:
 			// Script errored
-			fmt.Printf("[SCRIPT_MANAGER] Script %s errored: %v\n", scriptName, err)
 			sm.erroredScripts[scriptName] = true
 			sm.updateExecuteButtonText()
 		}
@@ -348,9 +337,7 @@ func (sm *ScriptManager) openSelectedScriptExternally() {
 
 	err := cmd.Start()
 	if err != nil {
-		fmt.Printf("[SCRIPT_MANAGER] Failed to open script externally: %v\n", err)
 	} else {
-		fmt.Printf("[SCRIPT_MANAGER] Opened script %s externally\n", scriptName)
 	}
 }
 

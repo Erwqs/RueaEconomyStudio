@@ -8,8 +8,10 @@ import (
 // Keybinds stores user-configurable keyboard shortcuts for major UI actions.
 type Keybinds struct {
 	AnalysisModal   string `json:"analysisModal,omitempty"`
+	AutoSetupModal  string `json:"autoSetupModal,omitempty"`
 	StateMenu       string `json:"stateMenu,omitempty"`
 	TributeMenu     string `json:"tributeMenu,omitempty"`
+	FilterMenu      string `json:"filterMenu,omitempty"`
 	GuildManager    string `json:"guildManager,omitempty"`
 	LoadoutManager  string `json:"loadoutManager,omitempty"`
 	ScriptManager   string `json:"scriptManager,omitempty"`
@@ -24,8 +26,10 @@ type Keybinds struct {
 func DefaultKeybinds() Keybinds {
 	return Keybinds{
 		AnalysisModal:   "A",
+		AutoSetupModal:  "K",
 		StateMenu:       "P",
 		TributeMenu:     "B",
+		FilterMenu:      "F",
 		GuildManager:    "G",
 		LoadoutManager:  "L",
 		ScriptManager:   "S",
@@ -117,8 +121,10 @@ func NormalizeKeybinds(k *Keybinds) {
 	}
 
 	normalize(&k.AnalysisModal, defaults.AnalysisModal)
+	normalize(&k.AutoSetupModal, defaults.AutoSetupModal)
 	normalize(&k.StateMenu, defaults.StateMenu)
 	normalize(&k.TributeMenu, defaults.TributeMenu)
+	normalize(&k.FilterMenu, defaults.FilterMenu)
 	normalize(&k.GuildManager, defaults.GuildManager)
 	normalize(&k.LoadoutManager, defaults.LoadoutManager)
 	normalize(&k.ScriptManager, defaults.ScriptManager)

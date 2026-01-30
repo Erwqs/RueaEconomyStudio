@@ -91,16 +91,13 @@ func (sm *SettingsModule) handleKeyEvent(event KeyEvent) {
 	case ebiten.KeyEqual, ebiten.KeyNumpadAdd: // '+' key or numpad +
 		if sm.volume < 100 {
 			sm.volume += 10
-			fmt.Printf("[SETTINGS] Volume increased to %d%%\n", sm.volume)
 		}
 	case ebiten.KeyMinus, ebiten.KeyNumpadSubtract: // '-' key or numpad -
 		if sm.volume > 0 {
 			sm.volume -= 10
-			fmt.Printf("[SETTINGS] Volume decreased to %d%%\n", sm.volume)
 		}
 	case ebiten.KeyF:
 		sm.showFPS = !sm.showFPS
-		fmt.Printf("[SETTINGS] Show FPS: %t\n", sm.showFPS)
 	case ebiten.KeyW:
 		// Toggle window mode
 		switch sm.windowMode {
@@ -113,13 +110,10 @@ func (sm *SettingsModule) handleKeyEvent(event KeyEvent) {
 		default:
 			sm.windowMode = "Windowed"
 		}
-		fmt.Printf("[SETTINGS] Window Mode: %s\n", sm.windowMode)
 	case ebiten.KeyV:
 		sm.vsync = !sm.vsync
-		fmt.Printf("[SETTINGS] VSync: %t\n", sm.vsync)
 	case ebiten.KeyA:
 		sm.autoSave = !sm.autoSave
-		fmt.Printf("[SETTINGS] Auto Save: %t\n", sm.autoSave)
 	case ebiten.KeyL:
 		// Cycle through languages
 		switch sm.language {
@@ -136,14 +130,12 @@ func (sm *SettingsModule) handleKeyEvent(event KeyEvent) {
 		default:
 			sm.language = "English"
 		}
-		fmt.Printf("[SETTINGS] Language: %s\n", sm.language)
 	case ebiten.KeyR:
 		sm.resetToDefaults()
 	case ebiten.KeyS:
 		sm.saveSettings()
 	case ebiten.KeyEscape:
 		sm.SetActive(false)
-		// fmt.Println("[SETTINGS] Settings menu closed")
 	}
 }
 
@@ -165,7 +157,6 @@ func (sm *SettingsModule) IsActive() bool {
 
 // printHelp displays available settings controls
 func (sm *SettingsModule) printHelp() {
-	// fmt.Println("[SETTINGS] Controls:")
 	// fmt.Println("  +/-     : Adjust volume")
 	// fmt.Println("  F       : Toggle FPS display")
 	// fmt.Println("  W       : Cycle window mode")
@@ -175,8 +166,6 @@ func (sm *SettingsModule) printHelp() {
 	// fmt.Println("  R       : Reset to defaults")
 	// fmt.Println("  S       : Save settings")
 	// fmt.Println("  ESC     : Close settings")
-	fmt.Printf("[SETTINGS] Current - Volume: %d%%, Show FPS: %t, Window: %s, VSync: %t, Auto Save: %t, Language: %s\n",
-		sm.volume, sm.showFPS, sm.windowMode, sm.vsync, sm.autoSave, sm.language)
 }
 
 // resetToDefaults resets all settings to their default values
@@ -192,8 +181,6 @@ func (sm *SettingsModule) resetToDefaults() {
 
 // saveSettings simulates saving settings to a file
 func (sm *SettingsModule) saveSettings() {
-	fmt.Printf("[SETTINGS] Settings saved - Volume: %d%%, Show FPS: %t, Window Mode: %s, VSync: %t, Auto Save: %t, Language: %s\n",
-		sm.volume, sm.showFPS, sm.windowMode, sm.vsync, sm.autoSave, sm.language)
 }
 
 // GetVolume returns the current volume setting

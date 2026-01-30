@@ -1,6 +1,6 @@
 module RueaES
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/gookit/goutil v0.7.1
@@ -29,6 +29,6 @@ require (
 	github.com/pierrec/lz4 v2.6.1+incompatible
 	golang.org/x/mobile v0.0.0-20251021151156-188f512ec823 // indirect
 	golang.org/x/sync v0.17.0 // indirect
-	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 )

@@ -10,12 +10,17 @@ func calculateTreasury(territory *typedef.Territory) float64 {
 		return bonusMultiplier
 	}
 
-	// Calculate distance from HQ based on trading routes
-	if len(territory.TradingRoutes) == 0 || (len(territory.TradingRoutes) == 0 && !territory.HQ) {
-		return bonusMultiplier // No trading routes means no treasury bonus
+	// Determine distance for treasury bonus.
+	// Use trading route length when available; if none exist, still honor HQ/overrides.
+	distance := 0
+	if len(territory.TradingRoutes) > 0 {
+		distance = len(territory.TradingRoutes[0])
+	} else {
+		// Without trading routes, only skip bonus when there is no HQ and no explicit override.
+		if !territory.HQ && territory.TreasuryOverride == typedef.TreasuryOverrideNone {
+			return bonusMultiplier
+		}
 	}
-
-	distance := len(territory.TradingRoutes[0])
 
 	if territory.HQ {
 		distance = 0
