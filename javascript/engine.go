@@ -104,6 +104,42 @@ func (e *Eruntime) GetTradingRoutesForTerritory(territory string) []string {
 	return eruntime.GetTradingRoutesForTerritory(territory)
 }
 
+func (e *Eruntime) AlternativeRoutes(territory string) map[int][]*typedef.Territory {
+	return eruntime.AlternativeRoutes(territory)
+}
+
+func (e *Eruntime) AlternativeRoutesFromHQ(territory string) map[int][]*typedef.Territory {
+	return eruntime.AlternativeRoutesFromHQ(territory)
+}
+
+func (e *Eruntime) GetSelectedTradingRouteID(territory string) int {
+	if id, ok := eruntime.GetSelectedTradingRouteID(territory); ok {
+		return id
+	}
+	return -1
+}
+
+func (e *Eruntime) GetSelectedTradingRouteFromHQID(territory string) int {
+	if id, ok := eruntime.GetSelectedTradingRouteFromHQID(territory); ok {
+		return id
+	}
+	return -1
+}
+
+func (e *Eruntime) SetTradingRoute(territory string, routeID int) string {
+	if err := eruntime.SetTradingRoute(territory, routeID); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+func (e *Eruntime) SetTradingRouteFromHQ(territory string, routeID int) string {
+	if err := eruntime.SetTradingRouteFromHQ(territory, routeID); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 func (e *Eruntime) GetAllGuilds() []string {
 	return eruntime.GetAllGuilds()
 }

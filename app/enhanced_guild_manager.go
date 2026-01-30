@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"RueaES/storage"
@@ -596,6 +597,7 @@ type EnhancedGuildManager struct {
 	guildByTag     map[string]*EnhancedGuildData // tag -> guild
 	colorCache     map[string]color.RGBA         // color string -> parsed RGBA
 	cachesDirty    bool                          // whether caches need rebuilding
+	cacheMu        sync.RWMutex
 	// API Import state
 	apiImportInProgress bool // whether API import is currently running
 }
@@ -2533,6 +2535,8 @@ func (gm *EnhancedGuildManager) GetGuildByTag(tag string) (*EnhancedGuildData, b
 // GetAllGuildColors returns all guild colors in a format suitable for state saving
 func (gm *EnhancedGuildManager) GetAllGuildColors() map[string]map[string]string {
 	gm.ensureCachesValid()
+	gm.cacheMu.RLock()
+	defer gm.cacheMu.RUnlock()
 	result := make(map[string]map[string]string)
 
 	for _, guild := range gm.guilds {
@@ -2611,6 +2615,8 @@ func (gm *EnhancedGuildManager) MergeGuildColors(guildColors map[string]map[stri
 func (gm *EnhancedGuildManager) GetGuildColor(name, tag string) (color.RGBA, bool) {
 	// Ensure caches are up to date
 	gm.ensureCachesValid()
+	gm.cacheMu.Lock()
+	defer gm.cacheMu.Unlock()
 
 	// Try to find by both name and tag (highest priority)
 	if name != "" && tag != "" {
@@ -2676,6 +2682,8 @@ func (gm *EnhancedGuildManager) IsGuildVisible(name, tag string) bool {
 	}
 
 	gm.ensureCachesValid()
+	gm.cacheMu.RLock()
+	defer gm.cacheMu.RUnlock()
 
 	if name != "" && tag != "" {
 		if guild, found := gm.guildByNameTag[name+"|"+tag]; found {
@@ -2876,6 +2884,9 @@ func (gm *EnhancedGuildManager) clearAllGuilds() {
 
 // rebuildCaches rebuilds the performance lookup caches
 func (gm *EnhancedGuildManager) rebuildCaches() {
+	gm.cacheMu.Lock()
+	defer gm.cacheMu.Unlock()
+
 	// Clear existing caches
 	gm.guildByNameTag = make(map[string]*EnhancedGuildData)
 	gm.guildByName = make(map[string]*EnhancedGuildData)
@@ -2923,7 +2934,10 @@ func (gm *EnhancedGuildManager) rebuildCaches() {
 
 // ensureCachesValid ensures the lookup caches are up to date
 func (gm *EnhancedGuildManager) ensureCachesValid() {
-	if gm.cachesDirty {
+	gm.cacheMu.RLock()
+	dirty := gm.cachesDirty
+	gm.cacheMu.RUnlock()
+	if dirty {
 		gm.rebuildCaches()
 	}
 }

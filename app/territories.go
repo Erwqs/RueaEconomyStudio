@@ -224,6 +224,15 @@ type ToggleAnimation struct {
 	IsAnimating     bool          // Whether animation is currently active
 }
 
+// RouteTiebreakMode controls which direction(s) are being manually resolved.
+type RouteTiebreakMode int
+
+const (
+	RouteTiebreakReturn RouteTiebreakMode = iota
+	RouteTiebreakBounded
+	RouteTiebreakBoth
+)
+
 // TerritoriesManager handles loading and displaying territories
 type TerritoriesManager struct {
 	Territories      map[string]Territory
@@ -381,6 +390,19 @@ type TerritoriesManager struct {
 
 	// Route highlighting configuration
 	showHoveredRoutes bool // Enable/disable white route highlighting for hovered territories
+
+	// Manual tiebreak resolution
+	tiebreakActive         bool
+	tiebreakTerritory      string
+	tiebreakMode           RouteTiebreakMode
+	tiebreakHoverFrom      string
+	tiebreakHoverTo        string
+	tiebreakToastID        string
+	tiebreakPrevReturnID   int
+	tiebreakPrevBoundedID  int
+	tiebreakHasPrevReturn  bool
+	tiebreakHasPrevBounded bool
+	tiebreakMutex          sync.RWMutex
 }
 
 // NewTerritoriesManager creates a new territories manager
@@ -477,6 +499,11 @@ func NewTerritoriesManager() *TerritoriesManager {
 
 		// Initialize route highlighting
 		showHoveredRoutes: true, // Enable by default
+
+		// Initialize tiebreak resolution
+		tiebreakActive:    false,
+		tiebreakTerritory: "",
+		tiebreakMode:      RouteTiebreakReturn,
 	}
 
 	// Initialize territory renderer
@@ -1049,6 +1076,322 @@ func (tm *TerritoriesManager) drawTerritoriesToBuffer(buffer *ebiten.Image, scal
 	}
 }
 
+const (
+	routeHighlightToHQ        uint8 = 1 << 0
+	routeHighlightFromHQ      uint8 = 1 << 1
+	routeHighlightAlternative uint8 = 1 << 2
+)
+
+func (tm *TerritoriesManager) buildTiebreakRoutesToHighlight(hoveredTerritory string) map[string]uint8 {
+	tm.tiebreakMutex.RLock()
+	active := tm.tiebreakActive
+	territory := tm.tiebreakTerritory
+	mode := tm.tiebreakMode
+	hoverFrom := tm.tiebreakHoverFrom
+	hoverTo := tm.tiebreakHoverTo
+	tm.tiebreakMutex.RUnlock()
+
+	if !active || territory == "" {
+		return nil
+	}
+
+	routesToHighlight := make(map[string]uint8)
+	addRoute := func(route []string, flag uint8) {
+		for i := 0; i < len(route)-1; i++ {
+			routeKey := route[i] + "->" + route[i+1]
+			routesToHighlight[routeKey] |= flag
+		}
+	}
+	routeToNames := func(route []*typedef.Territory) []string {
+		names := make([]string, 0, len(route))
+		for _, t := range route {
+			if t != nil {
+				names = append(names, t.Name)
+			}
+		}
+		return names
+	}
+
+	if mode == RouteTiebreakReturn || mode == RouteTiebreakBoth {
+		altRoutes := eruntime.AlternativeRoutes(territory)
+		ids := make([]int, 0, len(altRoutes))
+		for id := range altRoutes {
+			ids = append(ids, id)
+		}
+		sort.Ints(ids)
+
+		selectedID, hasSelected := eruntime.GetSelectedTradingRouteID(territory)
+		selectedNames := []string{}
+		if hasSelected {
+			if route, ok := altRoutes[selectedID]; ok {
+				selectedNames = routeToNames(route)
+			}
+		}
+		if len(selectedNames) == 0 && len(ids) > 0 {
+			selectedNames = routeToNames(altRoutes[ids[0]])
+			selectedID = ids[0]
+		}
+		if len(selectedNames) == 0 {
+			selectedNames = tm.getRouteToHQForTerritory(territory)
+		}
+		sectionStart, sectionEnd := resolveRouteSection(selectedNames, altRoutes, hoveredTerritory)
+		if len(selectedNames) > 1 {
+			addRouteSection(selectedNames, sectionStart, sectionEnd, routeHighlightToHQ, addRoute)
+		}
+
+		for _, id := range ids {
+			if id == selectedID {
+				continue
+			}
+			routeNames := routeToNames(altRoutes[id])
+			if hoverFrom != "" && hoverTo != "" && !routeContainsEdge(routeNames, hoverFrom, hoverTo) {
+				continue
+			}
+			addRouteSection(routeNames, sectionStart, sectionEnd, routeHighlightAlternative, addRoute)
+		}
+	}
+
+	if mode == RouteTiebreakBounded || mode == RouteTiebreakBoth {
+		altRoutes := eruntime.AlternativeRoutesFromHQ(territory)
+		ids := make([]int, 0, len(altRoutes))
+		for id := range altRoutes {
+			ids = append(ids, id)
+		}
+		sort.Ints(ids)
+
+		selectedID, hasSelected := eruntime.GetSelectedTradingRouteFromHQID(territory)
+		selectedNames := []string{}
+		if hasSelected {
+			if route, ok := altRoutes[selectedID]; ok {
+				selectedNames = routeToNames(route)
+			}
+		}
+		if len(selectedNames) == 0 && len(ids) > 0 {
+			selectedNames = routeToNames(altRoutes[ids[0]])
+			selectedID = ids[0]
+		}
+		if len(selectedNames) == 0 {
+			selectedNames = tm.getRouteFromHQForTerritory(territory)
+		}
+		sectionStart, sectionEnd := resolveRouteSection(selectedNames, altRoutes, hoveredTerritory)
+		if len(selectedNames) > 1 {
+			addRouteSection(selectedNames, sectionStart, sectionEnd, routeHighlightFromHQ, addRoute)
+		}
+
+		for _, id := range ids {
+			if id == selectedID {
+				continue
+			}
+			routeNames := routeToNames(altRoutes[id])
+			if hoverFrom != "" && hoverTo != "" && !routeContainsEdge(routeNames, hoverFrom, hoverTo) {
+				continue
+			}
+			addRouteSection(routeNames, sectionStart, sectionEnd, routeHighlightAlternative, addRoute)
+		}
+	}
+
+	return routesToHighlight
+}
+
+func addRouteSection(route []string, startName, endName string, flag uint8, add func([]string, uint8)) {
+	if len(route) <= 1 {
+		return
+	}
+	if startName == "" || endName == "" || startName == endName {
+		add(route, flag)
+		return
+	}
+	startIdx := indexOfTerritory(route, startName)
+	endIdx := indexOfTerritory(route, endName)
+	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
+		add(route, flag)
+		return
+	}
+	segment := route[startIdx : endIdx+1]
+	add(segment, flag)
+}
+
+func resolveRouteSection(selected []string, altRoutes map[int][]*typedef.Territory, hovered string) (string, string) {
+	if hovered == "" || len(selected) == 0 || len(altRoutes) <= 1 {
+		return "", ""
+	}
+
+	selectedIdx := indexOfTerritory(selected, hovered)
+	if selectedIdx == -1 {
+		return "", ""
+	}
+
+	common := commonTerritorySet(altRoutes)
+	if len(common) == 0 {
+		return "", ""
+	}
+
+	prevCommon := findPrevCommon(selected, selectedIdx, common)
+	nextCommon := findNextCommon(selected, selectedIdx, common)
+	if prevCommon == "" || nextCommon == "" || prevCommon == nextCommon {
+		return "", ""
+	}
+	return prevCommon, nextCommon
+}
+
+func commonTerritorySet(routes map[int][]*typedef.Territory) map[string]struct{} {
+	common := make(map[string]struct{})
+	first := true
+	for _, route := range routes {
+		set := make(map[string]struct{})
+		for _, t := range route {
+			if t != nil {
+				set[t.Name] = struct{}{}
+			}
+		}
+		if first {
+			common = set
+			first = false
+			continue
+		}
+		for name := range common {
+			if _, ok := set[name]; !ok {
+				delete(common, name)
+			}
+		}
+	}
+	return common
+}
+
+func findPrevCommon(route []string, idx int, common map[string]struct{}) string {
+	for i := idx; i >= 0; i-- {
+		if _, ok := common[route[i]]; ok {
+			return route[i]
+		}
+	}
+	return ""
+}
+
+func findNextCommon(route []string, idx int, common map[string]struct{}) string {
+	for i := idx; i < len(route); i++ {
+		if _, ok := common[route[i]]; ok {
+			return route[i]
+		}
+	}
+	return ""
+}
+
+func indexOfTerritory(route []string, name string) int {
+	for i, t := range route {
+		if t == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func routeToNamesSlice(route []*typedef.Territory) []string {
+	if len(route) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(route))
+	for _, t := range route {
+		if t != nil {
+			names = append(names, t.Name)
+		}
+	}
+	return names
+}
+
+func (tm *TerritoriesManager) FindTiebreakHoveredEdge(mx, my int, scale, viewX, viewY float64) (string, string, string, bool) {
+	active := tm.IsTiebreakResolutionActive()
+	if !active {
+		return "", "", "", false
+	}
+
+	territory := tm.GetTiebreakTerritory()
+	if territory == "" {
+		return "", "", "", false
+	}
+
+	mode := tm.GetTiebreakMode()
+	var routes map[int][]*typedef.Territory
+	if mode == RouteTiebreakBounded {
+		routes = eruntime.AlternativeRoutesFromHQ(territory)
+	} else {
+		routes = eruntime.AlternativeRoutes(territory)
+		if mode == RouteTiebreakBoth {
+			// Prefer return routes for hover detection; if none, fallback to bounded.
+			if len(routes) == 0 {
+				routes = eruntime.AlternativeRoutesFromHQ(territory)
+			}
+		}
+	}
+
+	if len(routes) == 0 {
+		return "", "", "", false
+	}
+
+	minDist := float64(999999)
+	var bestFrom, bestTo, bestHover string
+
+	for _, route := range routes {
+		routeNames := routeToNamesSlice(route)
+		for i := 0; i < len(routeNames)-1; i++ {
+			from := routeNames[i]
+			to := routeNames[i+1]
+			fx, fy, ok1 := tm.getTerritoryCenter(from, scale, viewX, viewY)
+			tx, ty, ok2 := tm.getTerritoryCenter(to, scale, viewX, viewY)
+			if !ok1 || !ok2 {
+				continue
+			}
+			d := pointToSegmentDistance(float64(mx), float64(my), float64(fx), float64(fy), float64(tx), float64(ty))
+			if d < minDist {
+				minDist = d
+				bestFrom = from
+				bestTo = to
+				bestHover = closestEndpointName(float64(mx), float64(my), float64(fx), float64(fy), float64(tx), float64(ty), from, to)
+			}
+		}
+	}
+
+	if minDist <= 10.0 {
+		return bestFrom, bestTo, bestHover, true
+	}
+	return "", "", "", false
+}
+
+func (tm *TerritoriesManager) getTerritoryCenter(name string, scale, viewX, viewY float64) (float32, float32, bool) {
+	border, ok := tm.TerritoryBorders[name]
+	if !ok {
+		return 0, 0, false
+	}
+	centerX := float32((border[0]+border[2])/2*scale + viewX)
+	centerY := float32((border[1]+border[3])/2*scale + viewY)
+	return centerX, centerY, true
+}
+
+func pointToSegmentDistance(px, py, x1, y1, x2, y2 float64) float64 {
+	dx := x2 - x1
+	dy := y2 - y1
+	if dx == 0 && dy == 0 {
+		return math.Hypot(px-x1, py-y1)
+	}
+	t := ((px-x1)*dx + (py-y1)*dy) / (dx*dx + dy*dy)
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	projX := x1 + t*dx
+	projY := y1 + t*dy
+	return math.Hypot(px-projX, py-projY)
+}
+
+func closestEndpointName(px, py, x1, y1, x2, y2 float64, name1, name2 string) string {
+	d1 := math.Hypot(px-x1, py-y1)
+	d2 := math.Hypot(px-x2, py-y2)
+	if d1 <= d2 {
+		return name1
+	}
+	return name2
+}
+
 // DrawTerritories draws all territory boundaries and trading routes using the new GPU overlay system
 func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX, viewY float64, hoveredTerritory string) {
 	defer func() {
@@ -1118,12 +1461,11 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 	sort.Strings(territoryNames)
 
 	// Get routes to highlight if feature is enabled and there's a hovered territory
-	const (
-		routeHighlightToHQ   uint8 = 1 << 0
-		routeHighlightFromHQ uint8 = 1 << 1
-	)
 	var routesToHighlight map[string]uint8
-	if tm.showHoveredRoutes && hoveredTerritory != "" {
+	hoveredTerritoryForRoutes := hoveredTerritory
+	if tm.IsTiebreakResolutionActive() {
+		routesToHighlight = tm.buildTiebreakRoutesToHighlight(hoveredTerritoryForRoutes)
+	} else if tm.showHoveredRoutes && hoveredTerritory != "" {
 		routesToHQ := tm.getRouteToHQForTerritory(hoveredTerritory)
 		routesFromHQ := tm.getRouteFromHQForTerritory(hoveredTerritory)
 		if len(routesToHQ) > 1 || len(routesFromHQ) > 1 { // Must have at least origin and destination
@@ -1145,6 +1487,7 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 	// First pass: Add trading routes as line polygons so they render behind territories
 	// Skip routes in low detail mode for better performance
 	if !lowDetail {
+		drawnRouteSegments := make(map[string]struct{})
 		for _, name := range territoryNames {
 			territory, ok := tm.Territories[name]
 			if !ok {
@@ -1182,6 +1525,15 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 					continue
 				}
 
+				edgeKey := name + "|" + routeName
+				if routeName < name {
+					edgeKey = routeName + "|" + name
+				}
+				if _, drawn := drawnRouteSegments[edgeKey]; drawn {
+					continue
+				}
+				drawnRouteSegments[edgeKey] = struct{}{}
+
 				if tm.guildManager != nil {
 					destGuildName, destGuildTag := getEffectiveGuild(routeName)
 					if !tm.guildManager.IsGuildVisible(destGuildName, destGuildTag) {
@@ -1201,8 +1553,9 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 					routeFlags = routesToHighlight[routeKey]
 					reverseFlags = routesToHighlight[reverseRouteKey]
 				}
-				isHighlighted := routeFlags != 0
-				hasBothDirections := (routeFlags&routeHighlightToHQ != 0 && routeFlags&routeHighlightFromHQ != 0) || (routeFlags != 0 && reverseFlags != 0)
+				highlightFlags := routeFlags | reverseFlags
+				isHighlighted := highlightFlags != 0
+				hasBothDirections := (highlightFlags&routeHighlightToHQ != 0 && highlightFlags&routeHighlightFromHQ != 0) || (routeFlags != 0 && reverseFlags != 0)
 
 				// Create a thick line as a rectangle
 				thickness := float32(1.5) // Base route thickness
@@ -1242,14 +1595,18 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 					if hasBothDirections {
 						routeColor = [3]float32{1.0, 1.0, 1.0}
 						borderColor = [3]float32{0.95, 0.95, 0.95}
-					} else if routeFlags&routeHighlightFromHQ != 0 {
+					} else if highlightFlags&routeHighlightFromHQ != 0 {
 						// HQ -> territory: vivid orange
 						routeColor = [3]float32{1.0, 0.65, 0.0}
 						borderColor = [3]float32{1.0, 0.75, 0.1}
-					} else {
+					} else if highlightFlags&routeHighlightToHQ != 0 {
 						// Territory -> HQ: vivid aqua
 						routeColor = [3]float32{0.0, 0.8, 1.0}
 						borderColor = [3]float32{0.15, 0.9, 1.0}
+					} else {
+						// Alternative route highlight: bright pink
+						routeColor = [3]float32{1.0, 0.1, 0.8}
+						borderColor = [3]float32{1.0, 0.3, 0.85}
 					}
 					routeState = OverlayRouteHighlighted
 					if borderColor == [3]float32{0, 0, 0} {
@@ -1282,6 +1639,10 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 	}
 
 	// Second pass: Add territories AFTER routes so they render on top
+	hoveredTerritoryForTerritories := hoveredTerritory
+	if tm.IsTiebreakResolutionActive() {
+		hoveredTerritoryForTerritories = ""
+	}
 	for _, name := range territoryNames {
 		territory, ok := tm.Territories[name]
 		if !ok || len(territory.Location.Start) < 2 || len(territory.Location.End) < 2 {
@@ -1338,7 +1699,7 @@ func (tm *TerritoriesManager) DrawTerritories(screen *ebiten.Image, scale, viewX
 		state := OverlayNormal
 		if name == tm.selectedTerritory && tm.isBlinking {
 			state = OverlaySelected
-		} else if name == hoveredTerritory {
+		} else if name == hoveredTerritoryForTerritories {
 			state = OverlayHovered
 		}
 
@@ -1436,6 +1797,168 @@ func (tm *TerritoriesManager) SetShowHoveredRoutes(enabled bool) {
 // GetShowHoveredRoutes returns whether route highlighting is enabled
 func (tm *TerritoriesManager) GetShowHoveredRoutes() bool {
 	return tm.showHoveredRoutes
+}
+
+// ActivateTiebreakResolution enables manual tiebreak highlighting for a territory.
+func (tm *TerritoriesManager) ActivateTiebreakResolution(territory string) {
+	tm.tiebreakMutex.Lock()
+	tm.tiebreakActive = territory != ""
+	tm.tiebreakTerritory = territory
+	if territory != "" {
+		tm.tiebreakHasPrevReturn = false
+		tm.tiebreakHasPrevBounded = false
+		if id, ok := eruntime.GetSelectedTradingRouteID(territory); ok {
+			tm.tiebreakPrevReturnID = id
+			tm.tiebreakHasPrevReturn = true
+		}
+		if id, ok := eruntime.GetSelectedTradingRouteFromHQID(territory); ok {
+			tm.tiebreakPrevBoundedID = id
+			tm.tiebreakHasPrevBounded = true
+		}
+	}
+	tm.tiebreakMutex.Unlock()
+	if tm.tiebreakActive {
+		tm.showTiebreakToast()
+		tm.bufferNeedsUpdate = true
+	}
+}
+
+// ClearTiebreakResolution disables manual tiebreak highlighting.
+func (tm *TerritoriesManager) ClearTiebreakResolution() {
+	tm.AcceptTiebreakResolution(true)
+}
+
+// AcceptTiebreakResolution applies (or reverts) the current tiebreak selection and exits the mode.
+func (tm *TerritoriesManager) AcceptTiebreakResolution(accept bool) {
+	tm.tiebreakMutex.Lock()
+	active := tm.tiebreakActive
+	territory := tm.tiebreakTerritory
+	prevReturnID := tm.tiebreakPrevReturnID
+	prevBoundedID := tm.tiebreakPrevBoundedID
+	hasPrevReturn := tm.tiebreakHasPrevReturn
+	hasPrevBounded := tm.tiebreakHasPrevBounded
+
+	tm.tiebreakActive = false
+	tm.tiebreakTerritory = ""
+	tm.tiebreakHoverFrom = ""
+	tm.tiebreakHoverTo = ""
+	toastID := tm.tiebreakToastID
+	tm.tiebreakToastID = ""
+	tm.tiebreakMutex.Unlock()
+
+	if active && !accept && territory != "" {
+		if hasPrevReturn {
+			_ = eruntime.SetTradingRoute(territory, prevReturnID)
+		}
+		if hasPrevBounded {
+			_ = eruntime.SetTradingRouteFromHQ(territory, prevBoundedID)
+		}
+	}
+
+	if toastID != "" {
+		GetToastManager().RemoveToast(toastID)
+	}
+
+	tm.bufferNeedsUpdate = true
+}
+
+// IsTiebreakResolutionActive returns whether manual tiebreak mode is active.
+func (tm *TerritoriesManager) IsTiebreakResolutionActive() bool {
+	tm.tiebreakMutex.RLock()
+	active := tm.tiebreakActive
+	tm.tiebreakMutex.RUnlock()
+	return active
+}
+
+// GetTiebreakTerritory returns the territory currently in tiebreak mode.
+func (tm *TerritoriesManager) GetTiebreakTerritory() string {
+	tm.tiebreakMutex.RLock()
+	name := tm.tiebreakTerritory
+	tm.tiebreakMutex.RUnlock()
+	return name
+}
+
+// GetTiebreakMode returns the current tiebreak mode.
+func (tm *TerritoriesManager) GetTiebreakMode() RouteTiebreakMode {
+	tm.tiebreakMutex.RLock()
+	mode := tm.tiebreakMode
+	tm.tiebreakMutex.RUnlock()
+	return mode
+}
+
+// SetTiebreakMode sets the active tiebreak mode.
+func (tm *TerritoriesManager) SetTiebreakMode(mode RouteTiebreakMode) {
+	tm.tiebreakMutex.Lock()
+	if mode == RouteTiebreakBoth {
+		mode = RouteTiebreakReturn
+	}
+	tm.tiebreakMode = mode
+	tm.tiebreakMutex.Unlock()
+	tm.bufferNeedsUpdate = true
+}
+
+// SetTiebreakHoverEdge updates the hovered route edge for tiebreak highlighting.
+func (tm *TerritoriesManager) SetTiebreakHoverEdge(from, to string) {
+	tm.tiebreakMutex.Lock()
+	tm.tiebreakHoverFrom = from
+	tm.tiebreakHoverTo = to
+	tm.tiebreakMutex.Unlock()
+}
+
+// ClearTiebreakHoverEdge clears the hovered route edge.
+func (tm *TerritoriesManager) ClearTiebreakHoverEdge() {
+	tm.tiebreakMutex.Lock()
+	tm.tiebreakHoverFrom = ""
+	tm.tiebreakHoverTo = ""
+	tm.tiebreakMutex.Unlock()
+}
+
+// CycleTiebreakMode cycles the tiebreak mode by delta.
+func (tm *TerritoriesManager) CycleTiebreakMode(delta int) {
+	tm.tiebreakMutex.Lock()
+	if tm.tiebreakMode == RouteTiebreakReturn {
+		tm.tiebreakMode = RouteTiebreakBounded
+	} else {
+		tm.tiebreakMode = RouteTiebreakReturn
+	}
+	tm.tiebreakMutex.Unlock()
+	tm.bufferNeedsUpdate = true
+}
+
+func (tm *TerritoriesManager) showTiebreakToast() {
+	tm.tiebreakMutex.Lock()
+	if tm.tiebreakToastID != "" {
+		GetToastManager().RemoveToast(tm.tiebreakToastID)
+		tm.tiebreakToastID = ""
+	}
+	tm.tiebreakMutex.Unlock()
+
+	toast := NewToast().
+		Text("Manual Tiebreak Resolution Mode", ToastOption{Colour: color.RGBA{255, 255, 255, 255}}).
+		Text("Click on a route to change trading route of selected territory, hold CTRL + ScrollWheel to switch between HQ Bound or Territory Bound", ToastOption{Colour: color.RGBA{200, 220, 255, 255}}).
+		Text("Orange: Territory Bound", ToastOption{Colour: color.RGBA{255, 165, 0, 255}}).
+		Text("Aqua: HQ Bound", ToastOption{Colour: color.RGBA{0, 200, 255, 255}}).
+		Text("Pink: Available Alternative", ToastOption{Colour: color.RGBA{255, 0, 255, 255}}).
+		Text("Press ESC to accept", ToastOption{Colour: color.RGBA{220, 220, 220, 255}})
+
+	toast.Button("Dismiss", func() {
+		GetToastManager().RemoveToast(toast.toast.ID)
+		tm.tiebreakMutex.Lock()
+		if tm.tiebreakToastID == toast.toast.ID {
+			tm.tiebreakToastID = ""
+		}
+		tm.tiebreakMutex.Unlock()
+	}, 0, 0, ToastOption{Colour: color.RGBA{255, 170, 90, 255}})
+
+	toast.Button("Accept Route", func() {
+		tm.AcceptTiebreakResolution(true)
+	}, 0, 0, ToastOption{Colour: color.RGBA{70, 170, 70, 255}})
+
+	toast.Show()
+
+	tm.tiebreakMutex.Lock()
+	tm.tiebreakToastID = toast.toast.ID
+	tm.tiebreakMutex.Unlock()
 }
 
 // GetPendingRoute returns and clears the pending territory selection from clicked items

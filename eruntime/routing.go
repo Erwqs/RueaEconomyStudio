@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -249,6 +251,29 @@ func (s *state) updateRoute() {
 		if len(bestRoutes) > 0 {
 			// Randomly select one route from the best routes
 			selectedRoute := selectRandomRoute(bestRoutes)
+
+			// Apply manual tiebreak selection if configured for this territory
+			if routeID, ok := st.manualRouteToHQ[t.Name]; ok {
+				var routes [][]*typedef.Territory
+				var err error
+				switch t.RoutingMode {
+				case typedef.RoutingCheapest:
+					routes, err = findAllRoutesWithSameTax(t, bestHQ, t.Guild.Tag, allies, true)
+				case typedef.RoutingFastest:
+					routes, err = findAllRoutesWithSameLength(t, bestHQ, t.Guild.Tag)
+				}
+				if err == nil && len(routes) > 0 {
+					routes = sortRoutesDeterministically(routes)
+					if chosen, ok := selectRouteByID(routes, routeID); ok {
+						selectedRoute = chosen
+					} else {
+						delete(st.manualRouteToHQ, t.Name)
+						selectedRoute = selectRandomRoute(routes)
+					}
+				} else {
+					delete(st.manualRouteToHQ, t.Name)
+				}
+			}
 			t.TradingRoutes = [][]*typedef.Territory{selectedRoute}
 			t.Destination = bestHQ
 
@@ -387,6 +412,36 @@ func abs(x float64) float64 {
 	return x
 }
 
+func sortRoutesDeterministically(routes [][]*typedef.Territory) [][]*typedef.Territory {
+	if len(routes) <= 1 {
+		return routes
+	}
+	sort.Slice(routes, func(i, j int) bool {
+		return routeKey(routes[i]) < routeKey(routes[j])
+	})
+	return routes
+}
+
+func routeKey(route []*typedef.Territory) string {
+	if len(route) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(route))
+	for _, t := range route {
+		if t != nil {
+			names = append(names, t.Name)
+		}
+	}
+	return strings.Join(names, "->")
+}
+
+func selectRouteByID(routes [][]*typedef.Territory, routeID int) ([]*typedef.Territory, bool) {
+	if routeID < 0 || routeID >= len(routes) {
+		return nil, false
+	}
+	return routes[routeID], true
+}
+
 // updateHQRoutes calculates routes from HQ to all other territories of the same guild
 func updateHQRoutes(hq *typedef.Territory, allies []string) {
 	if hq == nil || !hq.HQ {
@@ -434,7 +489,15 @@ func updateHQRoutes(hq *typedef.Territory, allies []string) {
 		}
 
 		// Pick one route randomly if multiple routes have the same cost/length
+		routes = sortRoutesDeterministically(routes)
 		selectedRoute := selectRandomRoute(routes)
+		if routeID, ok := st.manualRouteFromHQ[target.Name]; ok {
+			if chosen, ok := selectRouteByID(routes, routeID); ok {
+				selectedRoute = chosen
+			} else {
+				delete(st.manualRouteFromHQ, target.Name)
+			}
+		}
 		hq.TradingRoutes = append(hq.TradingRoutes, selectedRoute)
 		// fmt.Printf("[ROUTING_DEBUG] Added route from HQ %s to %s (length: %d)\n", hq.Name, target.Name, len(selectedRoute))
 	}
@@ -444,34 +507,25 @@ func updateHQRoutes(hq *typedef.Territory, allies []string) {
 
 // findAllRoutesWithSameTax finds all routes with the same minimum tax
 func findAllRoutesWithSameTax(start, target *typedef.Territory, sourceTag string, allies []string, useCheapest bool) ([][]*typedef.Territory, error) {
-	// First find the best route using the configured pathfinding algorithm
+	// Find all routes with the same minimum pathfinding cost using the selected algorithm
 	pathfindingAlgorithm := st.runtimeOptions.PathfindingAlgorithm
-	bestRoute, err := pathfinder.FindPathCheapest(pathfindingAlgorithm, start, target, TerritoryMap, TradingRoutesMap, sourceTag, allies)
-	if err != nil || len(bestRoute) == 0 {
+	routes, err := pathfinder.FindAllCheapestRoutes(pathfindingAlgorithm, start, target, TerritoryMap, TradingRoutesMap, sourceTag, allies)
+	if err != nil || len(routes) == 0 {
 		return nil, err
 	}
 
-	bestTax := pathfinder.CalculateRouteTax(bestRoute, sourceTag, allies)
-	_ = bestTax // Will be used when implementing multiple route finding
-
-	// For now, return just the best route
-	// In a more complex implementation, we could use multiple pathfinding runs
-	// or implement a modified Dijkstra that tracks all optimal paths
-	return [][]*typedef.Territory{bestRoute}, nil
+	return routes, nil
 }
 
 // findAllRoutesWithSameLength finds all routes with the same minimum length
 func findAllRoutesWithSameLength(start, target *typedef.Territory, sourceTag string) ([][]*typedef.Territory, error) {
-	// First find the shortest route using BFS (always fastest)
-	bestRoute, err := pathfinder.FindPathFastest(start, target, TerritoryMap, TradingRoutesMap, sourceTag)
-	if err != nil || len(bestRoute) == 0 {
+	// Find all routes with the same minimum length (fastest)
+	routes, err := pathfinder.FindAllFastestRoutes(start, target, TerritoryMap, TradingRoutesMap, sourceTag)
+	if err != nil || len(routes) == 0 {
 		return nil, err
 	}
 
-	// For now, return just the best route
-	// In a more complex implementation, we could use multiple BFS runs
-	// or implement a modified BFS that tracks all shortest paths
-	return [][]*typedef.Territory{bestRoute}, nil
+	return routes, nil
 }
 
 // selectRandomRoute randomly selects one route from a slice of routes

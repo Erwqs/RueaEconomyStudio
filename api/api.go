@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -428,6 +429,7 @@ func (api *API) registerHandlers() {
 	api.handlers[MessageTypeGetTerritoryStats] = api.handleGetTerritoryStats
 	api.handlers[MessageTypeGetAllTerritories] = api.handleGetAllTerritories
 	api.handlers[MessageTypeGetTerritories] = api.handleGetTerritories
+	api.handlers[MessageTypeGetAlternativeRoutes] = api.handleGetAlternativeRoutes
 
 	// Territory editing handlers
 	api.handlers[MessageTypeSetTerritoryBonuses] = api.handleSetTerritoryBonuses
@@ -436,6 +438,7 @@ func (api *API) registerHandlers() {
 	api.handlers[MessageTypeSetTerritoryBorder] = api.handleSetTerritoryBorder
 	api.handlers[MessageTypeSetTerritoryRoutingMode] = api.handleSetTerritoryRoutingMode
 	api.handlers[MessageTypeSetTerritoryTreasury] = api.handleSetTerritoryTreasury
+	api.handlers[MessageTypeSetTradingRoute] = api.handleSetTradingRoute
 
 	// Tribute management handlers
 	api.handlers[MessageTypeCreateTribute] = api.handleCreateTribute
@@ -473,6 +476,22 @@ func (api *API) getGuildNameByTag(tag string) (string, error) {
 func convertTradingRoutes(routes [][]string) [][]string {
 	// Routes are already in the correct format, just return them
 	return routes
+}
+
+func convertAlternativeRoutes(routes map[int][]string) []AlternativeRouteInfo {
+	if len(routes) == 0 {
+		return nil
+	}
+	ids := make([]int, 0, len(routes))
+	for id := range routes {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	out := make([]AlternativeRouteInfo, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, AlternativeRouteInfo{ID: id, Route: routes[id]})
+	}
+	return out
 }
 
 // sanitizeAPIValue rewrites banned phrases from inbound API payloads while keeping other characters intact.
@@ -1045,6 +1064,66 @@ func (api *API) handleGetTerritoryStats(client *WSClient, message WSMessage) err
 	return nil
 }
 
+func (api *API) handleGetAlternativeRoutes(client *WSClient, message WSMessage) error {
+	var data GetAlternativeRoutesData
+	if err := api.parseMessageData(message.Data, &data); err != nil {
+		return err
+	}
+
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
+	direction := strings.ToLower(strings.TrimSpace(data.Direction))
+	if direction == "" {
+		direction = "return"
+	}
+
+	responseData := AlternativeRoutesResponse{
+		TerritoryName: data.TerritoryName,
+		Direction:     direction,
+	}
+
+	switch direction {
+	case "return":
+		routes := eruntime.AlternativeRoutesJSON(data.TerritoryName)
+		responseData.Routes = convertAlternativeRoutes(routes)
+		if id, ok := eruntime.GetSelectedTradingRouteID(data.TerritoryName); ok {
+			responseData.SelectedID = id
+		}
+	case "bounded", "from_hq":
+		routes := eruntime.AlternativeRoutesFromHQJSON(data.TerritoryName)
+		responseData.Routes = convertAlternativeRoutes(routes)
+		if id, ok := eruntime.GetSelectedTradingRouteFromHQID(data.TerritoryName); ok {
+			responseData.SelectedID = id
+		}
+	case "both":
+		returnRoutes := eruntime.AlternativeRoutesJSON(data.TerritoryName)
+		boundedRoutes := eruntime.AlternativeRoutesFromHQJSON(data.TerritoryName)
+		responseData.ReturnRoutes = convertAlternativeRoutes(returnRoutes)
+		responseData.BoundedRoutes = convertAlternativeRoutes(boundedRoutes)
+		if id, ok := eruntime.GetSelectedTradingRouteID(data.TerritoryName); ok {
+			responseData.SelectedReturnID = id
+		}
+		if id, ok := eruntime.GetSelectedTradingRouteFromHQID(data.TerritoryName); ok {
+			responseData.SelectedBoundedID = id
+		}
+	default:
+		return fmt.Errorf("invalid direction: %s", direction)
+	}
+
+	response := WSMessage{
+		Type:      MessageTypeAck,
+		RequestID: message.RequestID,
+		Data:      responseData,
+		Timestamp: time.Now(),
+	}
+
+	select {
+	case client.send <- response:
+	default:
+	}
+
+	return nil
+}
+
 func (api *API) handleGetAllTerritories(client *WSClient, message WSMessage) error {
 	// Get all territories from eruntime
 	territories := eruntime.GetTerritories()
@@ -1376,6 +1455,50 @@ func (api *API) handleSetTerritoryTreasury(client *WSClient, message WSMessage) 
 		Type:      MessageTypeAck,
 		RequestID: message.RequestID,
 		Data:      fmt.Sprintf("Treasury override requested for territory %s (implementation may be limited)", data.TerritoryName),
+		Timestamp: time.Now(),
+	}
+
+	select {
+	case client.send <- ackMsg:
+	default:
+	}
+
+	return nil
+}
+
+func (api *API) handleSetTradingRoute(client *WSClient, message WSMessage) error {
+	var data SetTradingRouteData
+	if err := api.parseMessageData(message.Data, &data); err != nil {
+		return err
+	}
+
+	data.TerritoryName = sanitizeAPIValue(data.TerritoryName)
+	direction := strings.ToLower(strings.TrimSpace(data.Direction))
+	if direction == "" {
+		direction = "return"
+	}
+
+	var err error
+	switch direction {
+	case "return":
+		err = eruntime.SetTradingRoute(data.TerritoryName, data.RouteID)
+	case "bounded", "from_hq":
+		err = eruntime.SetTradingRouteFromHQ(data.TerritoryName, data.RouteID)
+	case "both":
+		if err = eruntime.SetTradingRoute(data.TerritoryName, data.RouteID); err == nil {
+			err = eruntime.SetTradingRouteFromHQ(data.TerritoryName, data.RouteID)
+		}
+	default:
+		return fmt.Errorf("invalid direction: %s", direction)
+	}
+	if err != nil {
+		return err
+	}
+
+	ackMsg := WSMessage{
+		Type:      MessageTypeAck,
+		RequestID: message.RequestID,
+		Data:      fmt.Sprintf("Trading route updated for %s (%s)", data.TerritoryName, direction),
 		Timestamp: time.Now(),
 	}
 

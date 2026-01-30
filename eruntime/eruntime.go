@@ -60,6 +60,10 @@ type state struct {
 	// Territory map for fast territory lookups by ID - maps territory ID to territory
 	territoryMap map[string]*typedef.Territory
 
+	// Manual route tiebreak selections
+	manualRouteToHQ   map[string]int
+	manualRouteFromHQ map[string]int
+
 	// No need, each territory has its own mutex
 	// mu sync.Mutex // mutex to protect state changes
 
@@ -100,6 +104,8 @@ func init() {
 		transitManager:        NewTransitManager(),
 		hqMap:                 make(map[string]*typedef.Territory),
 		territoryMap:          make(map[string]*typedef.Territory),
+		manualRouteToHQ:       make(map[string]int),
+		manualRouteFromHQ:     make(map[string]int),
 		tickQueue:             make(chan struct{}, 50000),
 		useParallelProcessing: true, // Enable parallel processing by default for better performance
 	}

@@ -32,6 +32,7 @@ const (
 	MessageTypeGetTerritoryStats MessageType = "get_territory_stats"
 	MessageTypeGetAllTerritories MessageType = "get_all_territories"
 	MessageTypeGetTerritories    MessageType = "get_territories"
+	MessageTypeGetAlternativeRoutes MessageType = "get_alternative_routes"
 
 	// Territory editing message types
 	MessageTypeSetTerritoryBonuses     MessageType = "set_territory_bonuses"
@@ -40,6 +41,7 @@ const (
 	MessageTypeSetTerritoryBorder      MessageType = "set_territory_border"
 	MessageTypeSetTerritoryRoutingMode MessageType = "set_territory_routing_mode"
 	MessageTypeSetTerritoryTreasury    MessageType = "set_territory_treasury"
+	MessageTypeSetTradingRoute         MessageType = "set_trading_route"
 
 	// Tribute management message types
 	MessageTypeCreateTribute   MessageType = "create_tribute"
@@ -172,6 +174,31 @@ type GetTerritoryStatsData struct {
 	TerritoryName string `json:"territory_name"`
 }
 
+// GetAlternativeRoutesData requests alternative routes for a territory.
+// Direction can be "return", "bounded", or "both" (default is "return").
+type GetAlternativeRoutesData struct {
+	TerritoryName string `json:"territory_name"`
+	Direction     string `json:"direction,omitempty"`
+}
+
+// AlternativeRouteInfo describes a single alternative route.
+type AlternativeRouteInfo struct {
+	ID    int      `json:"id"`
+	Route []string `json:"route"`
+}
+
+// AlternativeRoutesResponse returns alternative routes and selected route ids.
+type AlternativeRoutesResponse struct {
+	TerritoryName      string                `json:"territory_name"`
+	Direction          string                `json:"direction"`
+	SelectedID         int                   `json:"selected_id,omitempty"`
+	Routes             []AlternativeRouteInfo `json:"routes,omitempty"`
+	SelectedReturnID   int                   `json:"selected_return_id,omitempty"`
+	SelectedBoundedID  int                   `json:"selected_bounded_id,omitempty"`
+	ReturnRoutes       []AlternativeRouteInfo `json:"return_routes,omitempty"`
+	BoundedRoutes      []AlternativeRouteInfo `json:"bounded_routes,omitempty"`
+}
+
 // Territory editing message data structures
 type SetTerritoryBonusesData struct {
 	TerritoryName string        `json:"territory_name"`
@@ -201,6 +228,14 @@ type SetTerritoryRoutingModeData struct {
 type SetTerritoryTreasuryData struct {
 	TerritoryName    string                   `json:"territory_name"`
 	TreasuryOverride typedef.TreasuryOverride `json:"treasury_override"`
+}
+
+// SetTradingRouteData selects a tiebreak route by ID.
+// Direction can be "return", "bounded", or "both" (default is "return").
+type SetTradingRouteData struct {
+	TerritoryName string `json:"territory_name"`
+	RouteID       int    `json:"route_id"`
+	Direction     string `json:"direction,omitempty"`
 }
 
 // Tribute management data structures

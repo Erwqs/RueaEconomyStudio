@@ -770,6 +770,8 @@ func Reset() {
 
 	// Set loading flag to prevent any other operations during reset
 	st.stateLoading = true
+	st.manualRouteToHQ = make(map[string]int)
+	st.manualRouteFromHQ = make(map[string]int)
 
 	// Clean up transit manager
 	if st.transitManager != nil {

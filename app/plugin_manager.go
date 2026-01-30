@@ -420,6 +420,93 @@ func (pm *PluginManager) handleCommandSetTreasury(args map[string]any) int {
 	return pluginhost.HostOK
 }
 
+func (pm *PluginManager) handleCommandSetTradingRoute(args map[string]any) int {
+	nameVal, ok := args["territory"]
+	if !ok {
+		return pluginhost.HostErrBadArgument
+	}
+	name, ok := nameVal.(string)
+	if !ok || name == "" {
+		return pluginhost.HostErrBadArgument
+	}
+
+	routeVal, ok := toFloat(args["route_id"])
+	if !ok {
+		return pluginhost.HostErrBadArgument
+	}
+	routeID := int(routeVal)
+
+	direction := "return"
+	if dirVal, ok := args["direction"].(string); ok && dirVal != "" {
+		direction = strings.ToLower(strings.TrimSpace(dirVal))
+	}
+
+	var err error
+	switch direction {
+	case "return":
+		err = eruntime.SetTradingRoute(name, routeID)
+	case "bounded", "from_hq":
+		err = eruntime.SetTradingRouteFromHQ(name, routeID)
+	case "both":
+		if err = eruntime.SetTradingRoute(name, routeID); err == nil {
+			err = eruntime.SetTradingRouteFromHQ(name, routeID)
+		}
+	default:
+		return pluginhost.HostErrBadArgument
+	}
+	if err != nil {
+		return pluginhost.HostErrBadArgument
+	}
+	return pluginhost.HostOK
+}
+
+func (pm *PluginManager) handleCommandGetAlternativeRoutes(args map[string]any) (int, map[string]any) {
+	nameVal, ok := args["territory"]
+	if !ok {
+		return pluginhost.HostErrBadArgument, nil
+	}
+	name, ok := nameVal.(string)
+	if !ok || name == "" {
+		return pluginhost.HostErrBadArgument, nil
+	}
+
+	direction := "return"
+	if dirVal, ok := args["direction"].(string); ok && dirVal != "" {
+		direction = strings.ToLower(strings.TrimSpace(dirVal))
+	}
+
+	resp := map[string]any{
+		"territory": name,
+		"direction": direction,
+	}
+
+	switch direction {
+	case "return":
+		resp["routes"] = eruntime.AlternativeRoutesJSON(name)
+		if id, ok := eruntime.GetSelectedTradingRouteID(name); ok {
+			resp["selected_id"] = id
+		}
+	case "bounded", "from_hq":
+		resp["routes"] = eruntime.AlternativeRoutesFromHQJSON(name)
+		if id, ok := eruntime.GetSelectedTradingRouteFromHQID(name); ok {
+			resp["selected_id"] = id
+		}
+	case "both":
+		resp["return_routes"] = eruntime.AlternativeRoutesJSON(name)
+		resp["bounded_routes"] = eruntime.AlternativeRoutesFromHQJSON(name)
+		if id, ok := eruntime.GetSelectedTradingRouteID(name); ok {
+			resp["selected_return_id"] = id
+		}
+		if id, ok := eruntime.GetSelectedTradingRouteFromHQID(name); ok {
+			resp["selected_bounded_id"] = id
+		}
+	default:
+		return pluginhost.HostErrBadArgument, nil
+	}
+
+	return pluginhost.HostOK, resp
+}
+
 func (pm *PluginManager) handleCommandSetHQ(args map[string]any) int {
 	nameVal, ok := args["territory"]
 	if !ok {
@@ -826,6 +913,8 @@ func NewPluginManager() *PluginManager {
 			return pm.handleCommandSetTax(args), nil
 		case "set_territory_treasury":
 			return pm.handleCommandSetTreasury(args), nil
+		case "set_trading_route":
+			return pm.handleCommandSetTradingRoute(args), nil
 		case "set_territory_hq":
 			return pm.handleCommandSetHQ(args), nil
 		case "set_territory_upgrade":
@@ -840,6 +929,8 @@ func NewPluginManager() *PluginManager {
 			return pm.handleCommandGetOverlay(args)
 		case "get_territories":
 			return pm.handleCommandGetTerritories()
+		case "get_alternative_routes":
+			return pm.handleCommandGetAlternativeRoutes(args)
 		case "get_guilds":
 			return pm.handleCommandGetGuilds()
 		case "get_loadouts":

@@ -153,6 +153,12 @@ type MapView struct {
 	// Hover functionality for territory display
 	hoveredTerritory string // Name of currently hovered territory
 
+	// Tiebreak hover state
+	tiebreakHoverTerritory string
+	tiebreakHoverFrom      string
+	tiebreakHoverTo        string
+	tiebreakHoverValid     bool
+
 	// Territory view switcher for different coloring modes
 	territoryViewSwitcher *TerritoryViewSwitcher
 
@@ -802,6 +808,18 @@ func (m *MapView) Update(screenW, screenH int) {
 			}
 		}
 
+		ctrlPressed := ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight)
+		if ctrlPressed {
+			if m.territoriesManager != nil && m.territoriesManager.IsTiebreakResolutionActive() {
+				delta := 1
+				if wheelY < 0 {
+					delta = -1
+				}
+				m.territoriesManager.CycleTiebreakMode(delta)
+			}
+			return
+		}
+
 		// Handle wheel input with smooth zooming for map
 		m.handleSmoothZoom(wheelY, mx, my)
 	}
@@ -1025,6 +1043,11 @@ func (m *MapView) Update(screenW, screenH int) {
 
 	// Handle escape key to close menus (state -> filter -> territory -> side menu)
 	if !tributeMenuHandledInput && inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		if m.territoriesManager != nil && m.territoriesManager.IsTiebreakResolutionActive() {
+			m.territoriesManager.AcceptTiebreakResolution(true)
+			return
+		}
+
 		// First check if state management menu is open
 		if m.stateManagementMenu != nil && m.stateManagementMenu.menu.IsVisible() {
 			m.stateManagementMenu.menu.Hide()
@@ -1422,6 +1445,9 @@ func (m *MapView) drawSelectedRegion(screen *ebiten.Image, mapOffsetX float64) {
 
 // drawTerritoryHover displays comprehensive territory information in Wynncraft style using eruntime data
 func (m *MapView) drawTerritoryHover(screen *ebiten.Image) {
+	if m.territoriesManager != nil && m.territoriesManager.IsTiebreakResolutionActive() {
+		return
+	}
 	if m.hoveredTerritory == "" {
 		return
 	}
@@ -1765,11 +1791,144 @@ func (m *MapView) handleSmoothZoom(wheelDelta float64, cursorX, cursorY int) {
 	m.animateToScale(newScale, targetOffsetX, targetOffsetY)
 }
 
+func (m *MapView) applyTiebreakSelectionFromHover() {
+	if m.territoriesManager == nil || !m.tiebreakHoverValid {
+		return
+	}
+
+	territory := m.territoriesManager.GetTiebreakTerritory()
+	if territory == "" {
+		return
+	}
+
+	mode := m.territoriesManager.GetTiebreakMode()
+	if mode == RouteTiebreakReturn || mode == RouteTiebreakBoth {
+		m.selectTiebreakRouteForEdge(territory, m.tiebreakHoverFrom, m.tiebreakHoverTo, m.tiebreakHoverTerritory, false)
+	}
+	if mode == RouteTiebreakBounded || mode == RouteTiebreakBoth {
+		m.selectTiebreakRouteForEdge(territory, m.tiebreakHoverFrom, m.tiebreakHoverTo, m.tiebreakHoverTerritory, true)
+	}
+}
+
+func (m *MapView) selectTiebreakRouteForEdge(territory, from, to, hoveredTerritory string, fromHQ bool) {
+	var routes map[int][]*typedef.Territory
+	var selectedID int
+	var hasSelected bool
+	if fromHQ {
+		routes = eruntime.AlternativeRoutesFromHQ(territory)
+		selectedID, hasSelected = eruntime.GetSelectedTradingRouteFromHQID(territory)
+	} else {
+		routes = eruntime.AlternativeRoutes(territory)
+		selectedID, hasSelected = eruntime.GetSelectedTradingRouteID(territory)
+	}
+
+	if len(routes) == 0 || from == "" || to == "" {
+		return
+	}
+
+	ids := make([]int, 0, len(routes))
+	for id := range routes {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	var selectedNames []string
+	if hasSelected {
+		if route, ok := routes[selectedID]; ok {
+			selectedNames = routeToNamesSlice(route)
+		}
+	}
+	if len(selectedNames) == 0 && len(ids) > 0 {
+		selectedNames = routeToNamesSlice(routes[ids[0]])
+	}
+
+	sectionStart, sectionEnd := resolveRouteSection(selectedNames, routes, hoveredTerritory)
+
+	var candidateIDs []int
+	for _, id := range ids {
+		if route, ok := routes[id]; ok {
+			routeNames := routeToNamesSlice(route)
+			if routeContainsEdge(routeNames, from, to) {
+				candidateIDs = append(candidateIDs, id)
+			}
+		}
+	}
+	if len(candidateIDs) == 0 {
+		return
+	}
+
+	chosenID := candidateIDs[0]
+	if len(selectedNames) > 0 && sectionStart != "" && sectionEnd != "" {
+		for _, id := range candidateIDs {
+			routeNames := routeToNamesSlice(routes[id])
+			if matchesOutsideSection(routeNames, selectedNames, sectionStart, sectionEnd) {
+				chosenID = id
+				break
+			}
+		}
+	}
+
+	if fromHQ {
+		_ = eruntime.SetTradingRouteFromHQ(territory, chosenID)
+	} else {
+		_ = eruntime.SetTradingRoute(territory, chosenID)
+	}
+}
+
+func routeContainsEdge(route []string, from, to string) bool {
+	for i := 0; i < len(route)-1; i++ {
+		if (route[i] == from && route[i+1] == to) || (route[i] == to && route[i+1] == from) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesOutsideSection(route, selected []string, startName, endName string) bool {
+	if startName == "" || endName == "" || startName == endName {
+		return false
+	}
+	rStart := indexOfTerritory(route, startName)
+	rEnd := indexOfTerritory(route, endName)
+	sStart := indexOfTerritory(selected, startName)
+	sEnd := indexOfTerritory(selected, endName)
+	if rStart == -1 || rEnd == -1 || sStart == -1 || sEnd == -1 {
+		return false
+	}
+	if rEnd <= rStart || sEnd <= sStart {
+		return false
+	}
+	if !equalRouteSlice(route[:rStart+1], selected[:sStart+1]) {
+		return false
+	}
+	if !equalRouteSlice(route[rEnd:], selected[sEnd:]) {
+		return false
+	}
+	return true
+}
+
+func equalRouteSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // handlePrimaryPress centralizes logic for left/tap press handling.
 // Returns true when the caller should stop further input processing this frame.
 func (m *MapView) handlePrimaryPress(mx, my int) bool {
 	m.lastMouseX = mx
 	m.lastMouseY = my
+
+	if m.territoriesManager != nil && m.territoriesManager.IsTiebreakResolutionActive() {
+		m.dragging = true
+		return true
+	}
 
 	if m.filterMenu != nil && m.filterMenu.IsVisible() && m.filterMenu.IsMouseInside(mx, my) {
 		return true
@@ -1819,6 +1978,15 @@ func (m *MapView) handlePrimaryRelease(mx, my int, currentTime time.Time) bool {
 	selectorOverlay := GetActiveTerritorySelector()
 
 	if m.dragging && dragDistance < 5 {
+		if m.territoriesManager != nil && m.territoriesManager.IsTiebreakResolutionActive() {
+			if m.tiebreakHoverValid {
+				m.applyTiebreakSelectionFromHover()
+			}
+			m.lastClickTime = currentTime
+			m.dragging = false
+			return true
+		}
+
 		isDoubleClick := currentTime.Sub(m.lastClickTime) < 500*time.Millisecond
 
 		if m.isEditingClaims {
@@ -1992,6 +2160,9 @@ func (m *MapView) handlePrimaryDrag(mx, my int) {
 
 // handleContextMenuRequest unifies right-click / long-press context menu logic.
 func (m *MapView) handleContextMenuRequest(mx, my int) bool {
+	if m.territoriesManager != nil && m.territoriesManager.IsTiebreakResolutionActive() {
+		return true
+	}
 
 	if m.isEditingClaims {
 		// fmt.Println("Right-click ignored - in claim editing mode")
@@ -2113,11 +2284,16 @@ func (m *MapView) shouldSuppressHover() bool {
 func (m *MapView) updateHoveredTerritory(mx, my, screenW int) {
 	if m.shouldSuppressHover() {
 		m.hoveredTerritory = ""
+		m.tiebreakHoverValid = false
+		if m.territoriesManager != nil {
+			m.territoriesManager.ClearTiebreakHoverEdge()
+		}
 		return
 	}
 
 	if m.territoriesManager == nil || !m.territoriesManager.IsLoaded() {
 		m.hoveredTerritory = ""
+		m.tiebreakHoverValid = false
 		return
 	}
 
@@ -2138,10 +2314,28 @@ func (m *MapView) updateHoveredTerritory(mx, my, screenW int) {
 	}
 
 	if !isInSidebar && !isInMenu {
+		if m.territoriesManager.IsTiebreakResolutionActive() {
+			from, to, hovered, ok := m.territoriesManager.FindTiebreakHoveredEdge(mx, my, m.scale, m.offsetX, m.offsetY)
+			m.tiebreakHoverValid = ok
+			m.tiebreakHoverFrom = from
+			m.tiebreakHoverTo = to
+			m.tiebreakHoverTerritory = hovered
+			m.hoveredTerritory = hovered
+			if ok {
+				m.territoriesManager.SetTiebreakHoverEdge(from, to)
+			} else {
+				m.territoriesManager.ClearTiebreakHoverEdge()
+			}
+			return
+		}
 		hovered := m.territoriesManager.GetTerritoryAtPosition(mx, my, m.scale, m.offsetX, m.offsetY)
 		m.hoveredTerritory = hovered
+		m.tiebreakHoverValid = false
+		m.territoriesManager.ClearTiebreakHoverEdge()
 	} else {
 		m.hoveredTerritory = ""
+		m.tiebreakHoverValid = false
+		m.territoriesManager.ClearTiebreakHoverEdge()
 	}
 }
 
@@ -2598,6 +2792,16 @@ func (m *MapView) setupContextMenu(mouseX, mouseY int) {
 			}).
 			Option("Center on Territory", "C", true, func() {
 				m.CenterTerritory(clickedTerritory)
+			}).
+			Option("Tiebreak Resolution", "", true, func() {
+				if m.territoriesManager == nil {
+					return
+				}
+				if m.territoriesManager.IsTiebreakResolutionActive() && m.territoriesManager.GetTiebreakTerritory() == clickedTerritory {
+					m.territoriesManager.AcceptTiebreakResolution(true)
+					return
+				}
+				m.territoriesManager.ActivateTiebreakResolution(clickedTerritory)
 			}).
 			Divider().
 			ContextMenu("Apply Loadout", "", true, loadoutSubmenu).
